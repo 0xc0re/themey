@@ -21,3 +21,12 @@ def test_aurorae_themes_xdg_override(monkeypatch):
 
     result = aurorae_themes()
     assert str(result) == "/tmp/xdg/aurorae/themes"
+
+
+def test_fake_home_routes_paths(fake_home, tmp_path):
+    from themey.paths import aurorae_themes
+
+    # fake_home == tmp_path; aurorae_themes() should be under it
+    result = aurorae_themes()
+    assert str(result).startswith(str(tmp_path))
+    assert result.parts[-2:] == ("aurorae", "themes")
