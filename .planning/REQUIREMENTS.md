@@ -103,37 +103,47 @@ Explicitly excluded. Documented to prevent scope creep.
 
 ## Traceability
 
-Empty initially. Populated during roadmap creation.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PARSE-01 | TBD | Pending |
-| PARSE-02 | TBD | Pending |
-| PARSE-03 | TBD | Pending |
-| PARSE-04 | TBD | Pending |
-| AURORAE-01 | TBD | Pending |
-| AURORAE-02 | TBD | Pending |
-| AURORAE-03 | TBD | Pending |
-| AURORAE-04 | TBD | Pending |
-| COLORS-01 | TBD | Pending |
-| WALLPAPER-01 | TBD | Pending |
-| CURSORS-01 | TBD | Pending |
-| BUNDLE-01 | TBD | Pending |
-| BUNDLE-02 | TBD | Pending |
-| CLI-01 | TBD | Pending |
-| CLI-02 | TBD | Pending |
-| CLI-03 | TBD | Pending |
-| INSTALL-01 | TBD | Pending |
-| INSTALL-02 | TBD | Pending |
-| INSTALL-03 | TBD | Pending |
-| PREVIEW-01 | TBD | Pending |
-| REPORT-01 | TBD | Pending |
+| PARSE-01 | Phase 1 | Pending |
+| PARSE-02 | Phase 1 | Pending |
+| PARSE-03 | Phase 1 | Pending |
+| PARSE-04 | Phase 1 | Pending |
+| AURORAE-01 | Phase 1 | Pending |
+| AURORAE-02 | Phase 1 | Pending |
+| AURORAE-03 | Phase 1 | Pending |
+| AURORAE-04 | Phase 1 | Pending |
+| COLORS-01 | Phase 2 | Pending |
+| WALLPAPER-01 | Phase 2 | Pending |
+| CURSORS-01 | Phase 3 | Pending |
+| BUNDLE-01 | Phase 4 | Pending |
+| BUNDLE-02 | Phase 4 | Pending |
+| CLI-01 | Phase 1 | Pending |
+| CLI-02 | Phase 1 | Pending |
+| CLI-03 | Phase 1 | Pending |
+| INSTALL-01 | Phase 1 | Pending |
+| INSTALL-02 | Phase 4 | Pending |
+| INSTALL-03 | Phase 4 | Pending |
+| PREVIEW-01 | Phase 1 | Pending |
+| REPORT-01 | Phase 1 | Pending |
 
 **Coverage:**
 - v1 requirements: 21 total
-- Mapped to phases: 0 (filled in by roadmapper)
-- Unmapped: 21 ⚠️ (will be 0 after roadmap)
+- Mapped to phases: 21
+- Unmapped: 0
+
+**By phase:**
+- Phase 1 (Parser + Aurorae Foundation): 14 requirements — PARSE-01/02/03/04, AURORAE-01/02/03/04, CLI-01/02/03, INSTALL-01, PREVIEW-01, REPORT-01
+- Phase 2 (Colors + Wallpaper + Full Report): 2 requirements — COLORS-01, WALLPAPER-01
+- Phase 3 (XCursor Pointer Theme): 1 requirement — CURSORS-01
+- Phase 4 (Look-and-Feel Bundle + Batch + Manifest + Uninstall): 4 requirements — BUNDLE-01, BUNDLE-02, INSTALL-02, INSTALL-03
+
+**Note on multi-phase requirements:** Per the no-split rule, each requirement is mapped to exactly one phase — the first phase where work on it begins.
+- CLI-01 (single + batch forms) is mapped to Phase 1 where the single-theme form ships; the batch form is implemented in Phase 4 as part of that phase's work.
+- PREVIEW-01 ships an initial version in Phase 1 (mocked titlebar, dropped states, activation command); Phase 2 enriches it with color swatches and wallpaper thumbnail, and Phase 4 adds the batch-mode auto-suppression.
+- REPORT-01 ships its scaffold in Phase 1 (stdout + initial sections); Phase 2 fills in the full Preserved/Approximated/Skipped semantics.
+- INSTALL-01 (atomic install) ships in Phase 1 for the single-theme path; Phase 4 reuses the same primitive for the Look-and-Feel bundle and batch mode.
 
 ---
 *Requirements defined: 2026-05-01*
-*Last updated: 2026-05-01 after initial definition*
+*Last updated: 2026-05-01 — traceability filled by roadmapper*
