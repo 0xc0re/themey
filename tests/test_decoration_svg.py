@@ -15,6 +15,7 @@ XLINK_NS = "http://www.w3.org/1999/xlink"
 
 def _make_tiny_png(tmp_path: Path, name: str = "test.png", size: tuple[int, int] = (8, 8)) -> Path:
     """Write a tiny RGBA PNG and return its path."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
     p = tmp_path / name
     img = Image.new("RGBA", size, (64, 128, 192, 255))
     img.save(str(p), format="PNG")
