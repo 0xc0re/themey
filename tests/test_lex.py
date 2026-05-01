@@ -4,10 +4,7 @@ Run:  uv run pytest tests/test_lex.py -q
 """
 from __future__ import annotations
 
-import pytest
-
 from themey.etheme.lex import Token, TokenKind, tokenize
-
 
 # ---------------------------------------------------------------------------
 # Helpers
