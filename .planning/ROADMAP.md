@@ -31,7 +31,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. User can re-run `themey Aliens.etheme` and the previous install is overwritten cleanly with no leftover artefacts; `--scale=1`, `--scale=2`, `--scale=3` each produce visibly different border thicknesses
 **Plans**: 9 plans
 - [x] 01-01-PLAN.md — Project scaffold (uv project, pyproject.toml, src/themey/ skeleton, frozen Theme IR, paths, fake_home fixture)
-- [ ] 01-02-PLAN.md — safe_extract + 7 malicious-archive negative fixtures + Aliens canary copy (PARSE-03)
+- [x] 01-02-PLAN.md — safe_extract + 7 malicious-archive negative fixtures + Aliens canary copy (PARSE-03)
 - [ ] 01-03-PLAN.md — Lexer + AST + recursive-descent parser; #include resolution; tolerates unknown keywords + `__FORGROUND_COLOR` typo (PARSE-01, PARSE-02 partial)
 - [ ] 01-04-PLAN.md — Coordinate evaluator + 3-tier button binning cascade + state collapse mapping primitives (PARSE-04, AURORAE-02 algorithm, AURORAE-04 mapping)
 - [ ] 01-05-PLAN.md — Analyze pipeline: AST→Theme IR; DEFAULT-only border selection; PARSE-05 fallback hook; Aliens canary integration test (PARSE-02 finalization, PARSE-05, AURORAE-04)
