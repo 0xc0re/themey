@@ -1,0 +1,46 @@
+[project]
+name = "themey"
+version = "0.1.0"
+description = "Convert E16 .etheme archives to KDE Plasma 6 Aurorae window decorations"
+readme = "README.md"
+authors = [
+    { name = "chris", email = "chris@nctcog.io" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "pillow>=12.2,<13",
+    "typer>=0.25,<0.26",
+]
+
+[project.scripts]
+themey = "themey.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.409,<2",
+    "pytest>=9.0,<10",
+    "ruff>=0.15,<0.16",
+    "syrupy>=5.1,<6",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "RUF"]
+
+[tool.pyright]
+include = ["src", "tests"]
+typeCheckingMode = "basic"
+pythonVersion = "3.11"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
