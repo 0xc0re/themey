@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Roadmap created — ready to plan Phase 1
-last_updated: "2026-05-01T21:36:53.536Z"
+last_updated: "2026-05-01T21:43:27.386Z"
 last_activity: 2026-05-01
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 9
-  completed_plans: 3
-  percent: 33
+  completed_plans: 4
+  percent: 44
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-05-01)
 ## Current Position
 
 Phase: 01 (parser-aurorae-foundation) — EXECUTING
-Plan: 4 of 9
+Plan: 5 of 9
 Status: Ready to execute
 Last activity: 2026-05-01
 
-Progress: [███░░░░░░░] 33%
+Progress: [████░░░░░░] 44%
 
 ## Performance Metrics
 
@@ -53,6 +53,7 @@ Progress: [███░░░░░░░] 33%
 
 *Updated after each plan completion*
 | Phase 01-parser-aurorae-foundation P01-01 | 6m | 3 tasks | 13 files |
+| Phase 01-parser-aurorae-foundation P01-06 | 3m | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -67,6 +68,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Theme.notes is the only mutable field on the frozen Theme dataclass — analyze stage appends, report/preview reads
 - [Phase ?]: XDG paths read os.environ at call time (not module load) so monkeypatching works correctly in tests
 - [Phase ?]: __main__.py uses type: ignore[import-not-found] for cli import (Plan 09 creates themey.cli)
+- [01-06]: upscale_nearest constrains scale to {1,2,3} at primitive level so Plan 07 never passes arbitrary int
+- [01-06]: NinePatchRegions field order: topleft, top, topright, left, center, right, bottomleft, bottom, bottomright (Plan 07 iterates this order)
+- [01-06]: LANCZOS does not appear in src/themey/images/ — enforced at file level; Phase 2 wallpaper uses separate module
 
 ### Pending Todos
 
@@ -87,6 +91,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-01T21:36:53.532Z
-Stopped at: Roadmap created — ready to plan Phase 1
+Last session: 2026-05-01T21:43:27.382Z
+Stopped at: Completed 01-06 image primitives (upscale, embed, ninepatch)
 Resume file: None
