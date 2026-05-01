@@ -1,5 +1,5 @@
 """Unit tests for themey.analyze.buttons — three-tier button classification cascade."""
-from themey.analyze.buttons import ACLASS_DROP, ACLASS_TO_BUTTON, ICLASS_PATTERN_TO_BUTTON, bin_left_right, classify_button
+from themey.analyze.buttons import bin_left_right, classify_button
 
 # ---------------------------------------------------------------------------
 # Tier-1 aclass tests
