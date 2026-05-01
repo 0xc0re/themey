@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-08 post-generate pipeline (install, preview, report, external, slug)
-last_updated: "2026-05-01T22:32:58.104Z"
+stopped_at: "01-09 Task 3 CHECKPOINT:human-verify — visual smoke test on Plasma 6.6.4"
+last_updated: "2026-05-01T23:10:00.000Z"
 last_activity: 2026-05-01
 progress:
   total_phases: 4
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-05-01)
 
 Phase: 01 (parser-aurorae-foundation) — EXECUTING
 Plan: 9 of 9
-Status: Ready to execute
+Status: Checkpoint — awaiting human-verify (Task 3)
 Last activity: 2026-05-01
 
 Progress: [██████░░░░] 62%
@@ -57,6 +57,7 @@ Progress: [██████░░░░] 62%
 | Phase 01 P05 | 12m | 3 tasks | 11 files |
 | Phase 01-parser-aurorae-foundation P07 | 8m | 3 tasks | 14 files |
 | Phase 01 P08 | 15 | 3 tasks | 10 files |
+| Phase 01-parser-aurorae-foundation P09 (partial — checkpoint) | 25m | 2/3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,9 @@ Recent decisions affecting current work:
 - [Phase ?]: install.deploy stages to same filesystem as target — caller responsibility; documented in install.py docstring
 - [Phase ?]: report.txt section headers: '## Preserved', '## Approximated', '## Skipped'
 - [Phase ?]: preview.html: html.escape on all theme-derived strings; 50-note cap; Popen (non-blocking) for xdg-open
+- [01-09]: pipeline.convert stages output under XDG_DATA_HOME/themey/staging for same-filesystem atomic os.replace
+- [01-09]: Typer Annotated-style API used in cli.py to satisfy ruff B008 (no function calls in argument defaults)
+- [01-09]: CLI exits non-zero + logs error on conversion failure (bare Exception catch at top-level is correct; BLE001 not in ruff ruleset)
 
 ### Pending Todos
 
@@ -101,6 +105,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-01T22:32:58.098Z
-Stopped at: Completed 01-08 post-generate pipeline (install, preview, report, external, slug)
-Resume file: None
+Last session: 2026-05-01T23:10:00.000Z
+Stopped at: "01-09 Task 3 CHECKPOINT:human-verify — visual smoke on Plasma 6.6.4 required"
+Resume file: .planning/phases/01-parser-aurorae-foundation/01-09-PLAN.md (Task 3 checkpoint)
