@@ -49,7 +49,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. User finds `~/.local/share/wallpapers/Aliens/` populated with `metadata.json` and `contents/images/` and can right-click the desktop → Configure Desktop → Wallpaper to pick it
   3. User opens the HTML preview and sees color swatches and a wallpaper thumbnail next to the mocked titlebar
   4. User reads `report.txt` and finds three populated sections — Preserved, Approximated, Skipped — explaining exactly which E16 inputs mapped 1:1, which were lossy and how, and which were dropped and why
-**Plans**: TBD
+**Plans**: 4 plans
+- [ ] 02-01-PLAN.md — Theme IR additions (ColorScheme + WallpaperSpec) + states.py SKIPPED prefix migration
+- [ ] 02-02-PLAN.md — analyze/background.py (dual-form __DESKTOP/__BACKGROUND walker) + analyze/colors.py (Pillow MEDIANCUT extractor + KColorScheme role assignment)
+- [ ] 02-03-PLAN.md — generate/colors.py (RawConfigParser .colors writer with Pitfall-E fallback) + generate/wallpaper.py (metadata.json + image copy with format conversion) + image_to_jpeg_b64_uri helper
+- [ ] 02-04-PLAN.md — Wire build_theme.py + report.py + preview.py + Aliens E2E test + manual visual gate on Plasma 6.6.4
 
 ### Phase 3: XCursor Pointer Theme
 **Goal**: User's converted theme now includes a working XCursor pointer set so the cursor is themed alongside the window frame, colors, and wallpaper.
@@ -82,6 +86,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Parser + Aurorae Foundation | 7/9 | In Progress|  |
-| 2. Colors + Wallpaper + Full Report | 0/TBD | Not started | - |
+| 2. Colors + Wallpaper + Full Report | 0/4 | Not started | - |
 | 3. XCursor Pointer Theme | 0/TBD | Not started | - |
 | 4. Look-and-Feel Bundle + Batch + Manifest + Uninstall | 0/TBD | Not started | - |
