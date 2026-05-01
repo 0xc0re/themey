@@ -13,7 +13,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **PARSE-02**: Parser extracts the canonical structure: borders (with `__ACLASS` captured per `__BORDER_PART` with `null` sentinel when absent — NOT undefined; this distinguishes "parser saw no `__ACLASS`" from "field not surfaced yet"), image classes (with `__EDGE_SCALING L R T B` 9-patch values), text classes (titlebar text + colors, including E16's misspelled `__FORGROUND_COLOR` key with `__FOREGROUND_COLOR` / `__COLOR` tolerant fallbacks), button parts (position + glyph image), `__BACKGROUND` blocks (`__BG_SOLID R G B` and `__BG_BG "<iclass>" tile keepaspect xjust yjust xperc yperc` formats), `__COLOR_MODIFIER` blocks (captured for the report even though Aurorae has no tinting facility), cursors
 - [x] **PARSE-03**: Custom `safe_extract` validates every tar member by path before extraction (rejects path-traversal, symlink-escape, hardlinks, and absolute paths) — replacing `tarfile.extractall` to mitigate CVE-2007-4559 / CVE-2025-4330. Enforces production-validated caps: **32 MB total extracted size, 8 MB per file, 500 entries max**. Identifies theme root by scanning for `borders.cfg` or `init.cfg` (shortest path wins; other paths in the archive resolve relative to that root)
 - [x] **PARSE-04**: Coordinate evaluator correctly handles E16's hybrid `(window_dim × pct/1024) + absolute` model, including intentional negative absolute offsets (e.g. `pct=1024, abs=-27` ⇒ "27 px from right edge")
-- [ ] **PARSE-05**: When cfg parsing yields incomplete results (missing image classes or no border with positioned image references), parser falls back to filename-pattern discovery scanning for canonical 2009-era names (`border_top_default.png`, `border_topleft_default.png`, `button_close_active.png`, etc.) — rescues malformed-cfg themes from the corpus
+- [x] **PARSE-05**: When cfg parsing yields incomplete results (missing image classes or no border with positioned image references), parser falls back to filename-pattern discovery scanning for canonical 2009-era names (`border_top_default.png`, `border_topleft_default.png`, `button_close_active.png`, etc.) — rescues malformed-cfg themes from the corpus
 
 ### Aurorae Window Decoration
 
@@ -110,7 +110,7 @@ Explicitly excluded. Documented to prevent scope creep.
 | PARSE-02 | Phase 1 | Complete |
 | PARSE-03 | Phase 1 | Complete |
 | PARSE-04 | Phase 1 | Complete |
-| PARSE-05 | Phase 1 | Pending |
+| PARSE-05 | Phase 1 | Complete |
 | AURORAE-01 | Phase 1 | Pending |
 | AURORAE-02 | Phase 1 | Complete |
 | AURORAE-03 | Phase 1 | Complete |
