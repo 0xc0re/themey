@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Roadmap created — ready to plan Phase 1
-last_updated: "2026-05-01T21:14:30.614Z"
-last_activity: 2026-05-01 -- Phase 01 execution started
+last_updated: "2026-05-01T21:23:34.532Z"
+last_activity: 2026-05-01
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 9
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 11
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-05-01)
 ## Current Position
 
 Phase: 01 (parser-aurorae-foundation) — EXECUTING
-Plan: 1 of 9
-Status: Executing Phase 01
-Last activity: 2026-05-01 -- Phase 01 execution started
+Plan: 2 of 9
+Status: Ready to execute
+Last activity: 2026-05-01
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] 11%
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: —
 
 *Updated after each plan completion*
+| Phase 01-parser-aurorae-foundation P01-01 | 6m | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -63,6 +64,9 @@ Recent decisions affecting current work:
 - Roadmap: Narrow Phase 1 (parser + Aurorae + safe-extract + single-theme install) over wide Phase 1 — front-loads 9 of 12 critical pitfalls to one focused block (per research SUMMARY.md resolution)
 - Roadmap: Coarse granularity → 4 phases (consolidates SUMMARY.md's proposed 6 by merging bundle + batch + manifest + uninstall into Phase 4, dropping the no-requirement "polish" phase)
 - Roadmap: CLI-01 (single + batch) maps to Phase 1 where the single-theme form ships first; batch form is implemented in Phase 4 but the requirement is not split
+- [Phase ?]: Theme.notes is the only mutable field on the frozen Theme dataclass — analyze stage appends, report/preview reads
+- [Phase ?]: XDG paths read os.environ at call time (not module load) so monkeypatching works correctly in tests
+- [Phase ?]: __main__.py uses type: ignore[import-not-found] for cli import (Plan 09 creates themey.cli)
 
 ### Pending Todos
 
@@ -83,6 +87,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-01
+Last session: 2026-05-01T21:23:34.520Z
 Stopped at: Roadmap created — ready to plan Phase 1
 Resume file: None
