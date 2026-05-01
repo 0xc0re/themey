@@ -1,0 +1,28 @@
+# Virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+
+# Build artifacts
+dist/
+build/
+
+# Tool caches
+.ruff_cache/
+.pytest_cache/
+.pyright/
+
+# Syrupy snapshot cache
+tests/snapshots/__snapshots__/.cache/
+
+# Editor
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
