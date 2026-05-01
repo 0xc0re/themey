@@ -21,6 +21,23 @@ def _to_int(v: object) -> int:
     """Coerce an AST value (int | str) to int for pyright basic compatibility."""
     return int(v)  # type: ignore[arg-type]
 
+
+def _block_name(block: Block) -> str | None:
+    """Extract block name from head_values or legacy __NAME KeyVal child.
+
+    Handles BOTH naming conventions found in E16 themes:
+    - Modern: ``__TCLASS TEXT1 __BGN`` → head_values = ("TEXT1",)
+    - Legacy macro (Aliens.etheme): ``__TCLASS __BGN __NAME TEXT1 ...``
+      → head_values = (), child KeyVal keyword="__NAME", values=("TEXT1",)
+    """
+    if block.head_values:
+        return str(block.head_values[0])
+    for child in block.children:
+        if isinstance(child, KeyVal) and child.keyword == "__NAME" and child.values:
+            return str(child.values[0])
+    return None
+
+
 FG_COLOR_KEYS: tuple[str, ...] = (
     "__FORGROUND_COLOR",  # E16's misspelling — primary form
     "__FOREGROUND_COLOR",  # correct spelling — fallback
@@ -48,17 +65,19 @@ def build_tclasses(tclass_blocks: list[Block]) -> dict[str, TClassSpec]:
     """
     out: dict[str, TClassSpec] = {}
     for block in tclass_blocks:
-        if not block.head_values:
+        name = _block_name(block)
+        if name is None:
             continue
-        name = str(block.head_values[0])
         current_state: str | None = None
         colors: dict[str, tuple[int, int, int]] = {}
 
         for kv in block.children:
             if not isinstance(kv, KeyVal):
                 continue
-            # State context setter: bare keyword with no values
-            if kv.keyword in TCLASS_STATE_CONTEXT_KEYS and not kv.values:
+            # State context setter: recognized state keyword sets context.
+            # May have values (e.g. __NORMAL '*font-default' in Aliens) or no
+            # values (pure marker form). Both forms set the state context.
+            if kv.keyword in TCLASS_STATE_CONTEXT_KEYS:
                 current_state = kv.keyword
             # Foreground color: any FG_COLOR_KEYS keyword with at least 3 values
             elif kv.keyword in FG_COLOR_KEYS and len(kv.values) >= 3:
