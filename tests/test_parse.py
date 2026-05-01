@@ -9,8 +9,7 @@ from pathlib import Path
 import pytest
 
 from themey.etheme.ast import Block, Include, KeyVal
-from themey.etheme.parse import ParseError, parse_file, parse_tree
-
+from themey.etheme.parse import parse_file, parse_tree
 
 # ---------------------------------------------------------------------------
 # Helper
@@ -177,7 +176,6 @@ ALIENS = FIXTURES / "Aliens.etheme"
 @pytest.fixture(scope="module")
 def tiny_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Extract tiny.etheme to a shared tmp dir; return asset_root."""
-    from themey.etheme.archive import extract
 
     tmp = tmp_path_factory.mktemp("tiny")
     # We need to return the asset_root while inside the context.
@@ -185,7 +183,7 @@ def tiny_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
     import tarfile
 
     with tarfile.open(TINY, "r:gz") as tf:
-        tf.extractall(tmp)  # noqa: S202 (tiny.etheme is hand-crafted by tests)
+        tf.extractall(tmp)
     return tmp  # borders.cfg is at tmp root directly
 
 
@@ -224,22 +222,51 @@ def test_parse_tree_skips_definitions_include(tmp_path: Path) -> None:
     assert kv_nodes[0].keyword == "__E_CFG_VERSION"
 
 
+def _block_name(blk: Block) -> str | None:
+    """Return block name from either head_values[0] or __NAME child KeyVal.
+
+    Aliens.etheme uses the legacy E16 macro style where block names come from
+    a ``__NAME <NAME>`` KeyVal inside the block body (not as head_values before
+    ``__BGN``).  Newer/synthetic cfg files often include the name as a head
+    value.  This helper checks both forms.
+    """
+    if blk.head_values:
+        return str(blk.head_values[0])
+    name_kv = next(
+        (c for c in blk.children if isinstance(c, KeyVal) and c.keyword == "__NAME"),
+        None,
+    )
+    if name_kv and name_kv.values:
+        return str(name_kv.values[0])
+    return None
+
+
 def test_parse_tree_aliens_default_cfg(aliens_extracted: Path) -> None:
     """Aliens borders/default.cfg parses to >=1 __BORDER with >=8 __BORDER_PART children.
 
     Additionally verifies that at least one __BORDER_PART has an __ACLASS child
     of ACTION_CLOSE or ACTION_KILL.
+
+    Note: Aliens uses the legacy macro style — block names appear as __NAME
+    KeyVals inside the body, not as head_values before __BGN.
     """
     nodes = parse_tree(aliens_extracted, ["borders.cfg"])
     all_nodes = _walk(nodes)
     border_blocks = [n for n in all_nodes if isinstance(n, Block) and n.keyword == "__BORDER"]
     assert len(border_blocks) >= 1
 
+    # Find DEFAULT border by __NAME child KeyVal (Aliens macro style) or head_values
     default_border = next(
-        (b for b in border_blocks if b.head_values and b.head_values[0] == "DEFAULT"),
-        border_blocks[0],
+        (b for b in border_blocks if _block_name(b) == "DEFAULT"),
+        None,
     )
-    part_blocks = [c for c in default_border.children if isinstance(c, Block) and c.keyword == "__BORDER_PART"]
+    assert default_border is not None, "No DEFAULT border found"
+
+    part_blocks = [
+        c
+        for c in default_border.children
+        if isinstance(c, Block) and c.keyword == "__BORDER_PART"
+    ]
     assert len(part_blocks) >= 8
 
     # At least one part has __ACLASS ACTION_CLOSE or ACTION_KILL
@@ -255,11 +282,16 @@ def test_parse_tree_aliens_default_cfg(aliens_extracted: Path) -> None:
 
 
 def test_parse_tree_aliens_imageclasses(aliens_extracted: Path) -> None:
-    """Aliens imageclasses.cfg contains __ICLASS for four required names."""
+    """Aliens imageclasses.cfg contains __ICLASS for four required names.
+
+    Note: Aliens uses legacy macro style — __ICLASS names appear as __NAME
+    KeyVals inside the block body, not as head_values before __BGN.
+    """
     nodes = parse_tree(aliens_extracted, ["imageclasses.cfg"])
     all_nodes = _walk(nodes)
     iclasses = [n for n in all_nodes if isinstance(n, Block) and n.keyword == "__ICLASS"]
-    names = {b.head_values[0] for b in iclasses if b.head_values}
+    # Collect names from either head_values or __NAME child KeyVal
+    names = {_block_name(b) for b in iclasses} - {None}
     required = {"TITLE_BAR_HORIZONTAL", "BUTTON_KILL", "BUTTON_ICONIFY", "BUTTON_MAXIMIZE"}
-    missing = required - names
+    missing = required - names  # type: ignore[arg-type]
     assert not missing, f"Missing __ICLASS blocks: {missing}"
