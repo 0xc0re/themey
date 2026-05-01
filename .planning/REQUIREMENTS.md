@@ -47,14 +47,14 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Install + Uninstall
 
-- [ ] **INSTALL-01**: Atomic install: stage to a tmpdir, then `os.replace` each top-level output dir — partial failures leave the previous install untouched
+- [x] **INSTALL-01**: Atomic install: stage to a tmpdir, then `os.replace` each top-level output dir — partial failures leave the previous install untouched
 - [ ] **INSTALL-02**: Per-theme JSON install manifest at `~/.local/share/themey/manifests/<name>.json` listing every file written across all five output dirs
 - [ ] **INSTALL-03**: `themey --uninstall <name>` removes every file recorded in the manifest (and the manifest itself), with `--force` to ignore missing-file warnings
 
 ### Preview + Reporting
 
-- [ ] **PREVIEW-01**: After single-theme conversion, write a local `~/.local/share/themey/previews/<name>.html` with mocked window titlebar, color swatches, wallpaper thumbnail, list of dropped E16 states, and the activation command; auto-open via `xdg-open` unless headless / SSH / batch (suppressed in `--all`)
-- [ ] **REPORT-01**: Per converted theme, write `report.txt` (alongside the install manifest) with three sections — Preserved (what mapped 1:1) / Approximated (what was lossy and how) / Skipped (what we couldn't convert and why)
+- [x] **PREVIEW-01**: After single-theme conversion, write a local `~/.local/share/themey/previews/<name>.html` with mocked window titlebar, color swatches, wallpaper thumbnail, list of dropped E16 states, and the activation command; auto-open via `xdg-open` unless headless / SSH / batch (suppressed in `--all`)
+- [x] **REPORT-01**: Per converted theme, write `report.txt` (alongside the install manifest) with three sections — Preserved (what mapped 1:1) / Approximated (what was lossy and how) / Skipped (what we couldn't convert and why)
 
 ## v2 Requirements
 
@@ -123,11 +123,11 @@ Explicitly excluded. Documented to prevent scope creep.
 | CLI-01 | Phase 1 | Pending |
 | CLI-02 | Phase 1 | Pending |
 | CLI-03 | Phase 1 | Pending |
-| INSTALL-01 | Phase 1 | Pending |
+| INSTALL-01 | Phase 1 | Complete |
 | INSTALL-02 | Phase 4 | Pending |
 | INSTALL-03 | Phase 4 | Pending |
-| PREVIEW-01 | Phase 1 | Pending |
-| REPORT-01 | Phase 1 | Pending |
+| PREVIEW-01 | Phase 1 | Complete |
+| REPORT-01 | Phase 1 | Complete |
 
 **Coverage:**
 - v1 requirements: 22 total

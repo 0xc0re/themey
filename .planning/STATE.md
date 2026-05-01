@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-05 build_theme composer (analyze → Theme IR)
-last_updated: "2026-05-01T22:24:29.282Z"
+stopped_at: Completed 01-08 post-generate pipeline (install, preview, report, external, slug)
+last_updated: "2026-05-01T22:32:58.104Z"
 last_activity: 2026-05-01
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 12
-  completed_plans: 7
-  percent: 58
+  total_plans: 13
+  completed_plans: 8
+  percent: 62
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-05-01)
 ## Current Position
 
 Phase: 01 (parser-aurorae-foundation) — EXECUTING
-Plan: 8 of 9
+Plan: 9 of 9
 Status: Ready to execute
 Last activity: 2026-05-01
 
-Progress: [██████░░░░] 58%
+Progress: [██████░░░░] 62%
 
 ## Performance Metrics
 
@@ -56,6 +56,7 @@ Progress: [██████░░░░] 58%
 | Phase 01-parser-aurorae-foundation P01-06 | 3m | 3 tasks | 7 files |
 | Phase 01 P05 | 12m | 3 tasks | 11 files |
 | Phase 01-parser-aurorae-foundation P07 | 8m | 3 tasks | 14 files |
+| Phase 01 P08 | 15 | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -76,6 +77,10 @@ Recent decisions affecting current work:
 - [Phase ?]: iclasses.py stores resolved Path unconditionally; build_theme logs missing-asset notes
 - [Phase ?]: Titlebar bounds: TITLE_BAR iclass_name substring only (CORNER_TL ACTION_MOVE excluded)
 - [Phase ?]: TCLASS state context markers recognized with or without values (Aliens uses __NORMAL with font arg)
+- [Phase ?]: slugify strips .etheme suffix so display name is clean (Aliens not Aliens-etheme)
+- [Phase ?]: install.deploy stages to same filesystem as target — caller responsibility; documented in install.py docstring
+- [Phase ?]: report.txt section headers: '## Preserved', '## Approximated', '## Skipped'
+- [Phase ?]: preview.html: html.escape on all theme-derived strings; 50-note cap; Popen (non-blocking) for xdg-open
 
 ### Pending Todos
 
@@ -96,6 +101,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-01T22:24:29.277Z
-Stopped at: Completed 01-05 build_theme composer (analyze → Theme IR)
+Last session: 2026-05-01T22:32:58.098Z
+Stopped at: Completed 01-08 post-generate pipeline (install, preview, report, external, slug)
 Resume file: None
