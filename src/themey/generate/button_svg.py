@@ -86,26 +86,27 @@ def _build_button_svg(theme: Theme, code: str, base_id: str) -> ET.Element:
     ic = _find_iclass_for_code(theme, code)
     scale = theme.scale
 
-    normal = _png_bytes_from_path(
+    normal_raw = _png_bytes_from_path(
         ic.normal_active if ic else None, scale
     ) or _png_bytes_from_path(ic.normal if ic else None, scale)
 
-    hover = _png_bytes_from_path(
+    hover_raw = _png_bytes_from_path(
         ic.hilited_active if ic else None, scale
-    ) or _png_bytes_from_path(ic.hilited if ic else None, scale) or normal
+    ) or _png_bytes_from_path(ic.hilited if ic else None, scale) or normal_raw
 
-    pressed = _png_bytes_from_path(
+    pressed_raw = _png_bytes_from_path(
         ic.clicked_active if ic else None, scale
-    ) or _png_bytes_from_path(ic.clicked if ic else None, scale) or normal
+    ) or _png_bytes_from_path(ic.clicked if ic else None, scale) or normal_raw
 
-    # Fallback: 16x16 transparent placeholder
-    if normal is None:
+    # Resolve to guaranteed non-None bytes. Fallback: 16x16 transparent placeholder.
+    if normal_raw is None:
         with Image.new("RGBA", (16, 16), (0, 0, 0, 0)) as blank:
             buf = io.BytesIO()
             blank.save(buf, format="PNG")
-            normal = buf.getvalue()
-        hover = normal
-        pressed = normal
+            normal_raw = buf.getvalue()
+    normal: bytes = normal_raw
+    hover: bytes = hover_raw if hover_raw is not None else normal
+    pressed: bytes = pressed_raw if pressed_raw is not None else normal
 
     size = 24 * scale
     svg = ET.Element(
