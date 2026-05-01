@@ -12,15 +12,15 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **PARSE-01**: Parser reads any `.etheme` archive (gzipped tar) and walks E16's `__BLOCK __BGN ... __END` config grammar including `#include` directives, C-style `/* */` comments, and `#`-comments
 - [ ] **PARSE-02**: Parser extracts the canonical structure: borders (with `__ACLASS` captured per `__BORDER_PART` with `null` sentinel when absent — NOT undefined; this distinguishes "parser saw no `__ACLASS`" from "field not surfaced yet"), image classes (with `__EDGE_SCALING L R T B` 9-patch values), text classes (titlebar text + colors, including E16's misspelled `__FORGROUND_COLOR` key with `__FOREGROUND_COLOR` / `__COLOR` tolerant fallbacks), button parts (position + glyph image), `__BACKGROUND` blocks (`__BG_SOLID R G B` and `__BG_BG "<iclass>" tile keepaspect xjust yjust xperc yperc` formats), `__COLOR_MODIFIER` blocks (captured for the report even though Aurorae has no tinting facility), cursors
 - [x] **PARSE-03**: Custom `safe_extract` validates every tar member by path before extraction (rejects path-traversal, symlink-escape, hardlinks, and absolute paths) — replacing `tarfile.extractall` to mitigate CVE-2007-4559 / CVE-2025-4330. Enforces production-validated caps: **32 MB total extracted size, 8 MB per file, 500 entries max**. Identifies theme root by scanning for `borders.cfg` or `init.cfg` (shortest path wins; other paths in the archive resolve relative to that root)
-- [ ] **PARSE-04**: Coordinate evaluator correctly handles E16's hybrid `(window_dim × pct/1024) + absolute` model, including intentional negative absolute offsets (e.g. `pct=1024, abs=-27` ⇒ "27 px from right edge")
+- [x] **PARSE-04**: Coordinate evaluator correctly handles E16's hybrid `(window_dim × pct/1024) + absolute` model, including intentional negative absolute offsets (e.g. `pct=1024, abs=-27` ⇒ "27 px from right edge")
 - [ ] **PARSE-05**: When cfg parsing yields incomplete results (missing image classes or no border with positioned image references), parser falls back to filename-pattern discovery scanning for canonical 2009-era names (`border_top_default.png`, `border_topleft_default.png`, `button_close_active.png`, etc.) — rescues malformed-cfg themes from the corpus
 
 ### Aurorae Window Decoration
 
 - [ ] **AURORAE-01**: Generates a valid Aurorae window decoration with all 18 required FrameSvg element IDs (`decoration-{topleft,top,topright,left,center,right,bottomleft,bottom,bottomright}` × `{active, inactive}`) in a single `decoration.svg`, plus per-button SVGs (`close.svg`, `maximize.svg`, `minimize.svg`, `restore.svg`, plus `shade.svg` / `alldesktops.svg` / `keepabove.svg` / `keepbelow.svg` when E16 supplies them), `<name>rc` INI with correct `[General]` and `[Layout]` keys, and *both* `metadata.desktop` and `metadata.json`
-- [ ] **AURORAE-02**: E16's button parts are mapped to Aurorae's `LeftButtons` / `RightButtons` groups via a three-tier cascade: (1) **`__ACLASS`-first** — `ACTION_CLOSE`→`X`, `ACTION_MAX`→`A`, `ACTION_ICONIFY`→`I`, `ACTION_SHADE`→`L`, `ACTION_STICK`→`S`, `ACTION_KILL`→`X`; (2) `__ICLASS` name pattern fallback for parts without `__ACLASS` (`BUTTON_CLOSE`→`X`, `BUTTON_MAXIMIZE`→`A`, `BUTTON_ICONIFY`/`BUTTON_MINIMIZE`→`I`, etc.); (3) spatial **center-of-mass test against titlebar midpoint** (not window midpoint) only as a last resort. Resize/move action classes are dropped (Aurorae handles those natively). Overlap cases and any spatial-fallback decisions are logged to `report.txt`
+- [x] **AURORAE-02**: E16's button parts are mapped to Aurorae's `LeftButtons` / `RightButtons` groups via a three-tier cascade: (1) **`__ACLASS`-first** — `ACTION_CLOSE`→`X`, `ACTION_MAX`→`A`, `ACTION_ICONIFY`→`I`, `ACTION_SHADE`→`L`, `ACTION_STICK`→`S`, `ACTION_KILL`→`X`; (2) `__ICLASS` name pattern fallback for parts without `__ACLASS` (`BUTTON_CLOSE`→`X`, `BUTTON_MAXIMIZE`→`A`, `BUTTON_ICONIFY`/`BUTTON_MINIMIZE`→`I`, etc.); (3) spatial **center-of-mass test against titlebar midpoint** (not window midpoint) only as a last resort. Resize/move action classes are dropped (Aurorae handles those natively). Overlap cases and any spatial-fallback decisions are logged to `report.txt`
 - [ ] **AURORAE-03**: 9-patch raster borders are preserved by embedding source PNG inside `decoration.svg` as base64 inline `<image>` with `preserveAspectRatio="none"` and FrameSvg hint frames driven by `__EDGE_SCALING`
-- [ ] **AURORAE-04**: E16's practical 8-field image-state model (`__NORMAL`, `__NORMAL_ACTIVE`, `__HILITED_ACTIVE`, `__CLICKED_ACTIVE`, `__HILITED`, `__CLICKED`, optional `__NORMAL_STICKY`, `__NORMAL_ACTIVE_STICKY`) collapses to Aurorae's 2-state model via an explicit `E16_TO_AURORAE_STATE` mapping: `__NORMAL`→`decoration-inactive-*`, `__NORMAL_ACTIVE`→`decoration-*`, `__HILITED_ACTIVE`→button SVG `hover` element, `__CLICKED_ACTIVE`→button SVG `pressed` element. Sticky variants drop with a logged note (Aurorae has no per-desktop button state); legacy `__HILITED`/`__CLICKED` serve as fallbacks when the active variants are missing. Every dropped or fallback state is logged to `report.txt`
+- [x] **AURORAE-04**: E16's practical 8-field image-state model (`__NORMAL`, `__NORMAL_ACTIVE`, `__HILITED_ACTIVE`, `__CLICKED_ACTIVE`, `__HILITED`, `__CLICKED`, optional `__NORMAL_STICKY`, `__NORMAL_ACTIVE_STICKY`) collapses to Aurorae's 2-state model via an explicit `E16_TO_AURORAE_STATE` mapping: `__NORMAL`→`decoration-inactive-*`, `__NORMAL_ACTIVE`→`decoration-*`, `__HILITED_ACTIVE`→button SVG `hover` element, `__CLICKED_ACTIVE`→button SVG `pressed` element. Sticky variants drop with a logged note (Aurorae has no per-desktop button state); legacy `__HILITED`/`__CLICKED` serve as fallbacks when the active variants are missing. Every dropped or fallback state is logged to `report.txt`
 
 ### Color Scheme
 
@@ -109,12 +109,12 @@ Explicitly excluded. Documented to prevent scope creep.
 | PARSE-01 | Phase 1 | Pending |
 | PARSE-02 | Phase 1 | Pending |
 | PARSE-03 | Phase 1 | Complete |
-| PARSE-04 | Phase 1 | Pending |
+| PARSE-04 | Phase 1 | Complete |
 | PARSE-05 | Phase 1 | Pending |
 | AURORAE-01 | Phase 1 | Pending |
-| AURORAE-02 | Phase 1 | Pending |
+| AURORAE-02 | Phase 1 | Complete |
 | AURORAE-03 | Phase 1 | Pending |
-| AURORAE-04 | Phase 1 | Pending |
+| AURORAE-04 | Phase 1 | Complete |
 | COLORS-01 | Phase 2 | Pending |
 | WALLPAPER-01 | Phase 2 | Pending |
 | CURSORS-01 | Phase 3 | Pending |
