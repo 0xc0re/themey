@@ -29,7 +29,16 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. User opens the auto-launched HTML preview in a browser and sees a mocked titlebar, the activation command, and a list of dropped E16 image-states
   4. User extracts a malicious `.etheme` (path-traversal, symlink-escape, or absolute-path member) and themey rejects it before any file is written
   5. User can re-run `themey Aliens.etheme` and the previous install is overwritten cleanly with no leftover artefacts; `--scale=1`, `--scale=2`, `--scale=3` each produce visibly different border thicknesses
-**Plans**: TBD
+**Plans**: 9 plans
+- [ ] 01-01-PLAN.md — Project scaffold (uv project, pyproject.toml, src/themey/ skeleton, frozen Theme IR, paths, fake_home fixture)
+- [ ] 01-02-PLAN.md — safe_extract + 7 malicious-archive negative fixtures + Aliens canary copy (PARSE-03)
+- [ ] 01-03-PLAN.md — Lexer + AST + recursive-descent parser; #include resolution; tolerates unknown keywords + `__FORGROUND_COLOR` typo (PARSE-01, PARSE-02 partial)
+- [ ] 01-04-PLAN.md — Coordinate evaluator + 3-tier button binning cascade + state collapse mapping primitives (PARSE-04, AURORAE-02 algorithm, AURORAE-04 mapping)
+- [ ] 01-05-PLAN.md — Analyze pipeline: AST→Theme IR; DEFAULT-only border selection; PARSE-05 fallback hook; Aliens canary integration test (PARSE-02 finalization, PARSE-05, AURORAE-04)
+- [ ] 01-06-PLAN.md — Pillow primitives: NEAREST upscale, base64 PNG embed, 9-patch slice (AURORAE-03 supporting)
+- [ ] 01-07-PLAN.md — Aurorae generator: decoration.svg with 18 FrameSvg IDs, per-button SVGs, <name>rc, metadata.desktop, metadata.json (AURORAE-01, AURORAE-03)
+- [ ] 01-08-PLAN.md — Atomic install + report.txt scaffold + HTML preview + headless-aware xdg-open + slug sanitizer (INSTALL-01, PREVIEW-01, REPORT-01)
+- [ ] 01-09-PLAN.md — CLI Typer entry point + pipeline orchestrator + Aliens E2E test + visual checkpoint on Plasma 6.6.4 (CLI-01, CLI-02, CLI-03)
 
 ### Phase 2: Colors + Wallpaper + Full Report
 **Goal**: User's converted theme now ships color scheme and wallpaper alongside the Aurorae decoration, and the per-theme report fully explains the fidelity story.
@@ -72,7 +81,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Parser + Aurorae Foundation | 0/TBD | Not started | - |
+| 1. Parser + Aurorae Foundation | 0/9 | Not started | - |
 | 2. Colors + Wallpaper + Full Report | 0/TBD | Not started | - |
 | 3. XCursor Pointer Theme | 0/TBD | Not started | - |
 | 4. Look-and-Feel Bundle + Batch + Manifest + Uninstall | 0/TBD | Not started | - |
