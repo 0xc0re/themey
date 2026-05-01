@@ -32,7 +32,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 9 plans
 - [x] 01-01-PLAN.md — Project scaffold (uv project, pyproject.toml, src/themey/ skeleton, frozen Theme IR, paths, fake_home fixture)
 - [x] 01-02-PLAN.md — safe_extract + 7 malicious-archive negative fixtures + Aliens canary copy (PARSE-03)
-- [ ] 01-03-PLAN.md — Lexer + AST + recursive-descent parser; #include resolution; tolerates unknown keywords + `__FORGROUND_COLOR` typo (PARSE-01, PARSE-02 partial)
+- [x] 01-03-PLAN.md — Lexer + AST + recursive-descent parser; #include resolution; tolerates unknown keywords + `__FORGROUND_COLOR` typo (PARSE-01, PARSE-02 partial)
 - [x] 01-04-PLAN.md — Coordinate evaluator + 3-tier button binning cascade + state collapse mapping primitives (PARSE-04, AURORAE-02 algorithm, AURORAE-04 mapping)
 - [ ] 01-05-PLAN.md — Analyze pipeline: AST→Theme IR; DEFAULT-only border selection; PARSE-05 fallback hook; Aliens canary integration test (PARSE-02 finalization, PARSE-05, AURORAE-04)
 - [x] 01-06-PLAN.md — Pillow primitives: NEAREST upscale, base64 PNG embed, 9-patch slice (AURORAE-03 supporting)
@@ -81,7 +81,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Parser + Aurorae Foundation | 0/9 | Not started | - |
+| 1. Parser + Aurorae Foundation | 5/9 | In Progress|  |
 | 2. Colors + Wallpaper + Full Report | 0/TBD | Not started | - |
 | 3. XCursor Pointer Theme | 0/TBD | Not started | - |
 | 4. Look-and-Feel Bundle + Batch + Manifest + Uninstall | 0/TBD | Not started | - |
