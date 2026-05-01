@@ -17,7 +17,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Aurorae Window Decoration
 
-- [ ] **AURORAE-01**: Generates a valid Aurorae window decoration with all 18 required FrameSvg element IDs (`decoration-{topleft,top,topright,left,center,right,bottomleft,bottom,bottomright}` × `{active, inactive}`) in a single `decoration.svg`, plus per-button SVGs (`close.svg`, `maximize.svg`, `minimize.svg`, `restore.svg`, plus `shade.svg` / `alldesktops.svg` / `keepabove.svg` / `keepbelow.svg` when E16 supplies them), `<name>rc` INI with correct `[General]` and `[Layout]` keys, and *both* `metadata.desktop` and `metadata.json`
+- [x] **AURORAE-01**: Generates a valid Aurorae window decoration with all 18 required FrameSvg element IDs (`decoration-{topleft,top,topright,left,center,right,bottomleft,bottom,bottomright}` × `{active, inactive}`) in a single `decoration.svg`, plus per-button SVGs (`close.svg`, `maximize.svg`, `minimize.svg`, `restore.svg`, plus `shade.svg` / `alldesktops.svg` / `keepabove.svg` / `keepbelow.svg` when E16 supplies them), `<name>rc` INI with correct `[General]` and `[Layout]` keys, and *both* `metadata.desktop` and `metadata.json`
 - [x] **AURORAE-02**: E16's button parts are mapped to Aurorae's `LeftButtons` / `RightButtons` groups via a three-tier cascade: (1) **`__ACLASS`-first** — `ACTION_CLOSE`→`X`, `ACTION_MAX`→`A`, `ACTION_ICONIFY`→`I`, `ACTION_SHADE`→`L`, `ACTION_STICK`→`S`, `ACTION_KILL`→`X`; (2) `__ICLASS` name pattern fallback for parts without `__ACLASS` (`BUTTON_CLOSE`→`X`, `BUTTON_MAXIMIZE`→`A`, `BUTTON_ICONIFY`/`BUTTON_MINIMIZE`→`I`, etc.); (3) spatial **center-of-mass test against titlebar midpoint** (not window midpoint) only as a last resort. Resize/move action classes are dropped (Aurorae handles those natively). Overlap cases and any spatial-fallback decisions are logged to `report.txt`
 - [x] **AURORAE-03**: 9-patch raster borders are preserved by embedding source PNG inside `decoration.svg` as base64 inline `<image>` with `preserveAspectRatio="none"` and FrameSvg hint frames driven by `__EDGE_SCALING`
 - [x] **AURORAE-04**: E16's practical 8-field image-state model (`__NORMAL`, `__NORMAL_ACTIVE`, `__HILITED_ACTIVE`, `__CLICKED_ACTIVE`, `__HILITED`, `__CLICKED`, optional `__NORMAL_STICKY`, `__NORMAL_ACTIVE_STICKY`) collapses to Aurorae's 2-state model via an explicit `E16_TO_AURORAE_STATE` mapping: `__NORMAL`→`decoration-inactive-*`, `__NORMAL_ACTIVE`→`decoration-*`, `__HILITED_ACTIVE`→button SVG `hover` element, `__CLICKED_ACTIVE`→button SVG `pressed` element. Sticky variants drop with a logged note (Aurorae has no per-desktop button state); legacy `__HILITED`/`__CLICKED` serve as fallbacks when the active variants are missing. Every dropped or fallback state is logged to `report.txt`
@@ -111,7 +111,7 @@ Explicitly excluded. Documented to prevent scope creep.
 | PARSE-03 | Phase 1 | Complete |
 | PARSE-04 | Phase 1 | Complete |
 | PARSE-05 | Phase 1 | Complete |
-| AURORAE-01 | Phase 1 | Pending |
+| AURORAE-01 | Phase 1 | Complete |
 | AURORAE-02 | Phase 1 | Complete |
 | AURORAE-03 | Phase 1 | Complete |
 | AURORAE-04 | Phase 1 | Complete |
