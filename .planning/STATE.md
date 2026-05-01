@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-06 image primitives (upscale, embed, ninepatch)
-last_updated: "2026-05-01T21:54:59.647Z"
+stopped_at: Completed 01-05 build_theme composer (analyze → Theme IR)
+last_updated: "2026-05-01T22:11:53.228Z"
 last_activity: 2026-05-01
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 9
-  completed_plans: 5
-  percent: 56
+  completed_plans: 6
+  percent: 67
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-05-01)
 ## Current Position
 
 Phase: 01 (parser-aurorae-foundation) — EXECUTING
-Plan: 6 of 9
+Plan: 7 of 9
 Status: Ready to execute
 Last activity: 2026-05-01
 
-Progress: [██████░░░░] 56%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
@@ -54,6 +54,7 @@ Progress: [██████░░░░] 56%
 *Updated after each plan completion*
 | Phase 01-parser-aurorae-foundation P01-01 | 6m | 3 tasks | 13 files |
 | Phase 01-parser-aurorae-foundation P01-06 | 3m | 3 tasks | 7 files |
+| Phase 01 P05 | 12m | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -71,6 +72,9 @@ Recent decisions affecting current work:
 - [01-06]: upscale_nearest constrains scale to {1,2,3} at primitive level so Plan 07 never passes arbitrary int
 - [01-06]: NinePatchRegions field order: topleft, top, topright, left, center, right, bottomleft, bottom, bottomright (Plan 07 iterates this order)
 - [01-06]: LANCZOS does not appear in src/themey/images/ — enforced at file level; Phase 2 wallpaper uses separate module
+- [Phase ?]: iclasses.py stores resolved Path unconditionally; build_theme logs missing-asset notes
+- [Phase ?]: Titlebar bounds: TITLE_BAR iclass_name substring only (CORNER_TL ACTION_MOVE excluded)
+- [Phase ?]: TCLASS state context markers recognized with or without values (Aliens uses __NORMAL with font arg)
 
 ### Pending Todos
 
@@ -91,6 +95,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-01T21:54:59.641Z
-Stopped at: Completed 01-06 image primitives (upscale, embed, ninepatch)
+Last session: 2026-05-01T22:11:53.223Z
+Stopped at: Completed 01-05 build_theme composer (analyze → Theme IR)
 Resume file: None
