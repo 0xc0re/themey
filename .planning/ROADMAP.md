@@ -30,7 +30,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. User extracts a malicious `.etheme` (path-traversal, symlink-escape, or absolute-path member) and themey rejects it before any file is written
   5. User can re-run `themey Aliens.etheme` and the previous install is overwritten cleanly with no leftover artefacts; `--scale=1`, `--scale=2`, `--scale=3` each produce visibly different border thicknesses
 **Plans**: 9 plans
-- [ ] 01-01-PLAN.md — Project scaffold (uv project, pyproject.toml, src/themey/ skeleton, frozen Theme IR, paths, fake_home fixture)
+- [x] 01-01-PLAN.md — Project scaffold (uv project, pyproject.toml, src/themey/ skeleton, frozen Theme IR, paths, fake_home fixture)
 - [ ] 01-02-PLAN.md — safe_extract + 7 malicious-archive negative fixtures + Aliens canary copy (PARSE-03)
 - [ ] 01-03-PLAN.md — Lexer + AST + recursive-descent parser; #include resolution; tolerates unknown keywords + `__FORGROUND_COLOR` typo (PARSE-01, PARSE-02 partial)
 - [ ] 01-04-PLAN.md — Coordinate evaluator + 3-tier button binning cascade + state collapse mapping primitives (PARSE-04, AURORAE-02 algorithm, AURORAE-04 mapping)
