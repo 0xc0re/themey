@@ -1,7 +1,6 @@
 """Tests for src/themey/cli.py via Typer's testing runner."""
 from pathlib import Path
 
-import pytest
 from typer.testing import CliRunner
 
 from themey.cli import app
