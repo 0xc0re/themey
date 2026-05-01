@@ -27,6 +27,23 @@ def _to_int(v: object) -> int:
     """Coerce an AST value (int | str) to int for pyright basic compatibility."""
     return int(v)  # type: ignore[arg-type]
 
+
+def _block_name(block: Block) -> str | None:
+    """Extract block name from head_values or legacy __NAME KeyVal child.
+
+    Handles BOTH naming conventions found in E16 themes:
+    - Modern: ``__ICLASS DEFAULT __BGN`` → head_values = ("DEFAULT",)
+    - Legacy macro (Aliens.etheme): ``__ICLASS __BGN __NAME DEFAULT ...``
+      → head_values = (), child KeyVal keyword="__NAME", values=("DEFAULT",)
+    """
+    if block.head_values:
+        return str(block.head_values[0])
+    for child in block.children:
+        if isinstance(child, KeyVal) and child.keyword == "__NAME" and child.values:
+            return str(child.values[0])
+    return None
+
+
 # State keywords whose presence as a KeyVal with one string value sets the
 # iclass image for that state (E16 ICLASS uses the inline path form).
 ICLASS_STATE_KEYS: frozenset[str] = frozenset({
@@ -64,9 +81,9 @@ def build_iclasses(
     raw: dict[str, dict[str, Path | None]] = {}
 
     for block in iclass_blocks:
-        if not block.head_values:
+        name = _block_name(block)
+        if name is None:
             continue
-        name = str(block.head_values[0])
         edge = (0, 0, 0, 0)  # left, right, top, bottom — LRTB order per Pitfall 1
         states: dict[str, Path | None] = {}
 
