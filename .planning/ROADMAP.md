@@ -37,7 +37,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] 01-05-PLAN.md — Analyze pipeline: AST→Theme IR; DEFAULT-only border selection; PARSE-05 fallback hook; Aliens canary integration test (PARSE-02 finalization, PARSE-05, AURORAE-04)
 - [x] 01-06-PLAN.md — Pillow primitives: NEAREST upscale, base64 PNG embed, 9-patch slice (AURORAE-03 supporting)
 - [x] 01-07-PLAN.md — Aurorae generator: decoration.svg with 18 FrameSvg IDs, per-button SVGs, <name>rc, metadata.desktop, metadata.json (AURORAE-01, AURORAE-03)
-- [ ] 01-08-PLAN.md — Atomic install + report.txt scaffold + HTML preview + headless-aware xdg-open + slug sanitizer (INSTALL-01, PREVIEW-01, REPORT-01)
+- [x] 01-08-PLAN.md — Atomic install + report.txt scaffold + HTML preview + headless-aware xdg-open + slug sanitizer (INSTALL-01, PREVIEW-01, REPORT-01)
 - [ ] 01-09-PLAN.md — CLI Typer entry point + pipeline orchestrator + Aliens E2E test + visual checkpoint on Plasma 6.6.4 (CLI-01, CLI-02, CLI-03)
 
 ### Phase 2: Colors + Wallpaper + Full Report
