@@ -22,7 +22,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 ### Phase 1: Parser + Aurorae Foundation
 **Goal**: User runs `themey aliens.etheme` and gets an installable Aurorae window decoration plus an HTML preview, exercising the high-risk vertical slice end-to-end on a single theme.
 **Depends on**: Nothing (first phase)
-**Requirements**: PARSE-01, PARSE-02, PARSE-03, PARSE-04, AURORAE-01, AURORAE-02, AURORAE-03, AURORAE-04, CLI-01, CLI-02, CLI-03, INSTALL-01, PREVIEW-01, REPORT-01
+**Requirements**: PARSE-01, PARSE-02, PARSE-03, PARSE-04, PARSE-05, AURORAE-01, AURORAE-02, AURORAE-03, AURORAE-04, CLI-01, CLI-02, CLI-03, INSTALL-01, PREVIEW-01, REPORT-01
 **Success Criteria** (what must be TRUE):
   1. User runs `themey Aliens.etheme` and the command exits 0 with a populated `~/.local/share/aurorae/themes/Aliens/` directory containing `decoration.svg`, per-button SVGs, `<name>rc`, `metadata.desktop`, and `metadata.json`
   2. User can open System Settings → Window Decorations, see the freshly installed Aurorae theme, apply it, and observe a window framed in the converted Aliens border
