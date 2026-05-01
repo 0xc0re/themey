@@ -66,20 +66,20 @@ def _make_border():
 def _make_theme(**kwargs):
     from themey.ir import Theme
 
-    defaults = dict(
-        name="TestTheme",
-        display_name="Test Theme",
-        author="tester",
-        scale=2,
-        asset_root=Path("/tmp/test"),
-        border=_make_border(),
-        iclasses={"TITLE_BAR_HORIZONTAL": _make_iclass()},
-        tclasses={},
-        button_codes={"CLOSE": "X"},
-        left_buttons="X",
-        right_buttons="",
-        palette=_make_palette(),
-    )
+    defaults: dict = {
+        "name": "TestTheme",
+        "display_name": "Test Theme",
+        "author": "tester",
+        "scale": 2,
+        "asset_root": Path("/tmp/test"),
+        "border": _make_border(),
+        "iclasses": {"TITLE_BAR_HORIZONTAL": _make_iclass()},
+        "tclasses": {},
+        "button_codes": {"CLOSE": "X"},
+        "left_buttons": "X",
+        "right_buttons": "",
+        "palette": _make_palette(),
+    }
     defaults.update(kwargs)
     return Theme(**defaults)
 
@@ -101,7 +101,10 @@ def test_iclass_spec_has_required_fields():
 
 
 def test_theme_notes_is_mutable():
-    """Theme.notes is a mutable list even though Theme is frozen (list is the field value, not the field)."""
+    """Theme.notes is mutable even when Theme is frozen.
+
+    The list object itself is mutable; only the field reference is frozen.
+    """
     theme = _make_theme()
     theme.notes.append("hi")
     assert theme.notes == ["hi"]
