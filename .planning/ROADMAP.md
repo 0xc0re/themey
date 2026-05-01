@@ -33,7 +33,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] 01-01-PLAN.md — Project scaffold (uv project, pyproject.toml, src/themey/ skeleton, frozen Theme IR, paths, fake_home fixture)
 - [x] 01-02-PLAN.md — safe_extract + 7 malicious-archive negative fixtures + Aliens canary copy (PARSE-03)
 - [ ] 01-03-PLAN.md — Lexer + AST + recursive-descent parser; #include resolution; tolerates unknown keywords + `__FORGROUND_COLOR` typo (PARSE-01, PARSE-02 partial)
-- [ ] 01-04-PLAN.md — Coordinate evaluator + 3-tier button binning cascade + state collapse mapping primitives (PARSE-04, AURORAE-02 algorithm, AURORAE-04 mapping)
+- [x] 01-04-PLAN.md — Coordinate evaluator + 3-tier button binning cascade + state collapse mapping primitives (PARSE-04, AURORAE-02 algorithm, AURORAE-04 mapping)
 - [ ] 01-05-PLAN.md — Analyze pipeline: AST→Theme IR; DEFAULT-only border selection; PARSE-05 fallback hook; Aliens canary integration test (PARSE-02 finalization, PARSE-05, AURORAE-04)
 - [ ] 01-06-PLAN.md — Pillow primitives: NEAREST upscale, base64 PNG embed, 9-patch slice (AURORAE-03 supporting)
 - [ ] 01-07-PLAN.md — Aurorae generator: decoration.svg with 18 FrameSvg IDs, per-button SVGs, <name>rc, metadata.desktop, metadata.json (AURORAE-01, AURORAE-03)
