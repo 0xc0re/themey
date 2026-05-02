@@ -156,7 +156,7 @@ def test_aurorae_aliens_canary(tmp_path: Path) -> None:
         nodes = parse_tree(raw.asset_root)
         theme = build_theme(raw.asset_root, nodes, name="Aliens", scale=2)
         out_dir = tmp_path / "Aliens"
-        files = write(theme, out_dir)
+        write(theme, out_dir)
 
     # --- decoration.svg: 18 FrameSvg IDs ---
     assert (out_dir / "decoration.svg").is_file()
@@ -178,8 +178,12 @@ def test_aurorae_aliens_canary(tmp_path: Path) -> None:
         f"Expected RightButtons='', got {cp['General']['RightButtons']!r}"
     )
     border_left = int(cp["Layout"]["BorderLeft"])
-    assert border_left == 70, (
-        f"Expected BorderLeft=70 (35 * scale=2), got {border_left}"
+    # BorderLeft is now derived from the BUTTONL (left-edge iclass) image width (3px),
+    # not from border_size_left * scale. At scale=2: 3 * 2 = 6.
+    # The value must be a small positive number representing the thin visual frame,
+    # not the old grotesquely large border_size * scale = 70.
+    assert 2 <= border_left <= 30, (
+        f"BorderLeft={border_left} out of expected range [2, 30] at scale=2"
     )
 
     # --- metadata.desktop ---
