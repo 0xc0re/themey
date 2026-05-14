@@ -21,6 +21,8 @@ from pathlib import Path
 
 from PIL import Image
 
+from themey.analyze.buttons import ACLASS_TO_BUTTON
+from themey.generate.composite import button_dims
 from themey.images.embed import embed_png_b64
 from themey.images.upscale import upscale_nearest
 from themey.ir import IClassSpec, Theme
@@ -39,8 +41,9 @@ BUTTON_CODE_TO_FILES: dict[str, tuple[str, ...]] = {
     "B": ("keepbelow.svg",),
 }
 
-# Map Aurorae button code → preferred E16 iclass name patterns (case-insensitive
-# substring search against iclass_name).
+# Fallback only — used when an E16 theme omits __ACLASS on its button parts.
+# Canonical button identification routes through ``__ACLASS`` via
+# ``ACLASS_TO_BUTTON``; this map is consulted only when that fails.
 _CODE_TO_ICLASS_PATTERNS: dict[str, tuple[str, ...]] = {
     "X": ("BUTTON_CLOSE", "BUTTON_KILL"),
     "A": ("BUTTON_MAXIMIZE", "BUTTON_MAX"),
@@ -65,7 +68,24 @@ def _png_bytes_from_path(p: Path | None, scale: int) -> bytes | None:
 
 
 def _find_iclass_for_code(theme: Theme, code: str) -> IClassSpec | None:
-    """Return the first IClassSpec whose name matches a pattern for ``code``."""
+    """Return the IClassSpec the theme uses to render Aurorae button ``code``.
+
+    Canonical (tier-1): walk ``theme.border.parts`` and pick the part whose
+    ``__ACLASS`` maps to ``code`` via ``ACLASS_TO_BUTTON``. The part's
+    ``iclass_name`` is the asset reference Aurorae should use.
+
+    Fallback (tier-2): scan ``theme.iclasses`` for a name matching a known
+    button pattern. Only fires for themes that omit ``__ACLASS`` on their
+    button parts.
+    """
+    # Tier 1 — canonical: __ACLASS on a __BORDER_PART pinpoints the asset.
+    for part in theme.border.parts:
+        if part.aclass and ACLASS_TO_BUTTON.get(part.aclass) == code:
+            ic = theme.iclasses.get(part.iclass_name)
+            if ic is not None:
+                return ic
+
+    # Tier 2 — fallback: iclass-name pattern.
     for pattern in _CODE_TO_ICLASS_PATTERNS.get(code, ()):
         for ic_name, ic in theme.iclasses.items():
             if pattern in ic_name.upper():
@@ -108,12 +128,12 @@ def _build_button_svg(theme: Theme, code: str, base_id: str) -> ET.Element:
     hover: bytes = hover_raw if hover_raw is not None else normal
     pressed: bytes = pressed_raw if pressed_raw is not None else normal
 
-    size = 24 * scale
+    btn_w, btn_h = button_dims(theme)
     svg = ET.Element(
         f"{{{SVG_NS}}}svg",
         {
-            "width": str(size),
-            "height": str(size),
+            "width": str(btn_w),
+            "height": str(btn_h),
             "version": "1.1",
         },
     )
@@ -132,8 +152,8 @@ def _build_button_svg(theme: Theme, code: str, base_id: str) -> ET.Element:
                 f"{{{XLINK_NS}}}href": embed_png_b64(png_data),
                 "x": "0",
                 "y": "0",
-                "width": str(size),
-                "height": str(size),
+                "width": str(btn_w),
+                "height": str(btn_h),
                 "preserveAspectRatio": "none",
             },
         )
