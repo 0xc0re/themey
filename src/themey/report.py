@@ -102,9 +102,15 @@ def write(theme: Theme, out_path: Path) -> Path:
     lines.append(
         "- Color scheme: deferred to later phase (COLORS-01 / Phase 2)."
     )
-    lines.append(
-        "- Wallpaper: deferred to later phase (WALLPAPER-01 / Phase 2)."
-    )
+    if theme.wallpapers:
+        lines.append(
+            f"- Wallpaper: {len(theme.wallpapers)} background image(s) "
+            "found in desktops.cfg; install deferred to Phase 2."
+        )
+    else:
+        lines.append(
+            "- Wallpaper: deferred to later phase (WALLPAPER-01 / Phase 2)."
+        )
     if theme.cursors:
         lines.append(
             f"- XCursor pointer theme: {len(theme.cursors)} __CURSOR "
