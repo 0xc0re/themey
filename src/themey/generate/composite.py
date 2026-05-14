@@ -224,6 +224,13 @@ def required_border_extents(theme: Theme) -> dict[str, int]:
     half_w = REFERENCE_W // 2
     half_h = REFERENCE_H // 2
 
+    # Corner art is allowed to nudge the TOP/BOTTOM strip thickness up,
+    # bounded by this cap. Aliens (bst=30) gets cap=60: enough vertical
+    # room to render the alien-head's face/eyes, but capped so the cell
+    # height doesn't blow out into the window-content area.
+    top_corner_cap = min(2 * bs.border_size_top, 96)
+    bot_corner_cap = min(2 * bs.border_size_bottom, 96)
+
     for part in theme.border.parts:
         if is_interactive(part):
             continue
@@ -243,19 +250,34 @@ def required_border_extents(theme: Theme) -> dict[str, int]:
         y0, y1 = min(tl_y, br_y), max(tl_y, br_y)
         spans_x_center = x0 < half_w < x1
         spans_y_center = y0 < half_h < y1
+        top_anchored = tly_p == 0 and bry_p == 0
+        bot_anchored = tly_p == 1024 and bry_p == 1024
+        left_anchored = tlx_p == 0 and brx_p == 0
+        right_anchored = tlx_p == 1024 and brx_p == 1024
+        height = max(0, y1 - y0)
 
         # TOP growth: part is anchored to top AND spans the horizontal
         # center — i.e. it's a TOP strip, not a top-left/top-right corner.
-        if tly_p == 0 and bry_p == 0 and spans_x_center:
+        if top_anchored and spans_x_center:
             req_top = max(req_top, max(tl_y, br_y))
-        elif tly_p == 1024 and bry_p == 1024 and spans_x_center:
+        elif bot_anchored and spans_x_center:
             req_bot = max(req_bot, REFERENCE_H - min(tl_y, br_y))
+
+        # TOP/BOTTOM corner growth (capped): a corner anchored to a
+        # vertical edge AND a horizontal side may nudge that side's
+        # required extent up to the cap, but NOT the perpendicular side.
+        # That keeps the post-45b6690 invariant: corners don't inflate
+        # side widths.
+        if top_anchored and (left_anchored or right_anchored) and not spans_x_center:
+            req_top = max(req_top, min(height, top_corner_cap))
+        if bot_anchored and (left_anchored or right_anchored) and not spans_x_center:
+            req_bot = max(req_bot, min(height, bot_corner_cap))
 
         # LEFT/RIGHT growth: part is anchored to a side AND spans the
         # vertical center — i.e. it's a SIDE strip, not a corner.
-        if tlx_p == 0 and brx_p == 0 and spans_y_center:
+        if left_anchored and spans_y_center:
             req_left = max(req_left, max(tl_x, br_x))
-        elif tlx_p == 1024 and brx_p == 1024 and spans_y_center:
+        elif right_anchored and spans_y_center:
             req_right = max(req_right, REFERENCE_W - min(tl_x, br_x))
 
     return {
