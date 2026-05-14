@@ -139,6 +139,31 @@ def test_button_svg_skipped_when_no_code(tmp_path: Path) -> None:
     assert written == [], f"Expected no buttons written, got {written}"
 
 
+def test_button_svg_uses_framesvg_prefixes(tmp_path: Path) -> None:
+    """KSvg/FrameSvg requires 9-patch IDs like ``active-center``, ``hover-center``,
+    ``pressed-center``. Aurorae's ``AuroraeButton.qml`` instantiates a
+    ``KSvg.FrameSvg{ imagePath }`` per state and calls
+    ``hasElementPrefix("active"|"hover"|"pressed"|...)`` — if the prefix
+    isn't found, the per-state group has ``imagePath: ""`` and the button is
+    hidden. We previously emitted bare IDs (close, close-hover, close-pressed)
+    so every button rendered invisibly in real KWin.
+    """
+    from themey.generate.button_svg import write_button_svgs
+
+    theme = _make_theme(tmp_path, {"BUTTON_CLOSE": "X"}, left_buttons="X")
+    out = tmp_path / "out"
+    out.mkdir(exist_ok=True)
+    write_button_svgs(theme, out)
+    ids = _collect_ids(out / "close.svg")
+    assert "active-center" in ids, f"missing active-center prefix; ids={ids}"
+    assert "hover-center" in ids, f"missing hover-center prefix; ids={ids}"
+    assert "pressed-center" in ids, f"missing pressed-center prefix; ids={ids}"
+    # Bare IDs (close, close-hover, close-pressed) match no FrameSvg prefix.
+    assert "close" not in ids, f"bare id 'close' must not appear; ids={ids}"
+    assert "close-hover" not in ids, f"legacy id 'close-hover' must not appear"
+    assert "close-pressed" not in ids, f"legacy id 'close-pressed' must not appear"
+
+
 def test_button_svg_each_has_hover_and_pressed_subelements(tmp_path: Path) -> None:
     from themey.generate.button_svg import write_button_svgs
 
@@ -149,8 +174,6 @@ def test_button_svg_each_has_hover_and_pressed_subelements(tmp_path: Path) -> No
     out.mkdir(exist_ok=True)
     write_button_svgs(theme, out)
     ids = _collect_ids(out / "close.svg")
-    # Must have hover and pressed sub-elements
-    hover_ids = [i for i in ids if i and i.endswith("-hover")]
-    pressed_ids = [i for i in ids if i and i.endswith("-pressed")]
-    assert hover_ids, f"No *-hover elements found in close.svg. IDs: {ids}"
-    assert pressed_ids, f"No *-pressed elements found in close.svg. IDs: {ids}"
+    # FrameSvg 9-patch prefixes for each state.
+    assert "hover-center" in ids, f"missing hover-center; ids={ids}"
+    assert "pressed-center" in ids, f"missing pressed-center; ids={ids}"
