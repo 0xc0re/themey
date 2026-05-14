@@ -81,6 +81,17 @@ class ButtonPart:
     # whitespace-separated list of tokens. We retain ordering so consumers can
     # use simple membership tests.
     flags: tuple[str, ...] = ()
+    # Optional E16 BORDERPART decorations (no Aurorae equivalent — captured
+    # so a future emission pass can use them).
+    cursor_name: str | None = None  # __CURSOR ICONIFY
+    tclass_name: str | None = None  # __TCLASS TEXT1
+    keep_when_shaded: bool = False  # __KEEP_WHEN_SHADED __ON|__OFF
+    keep_on_top: bool = False  # __KEEP_ON_TOP __ON|__OFF
+    # __MIN_/__MAX_ size constraints in reference pixels. 0 = unspecified.
+    min_w: int = 0
+    min_h: int = 0
+    max_w: int = 0
+    max_h: int = 0
 
 
 @dataclass(frozen=True)

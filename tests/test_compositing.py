@@ -228,6 +228,33 @@ def test_button_dims_caps_oversized_spatial_fallback() -> None:
     assert w == 32, f"expected close-button width 32, got {w}"
 
 
+def test_button_dims_honors_part_max_width() -> None:
+    """A part's __MAX_WIDTH must clamp the computed ButtonWidth.
+
+    Synthetic theme: one CLOSE button with bbox 30 ref wide but __MAX_WIDTH=8.
+    Output ButtonWidth at scale=2 must be 8 ref × 2 = 16, not 30 × 2 = 60.
+    """
+    from themey.generate.composite import button_dims
+    from themey.ir import BorderSpec, ButtonPart, Palette, Theme
+
+    part = ButtonPart(
+        iclass_name="BUTTON_CLOSE", aclass="ACTION_CLOSE",
+        tl_x_pct=0, tl_x_abs=4, br_x_pct=0, br_x_abs=34,
+        tl_y_pct=0, tl_y_abs=2, br_y_pct=0, br_y_abs=18,
+        max_w=8,
+    )
+    theme = Theme(
+        name="Tmp", display_name="Tmp", author=None, scale=2,
+        asset_root=Path("/tmp"),
+        border=BorderSpec("DEFAULT", 4, 4, 20, 4, (part,)),
+        iclasses={}, tclasses={}, button_codes={"BUTTON_CLOSE": "X"},
+        left_buttons="X", right_buttons="",
+        palette=Palette((0, 0, 0), (0, 0, 0), (255, 255, 255), (255, 255, 255)),
+    )
+    w, _h = button_dims(theme)
+    assert w == 16, f"expected max_w-clamped 16 output px, got {w}"
+
+
 def test_openstep_buttonwidth_under_200_ref() -> None:
     """OPENSTEP must end up with a reasonable per-button slot.
 
