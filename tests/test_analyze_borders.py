@@ -1,13 +1,12 @@
 """Unit tests for themey.analyze.borders — AST __BORDER block extraction."""
 from __future__ import annotations
 
-from themey.etheme.ast import Block, KeyVal
 from themey.analyze.borders import (
     build_border,
     extract_button_parts,
     select_default_border,
 )
-
+from themey.etheme.ast import Block, KeyVal
 
 # ---------------------------------------------------------------------------
 # Helpers: synthetic AST factories
@@ -142,6 +141,56 @@ def test_extract_button_parts_empty_when_no_parts() -> None:
     border = _border_block(name="DEFAULT")
     result = extract_button_parts(border)
     assert result == ()
+
+
+def test_extract_button_parts_flags_default_empty_when_absent() -> None:
+    """A __BORDER_PART without __FLAGS yields flags=()."""
+    part = Block(
+        keyword="__BORDER_PART",
+        head_values=(),
+        children=(_kv("__ICLASS", "BUTTON_FOO"),),
+        line=0,
+    )
+    border = _border_block(name="DEFAULT", parts=[part])
+    result = extract_button_parts(border)
+    assert result[0].flags == ()
+
+
+def test_extract_button_parts_flags_parsed_verbatim() -> None:
+    """__FLAGS values (space-separated tokens) round-trip verbatim into flags tuple.
+
+    Per wilbs parse-cfg.ts:212-227 and e16-reference.md Section 6, __FLAGS is a
+    space-separated list of tokens like __FLAG_TITLE, __FLAG_MINIICON. We keep
+    all tokens; consumers test by membership.
+    """
+    part = Block(
+        keyword="__BORDER_PART",
+        head_values=(),
+        children=(
+            _kv("__ICLASS", "TITLE_BAR_HORIZONTAL"),
+            _kv("__FLAGS", "__FLAG_TITLE"),
+        ),
+        line=0,
+    )
+    border = _border_block(name="DEFAULT", parts=[part])
+    result = extract_button_parts(border)
+    assert result[0].flags == ("__FLAG_TITLE",)
+
+
+def test_extract_button_parts_flags_multi_token() -> None:
+    """Multiple __FLAGS tokens (compound flags line) are preserved in order."""
+    part = Block(
+        keyword="__BORDER_PART",
+        head_values=(),
+        children=(
+            _kv("__ICLASS", "TITLE_BAR_HORIZONTAL"),
+            _kv("__FLAGS", "__FLAG_TITLE", "__FLAG_MINIICON"),
+        ),
+        line=0,
+    )
+    border = _border_block(name="DEFAULT", parts=[part])
+    result = extract_button_parts(border)
+    assert result[0].flags == ("__FLAG_TITLE", "__FLAG_MINIICON")
 
 
 # ---------------------------------------------------------------------------

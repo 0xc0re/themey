@@ -29,7 +29,7 @@ from themey.ir import (
 
 from .borders import _block_name as _border_block_name
 from .borders import build_border, select_default_border
-from .buttons import bin_left_right, classify_button
+from .buttons import bin_left_right, classify_button, title_part
 from .coords import REFERENCE_WINDOW_WIDTH, resolve
 from .fallback import discover_by_filename
 from .iclasses import build_iclasses
@@ -178,20 +178,20 @@ def build_theme(
 
     # Resolve titlebar bounds first (needed for spatial fallback tier-3).
     #
-    # Only use parts whose iclass_name contains "TITLE_BAR" for titlebar
-    # bounds computation. Using all ACTION_MOVE parts is too broad — CORNER_TL
-    # also has aclass=ACTION_MOVE but represents the move-handle corner, not the
-    # titlebar text area. The TITLE_BAR_HORIZONTAL iclass is the canonical
-    # titlebar region.
+    # Canonical E16 grammar (Section 6 / wilbs parse-cfg.ts:212): the title-
+    # bearing part is the one flagged ``__FLAGS __FLAG_TITLE``. Any iclass
+    # name is permitted (Aliens: TITLE_BAR_HORIZONTAL, e13: TITLEBAR). The
+    # previous substring heuristic ``"TITLE_BAR" in iclass_name`` missed
+    # e13's bareword TITLEBAR and left the bounds at the inversion sentinel.
     titlebar_min_x: int = REFERENCE_WINDOW_WIDTH
     titlebar_max_x: int = 0
 
-    for part in border.parts:
-        if "TITLE_BAR" in part.iclass_name.upper():
-            tl_x = resolve(part.tl_x_pct, part.tl_x_abs, REFERENCE_WINDOW_WIDTH)
-            br_x = resolve(part.br_x_pct, part.br_x_abs, REFERENCE_WINDOW_WIDTH)
-            titlebar_min_x = min(titlebar_min_x, tl_x)
-            titlebar_max_x = max(titlebar_max_x, br_x)
+    tp = title_part(border.parts)
+    if tp is not None:
+        tl_x = resolve(tp.tl_x_pct, tp.tl_x_abs, REFERENCE_WINDOW_WIDTH)
+        br_x = resolve(tp.br_x_pct, tp.br_x_abs, REFERENCE_WINDOW_WIDTH)
+        titlebar_min_x = min(tl_x, br_x)
+        titlebar_max_x = max(tl_x, br_x)
 
     have_titlebar_geom = titlebar_max_x > titlebar_min_x
 

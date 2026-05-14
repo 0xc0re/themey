@@ -8,6 +8,9 @@ when both aclass and iclass-pattern fail to identify the button.
 """
 from __future__ import annotations
 
+from themey.analyze.coords import REFERENCE_WINDOW_WIDTH
+from themey.ir import ButtonPart
+
 # Tier 1: __ACLASS -> Aurorae button code
 ACLASS_TO_BUTTON: dict[str, str] = {
     "ACTION_CLOSE": "X",
@@ -93,6 +96,22 @@ def classify_button(
     return (None, "spatial")
 
 
+def title_part(parts: tuple[ButtonPart, ...]) -> ButtonPart | None:
+    """Return the canonical title-bearing part, identified by __FLAG_TITLE.
+
+    Per E16 grammar Section 6 and wilbs parse-cfg.ts:212-213, the title
+    region is marked semantically — *any* iclass name is permitted (e.g.
+    Aliens uses TITLE_BAR_HORIZONTAL, e13 uses TITLEBAR without underscore).
+    Name-pattern matching is unreliable; this flag is canonical.
+
+    Returns the first part with __FLAG_TITLE in its flags tuple, or None.
+    """
+    for p in parts:
+        if "__FLAG_TITLE" in p.flags:
+            return p
+    return None
+
+
 def bin_left_right(
     buttons: list[tuple[str, int]],
     titlebar_min_x: int,
@@ -102,7 +121,23 @@ def bin_left_right(
 
     Each list is sorted by x ascending. Overlap items (titlebar_min <= x <=
     titlebar_max) are returned for the caller to log.
+
+    Sentinel fallback: when ``titlebar_max_x <= titlebar_min_x`` (no title
+    bar identified — e.g. e13's __FLAG_TITLE missed by old name-pattern code),
+    split at REFERENCE_WINDOW_WIDTH/2. Without this, the original predicate
+    ``x < min AND x > max`` was *both* true for every x at the sentinel
+    (min=800, max=0), placing each button into BOTH sides.
     """
+    if titlebar_max_x <= titlebar_min_x:
+        midpoint = REFERENCE_WINDOW_WIDTH // 2
+        left = sorted([b for b in buttons if b[1] < midpoint], key=lambda b: b[1])
+        right = sorted([b for b in buttons if b[1] >= midpoint], key=lambda b: b[1])
+        return (
+            "".join(b[0] for b in left),
+            "".join(b[0] for b in right),
+            [],
+        )
+
     left = sorted([b for b in buttons if b[1] < titlebar_min_x], key=lambda b: b[1])
     right = sorted([b for b in buttons if b[1] > titlebar_max_x], key=lambda b: b[1])
     overlap = [b for b in buttons if titlebar_min_x <= b[1] <= titlebar_max_x]

@@ -56,6 +56,7 @@ def extract_button_parts(border: Block) -> tuple[ButtonPart, ...]:
             continue
         iclass = ""
         aclass: str | None = None  # null sentinel — distinguishes "no __ACLASS" from missing
+        flags: tuple[str, ...] = ()
         coords: dict[str, int] = {
             "tl_x_pct": 0,
             "tl_x_abs": 0,
@@ -65,6 +66,8 @@ def extract_button_parts(border: Block) -> tuple[ButtonPart, ...]:
             "br_x_abs": 0,
             "br_y_pct": 0,
             "br_y_abs": 0,
+            "tl_origin": -1,
+            "br_origin": -1,
         }
         for kv in child.children:
             if not isinstance(kv, KeyVal):
@@ -90,7 +93,13 @@ def extract_button_parts(border: Block) -> tuple[ButtonPart, ...]:
                 coords["br_y_pct"] = _to_int(kv.values[0])
             elif k == "__BOTTOMRIGHT_Y_ABSOLUTE" and kv.values:
                 coords["br_y_abs"] = _to_int(kv.values[0])
-        parts.append(ButtonPart(iclass_name=iclass, aclass=aclass, **coords))
+            elif k == "__TOPLEFT_ORIGIN" and kv.values:
+                coords["tl_origin"] = _to_int(kv.values[0])
+            elif k == "__BOTTOMRIGHT_ORIGIN" and kv.values:
+                coords["br_origin"] = _to_int(kv.values[0])
+            elif k == "__FLAGS" and kv.values:
+                flags = tuple(str(v) for v in kv.values)
+        parts.append(ButtonPart(iclass_name=iclass, aclass=aclass, flags=flags, **coords))
     return tuple(parts)
 
 
