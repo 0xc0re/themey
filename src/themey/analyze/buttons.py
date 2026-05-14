@@ -19,13 +19,22 @@ ACLASS_TO_BUTTON: dict[str, str] = {
     "ACTION_ICONIFY": "I",
     "ACTION_SHADE": "L",
     "ACTION_STICK": "S",
+    "ACTION_KEEP_ABOVE": "F",
+    "ACTION_KEEP_BELOW": "B",
 }
-# Aclasses that are NOT buttons (Aurorae handles natively):
+# Aclasses that are NOT buttons (Aurorae handles natively or has no equivalent):
 ACLASS_DROP: frozenset[str] = frozenset({
     "ACTION_RESIZE",
     "ACTION_RESIZE_H",
     "ACTION_RESIZE_V",
     "ACTION_MOVE",  # titlebar drag
+    # Application/desktop verbs with no Aurorae button equivalent.
+    "ACTION_MENU",
+    "ACTION_DESKTOP_NEXT",
+    "ACTION_DESKTOP_PREV",
+    "ACTION_PAGER_NEXT",
+    "ACTION_PAGER_PREV",
+    "ACTION_EXEC",
 })
 
 # Tier 2: __ICLASS name pattern -> button code (case-insensitive substring match)
@@ -72,6 +81,17 @@ def classify_button(
         return (None, "drop")
     if aclass is not None and aclass in ACLASS_TO_BUTTON:
         return (ACLASS_TO_BUTTON[aclass], "aclass")
+    # An ACLASS we don't recognize is not the same as "no ACLASS at all" —
+    # iclass-pattern matching is unreliable when the theme has expressed
+    # an opinion about the action via __ACLASS but we don't speak that
+    # verb. Surface the case so build_theme can log it.
+    if (
+        aclass is not None
+        and aclass.startswith("ACTION_")
+        and aclass not in ACLASS_TO_BUTTON
+        and aclass not in ACLASS_DROP
+    ):
+        return (None, "unknown_aclass")
     iclass_upper = iclass.upper()
     for pattern, code in ICLASS_PATTERN_TO_BUTTON:
         if pattern in iclass_upper:

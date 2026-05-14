@@ -229,8 +229,13 @@ def build_theme(
                     f"(ambiguous middle third or no geometry — "
                     f"titlebar=[{titlebar_min_x}, {titlebar_max_x}])"
                 )
+        elif source == "unknown_aclass":
+            notes.append(
+                f"part '{part.iclass_name}' has __ACLASS={part.aclass} which "
+                "themey doesn't map to an Aurorae button code — dropped"
+            )
 
-        if code is None or source == "drop":
+        if code is None or source == "drop" or source == "unknown_aclass":
             continue
         button_codes[part.iclass_name] = code
         button_positions.append((code, x_center))
