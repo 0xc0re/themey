@@ -40,11 +40,22 @@ class IClassSpec:
 
 @dataclass(frozen=True)
 class TClassSpec:
-    """E16 text class — titlebar text style per state."""
+    """E16 text class — titlebar text style per state.
+
+    ``alignment`` is normalized to Aurorae's vocabulary ("Left", "Center",
+    "Right") at parse time so the writer can pass it through as-is.
+    ``effect`` is the raw E16 token (e.g. ``"__EFFECT_SHADOW"`` /
+    ``"__EFFECT_NONE"``); the writer interprets it. ``effect_color`` is
+    the optional ``__EFFECT_COLOR R G B`` triple — defaults to ``None``
+    because most themes leave it implicit.
+    """
 
     name: str  # e.g. "TEXT1"
     fg_normal: tuple[int, int, int] | None  # __FORGROUND_COLOR after __NORMAL
     fg_active: tuple[int, int, int] | None  # __FORGROUND_COLOR after __NORMAL_ACTIVE
+    alignment: str | None = None  # "Left" | "Center" | "Right"
+    effect: str | None = None  # raw __DRAWING_EFFECT token, e.g. __EFFECT_SHADOW
+    effect_color: tuple[int, int, int] | None = None
 
 
 @dataclass(frozen=True)

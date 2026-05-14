@@ -215,6 +215,98 @@ def test_aliens_title_text_centered_in_capped_chrome(tmp_path: Path, monkeypatch
     )
 
 
+def test_tclass_justification_maps_to_titlealignment(tmp_path: Path) -> None:
+    """TEXT1.alignment="Left" must produce TitleAlignment=Left in the rc."""
+    from themey.generate.aurorae_rc import write_aurorae_rc
+    from themey.ir import BorderSpec, Palette, TClassSpec, Theme
+
+    border = BorderSpec(
+        name="DEFAULT",
+        border_size_left=4, border_size_right=4,
+        border_size_top=20, border_size_bottom=4,
+        parts=(),
+    )
+    theme = Theme(
+        name="X", display_name="X", author=None, scale=1,
+        asset_root=tmp_path,
+        border=border,
+        iclasses={},
+        tclasses={
+            "TEXT1": TClassSpec(
+                name="TEXT1",
+                fg_normal=(255, 255, 255),
+                fg_active=(255, 255, 255),
+                alignment="Left",
+                effect=None,
+                effect_color=None,
+            )
+        },
+        button_codes={}, left_buttons="", right_buttons="",
+        palette=Palette((0, 0, 0), (0, 0, 0), (255, 255, 255), (192, 192, 192)),
+    )
+    out = write_aurorae_rc(theme, tmp_path / "out")
+    cp = _read_rc(out)
+    assert cp["General"]["TitleAlignment"] == "Left"
+
+
+def test_tclass_drawing_effect_shadow_enables_text_shadow(tmp_path: Path) -> None:
+    """TEXT1.effect=__EFFECT_SHADOW + effect_color → UseTextShadow=true with that color."""
+    from themey.generate.aurorae_rc import write_aurorae_rc
+    from themey.ir import BorderSpec, Palette, TClassSpec, Theme
+
+    theme = Theme(
+        name="X", display_name="X", author=None, scale=1,
+        asset_root=tmp_path,
+        border=BorderSpec("DEFAULT", 4, 4, 20, 4, ()),
+        iclasses={},
+        tclasses={
+            "TEXT1": TClassSpec(
+                name="TEXT1",
+                fg_normal=(255, 255, 255),
+                fg_active=(255, 255, 255),
+                alignment=None,
+                effect="__EFFECT_SHADOW",
+                effect_color=(50, 50, 50),
+            )
+        },
+        button_codes={}, left_buttons="", right_buttons="",
+        palette=Palette((0, 0, 0), (0, 0, 0), (255, 255, 255), (192, 192, 192)),
+    )
+    out = write_aurorae_rc(theme, tmp_path / "out")
+    cp = _read_rc(out)
+    assert cp["General"]["UseTextShadow"] == "true"
+    assert cp["General"]["ActiveTextShadowColor"] == "50,50,50,255"
+    assert cp["General"]["InactiveTextShadowColor"] == "50,50,50,255"
+
+
+def test_tclass_drawing_effect_none_disables_text_shadow(tmp_path: Path) -> None:
+    """TEXT1.effect=__EFFECT_NONE → UseTextShadow=false."""
+    from themey.generate.aurorae_rc import write_aurorae_rc
+    from themey.ir import BorderSpec, Palette, TClassSpec, Theme
+
+    theme = Theme(
+        name="X", display_name="X", author=None, scale=1,
+        asset_root=tmp_path,
+        border=BorderSpec("DEFAULT", 4, 4, 20, 4, ()),
+        iclasses={},
+        tclasses={
+            "TEXT1": TClassSpec(
+                name="TEXT1",
+                fg_normal=(255, 255, 255),
+                fg_active=(255, 255, 255),
+                alignment=None,
+                effect="__EFFECT_NONE",
+                effect_color=None,
+            )
+        },
+        button_codes={}, left_buttons="", right_buttons="",
+        palette=Palette((0, 0, 0), (0, 0, 0), (255, 255, 255), (192, 192, 192)),
+    )
+    out = write_aurorae_rc(theme, tmp_path / "out")
+    cp = _read_rc(out)
+    assert cp["General"]["UseTextShadow"] == "false"
+
+
 def test_litegnome_title_edge_padding_at_least_1(tmp_path: Path, monkeypatch) -> None:
     """LiteGnome's title-bearing part spans the full top zone (TitleEdgeTop=0
     canonical). KWin needs at least 1-2 px of padding at top and bottom to

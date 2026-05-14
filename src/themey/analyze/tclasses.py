@@ -44,6 +44,36 @@ FG_COLOR_KEYS: tuple[str, ...] = (
     "__COLOR",  # alternate alias
 )
 
+
+def _normalize_alignment(value: object) -> str | None:
+    """Map an E16 __JUSTIFICATION value to Aurorae's "Left"/"Center"/"Right".
+
+    E16 accepts both literal tokens (``__LEFT``, ``__CENTER``, ``__RIGHT``)
+    and numeric forms (0 = left, 512 = center, 1024 = right; the same
+    Q10 fixed-point pct scheme used elsewhere). Anything we don't
+    recognize returns None (the writer falls back to its default).
+    """
+    if isinstance(value, str):
+        upper = value.upper()
+        if upper in ("__LEFT", "LEFT"):
+            return "Left"
+        if upper in ("__CENTER", "CENTER"):
+            return "Center"
+        if upper in ("__RIGHT", "RIGHT"):
+            return "Right"
+        # Numeric written as a string
+        try:
+            value = int(value)
+        except ValueError:
+            return None
+    if isinstance(value, int):
+        if value <= 256:
+            return "Left"
+        if value >= 768:
+            return "Right"
+        return "Center"
+    return None
+
 TCLASS_STATE_CONTEXT_KEYS: frozenset[str] = frozenset({
     "__NORMAL",
     "__NORMAL_ACTIVE",
@@ -70,6 +100,9 @@ def build_tclasses(tclass_blocks: list[Block]) -> dict[str, TClassSpec]:
             continue
         current_state: str | None = None
         colors: dict[str, tuple[int, int, int]] = {}
+        alignment: str | None = None
+        effect: str | None = None
+        effect_color: tuple[int, int, int] | None = None
 
         for kv in block.children:
             if not isinstance(kv, KeyVal):
@@ -93,10 +126,30 @@ def build_tclasses(tclass_blocks: list[Block]) -> dict[str, TClassSpec]:
                     # First color seen for this state wins; don't overwrite
                     if current_state not in colors:
                         colors[current_state] = rgb
+            elif kv.keyword == "__JUSTIFICATION" and kv.values and alignment is None:
+                alignment = _normalize_alignment(kv.values[0])
+            elif kv.keyword == "__DRAWING_EFFECT" and kv.values and effect is None:
+                effect = str(kv.values[0])
+            elif (
+                kv.keyword == "__EFFECT_COLOR"
+                and len(kv.values) >= 3
+                and effect_color is None
+            ):
+                try:
+                    effect_color = (
+                        _to_int(kv.values[0]),
+                        _to_int(kv.values[1]),
+                        _to_int(kv.values[2]),
+                    )
+                except (ValueError, TypeError):
+                    pass
 
         out[name] = TClassSpec(
             name=name,
             fg_normal=colors.get("__NORMAL"),
             fg_active=colors.get("__NORMAL_ACTIVE"),
+            alignment=alignment,
+            effect=effect,
+            effect_color=effect_color,
         )
     return out

@@ -151,3 +151,59 @@ def test_tclass_state_context_resets_between_blocks() -> None:
     tclasses = build_tclasses([block1, block2])
     # TEXT2 had a color but no state context — fg_normal should be None
     assert tclasses["TEXT2"].fg_normal is None
+
+
+# ---------------------------------------------------------------------------
+# Step 8: __JUSTIFICATION, __DRAWING_EFFECT, __EFFECT_COLOR
+# ---------------------------------------------------------------------------
+
+
+def test_tclass_justification_numeric_left() -> None:
+    """E16 __JUSTIFICATION 0 = left → Aurorae TitleAlignment 'Left'."""
+    block = _tclass_block("T", _kv("__JUSTIFICATION", 0))
+    assert build_tclasses([block])["T"].alignment == "Left"
+
+
+def test_tclass_justification_numeric_center() -> None:
+    """E16 __JUSTIFICATION 512 = center → Aurorae TitleAlignment 'Center'."""
+    block = _tclass_block("T", _kv("__JUSTIFICATION", 512))
+    assert build_tclasses([block])["T"].alignment == "Center"
+
+
+def test_tclass_justification_numeric_right() -> None:
+    block = _tclass_block("T", _kv("__JUSTIFICATION", 1024))
+    assert build_tclasses([block])["T"].alignment == "Right"
+
+
+def test_tclass_justification_symbolic_tokens() -> None:
+    """Some themes use literal tokens (__LEFT etc.) instead of integers."""
+    for token, expected in [("__LEFT", "Left"), ("__CENTER", "Center"), ("__RIGHT", "Right")]:
+        block = _tclass_block("T", _kv("__JUSTIFICATION", token))
+        assert build_tclasses([block])["T"].alignment == expected, token
+
+
+def test_tclass_drawing_effect_shadow_captured() -> None:
+    block = _tclass_block(
+        "T",
+        _kv("__DRAWING_EFFECT", "__EFFECT_SHADOW"),
+    )
+    assert build_tclasses([block])["T"].effect == "__EFFECT_SHADOW"
+
+
+def test_tclass_effect_color_captured() -> None:
+    block = _tclass_block(
+        "T",
+        _kv("__EFFECT_COLOR", 30, 30, 30),
+    )
+    assert build_tclasses([block])["T"].effect_color == (30, 30, 30)
+
+
+def test_tclass_defaults_to_none_when_absent() -> None:
+    """A tclass with no __JUSTIFICATION / __DRAWING_EFFECT / __EFFECT_COLOR
+    leaves all three fields as None so the writer can fall back to its
+    defaults."""
+    block = _tclass_block("T", _kv("__NORMAL"), _kv("__FORGROUND_COLOR", 1, 2, 3))
+    tc = build_tclasses([block])["T"]
+    assert tc.alignment is None
+    assert tc.effect is None
+    assert tc.effect_color is None
