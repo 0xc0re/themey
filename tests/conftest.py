@@ -11,6 +11,15 @@ from pathlib import Path
 import pytest
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--update-visual-hashes",
+        action="store_true",
+        default=False,
+        help="Overwrite committed perceptual-hash snapshots from current renders.",
+    )
+
+
 @pytest.fixture
 def fake_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Monkeypatch HOME + XDG_DATA_HOME to tmp_path. Returns the home dir.
