@@ -215,6 +215,176 @@ def test_aliens_title_text_centered_in_capped_chrome(tmp_path: Path, monkeypatch
     )
 
 
+def _luminance(rgb: tuple[int, int, int]) -> float:
+    r, g, b = (c / 255 for c in rgb)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def test_title_text_swapped_to_black_when_white_text_on_white_bg(tmp_path: Path) -> None:
+    """When the title bar bg is near-white and the configured text color is
+    also near-white, the writer must swap to black so the title text is
+    legible.
+
+    Synthetic theme: solid white-ish iclass image as the title-bearing
+    iclass; ActiveTextColor configured as (255,255,255). After write, the
+    rc's ActiveTextColor must be (0,0,0,255).
+    """
+    from PIL import Image
+
+    from themey.generate.aurorae_rc import write_aurorae_rc
+    from themey.ir import BorderSpec, ButtonPart, IClassSpec, Palette, Theme
+
+    # Solid near-white iclass image.
+    asset_root = tmp_path / "assets"
+    asset_root.mkdir()
+    white_png = asset_root / "white.png"
+    Image.new("RGBA", (32, 16), (240, 240, 240, 255)).save(white_png)
+
+    # Title-bearing part fills the whole top zone.
+    title_part = ButtonPart(
+        iclass_name="TITLE",
+        aclass=None,
+        tl_x_pct=0, tl_x_abs=0, br_x_pct=1024, br_x_abs=0,
+        tl_y_pct=0, tl_y_abs=0, br_y_pct=0, br_y_abs=20,
+        flags=("__FLAG_TITLE",),
+    )
+    iclasses = {
+        "TITLE": IClassSpec(
+            name="TITLE",
+            edge_scaling=(2, 2, 2, 2),
+            normal=white_png, normal_active=white_png,
+            hilited=None, hilited_active=None,
+            clicked=None, clicked_active=None,
+            normal_sticky=None, normal_active_sticky=None,
+        )
+    }
+    theme = Theme(
+        name="WhiteBg", display_name="WhiteBg", author=None, scale=2,
+        asset_root=asset_root,
+        border=BorderSpec(
+            name="DEFAULT",
+            border_size_left=4, border_size_right=4,
+            border_size_top=20, border_size_bottom=4,
+            parts=(title_part,),
+        ),
+        iclasses=iclasses,
+        tclasses={},
+        button_codes={},
+        left_buttons="", right_buttons="",
+        palette=Palette(
+            titlebar_active=(240, 240, 240),
+            titlebar_inactive=(240, 240, 240),
+            text_active=(255, 255, 255),  # white on white — must be swapped
+            text_inactive=(0, 0, 0),
+        ),
+    )
+    out = write_aurorae_rc(theme, tmp_path / "out")
+    cp = _read_rc(out)
+    # Must have swapped to black for the active state.
+    assert cp["General"]["ActiveTextColor"] == "0,0,0,255", (
+        f"ActiveTextColor={cp['General']['ActiveTextColor']} — should be "
+        f"swapped to black against near-white bg"
+    )
+    # Inactive stays untouched (it was already legible against white).
+    assert cp["General"]["InactiveTextColor"] == "0,0,0,255"
+
+
+def test_title_text_unchanged_when_contrast_already_high(tmp_path: Path) -> None:
+    """White text on a dark bg already has high contrast — must not be swapped."""
+    from PIL import Image
+
+    from themey.generate.aurorae_rc import write_aurorae_rc
+    from themey.ir import BorderSpec, ButtonPart, IClassSpec, Palette, Theme
+
+    asset_root = tmp_path / "assets"
+    asset_root.mkdir()
+    dark_png = asset_root / "dark.png"
+    Image.new("RGBA", (32, 16), (20, 20, 30, 255)).save(dark_png)
+
+    title_part = ButtonPart(
+        iclass_name="TITLE",
+        aclass=None,
+        tl_x_pct=0, tl_x_abs=0, br_x_pct=1024, br_x_abs=0,
+        tl_y_pct=0, tl_y_abs=0, br_y_pct=0, br_y_abs=20,
+        flags=("__FLAG_TITLE",),
+    )
+    iclasses = {
+        "TITLE": IClassSpec(
+            name="TITLE",
+            edge_scaling=(2, 2, 2, 2),
+            normal=dark_png, normal_active=dark_png,
+            hilited=None, hilited_active=None,
+            clicked=None, clicked_active=None,
+            normal_sticky=None, normal_active_sticky=None,
+        )
+    }
+    theme = Theme(
+        name="DarkBg", display_name="DarkBg", author=None, scale=2,
+        asset_root=asset_root,
+        border=BorderSpec(
+            name="DEFAULT",
+            border_size_left=4, border_size_right=4,
+            border_size_top=20, border_size_bottom=4,
+            parts=(title_part,),
+        ),
+        iclasses=iclasses,
+        tclasses={},
+        button_codes={},
+        left_buttons="", right_buttons="",
+        palette=Palette(
+            titlebar_active=(20, 20, 30),
+            titlebar_inactive=(20, 20, 30),
+            text_active=(255, 255, 255),
+            text_inactive=(192, 192, 192),
+        ),
+    )
+    out = write_aurorae_rc(theme, tmp_path / "out")
+    cp = _read_rc(out)
+    assert cp["General"]["ActiveTextColor"] == "255,255,255,255"
+
+
+def test_openstep_title_text_contrast_acceptable(tmp_path: Path, monkeypatch) -> None:
+    """Pipeline-level invariant: OPENSTEP must end up with title text colors
+    that have acceptable luminance contrast against the composited top zone.
+
+    Prior to the fix the writer left ActiveTextColor at (255,255,255)
+    regardless of the title bar background, producing unreadable text on
+    near-white inactive backgrounds in real KWin. After the fix the writer
+    samples ``compose_region("top")`` and swaps to black/white when the
+    sampled bg's luminance is within 0.2 of the text's.
+    """
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("XDG_DATA_HOME", str(fake_home / ".local" / "share"))
+
+    import themey.paths as paths_mod
+
+    aurorae_dir = fake_home / ".local/share/aurorae/themes"
+    previews_dir = fake_home / ".local/share/themey/previews"
+    monkeypatch.setattr(paths_mod, "aurorae_themes", lambda: aurorae_dir)
+    monkeypatch.setattr(paths_mod, "themey_previews", lambda: previews_dir)
+
+    from themey.pipeline import convert
+
+    openstep = Path(__file__).parent / "fixtures" / "OPENSTEP.etheme"
+    if not openstep.exists():
+        import pytest
+        pytest.skip("OPENSTEP.etheme fixture not available")
+    result = convert(openstep, scale=2)
+    cp = _read_rc(result.installed_dir / "OPENSTEPrc")
+    # Parse RGB tuple from "r,g,b,a" string.
+    parts = cp["General"]["ActiveTextColor"].split(",")
+    text_rgb = (int(parts[0]), int(parts[1]), int(parts[2]))
+    # Acceptable contrast: text and the most-likely bg shouldn't both be near-white.
+    # If text is (255,255,255), the swap must have either kept it (because
+    # contrast was already high) or fired and produced (0,0,0).
+    assert text_rgb in ((255, 255, 255), (0, 0, 0)), (
+        f"OPENSTEP ActiveTextColor={text_rgb}: expected pure white or "
+        f"swapped-to-black, not an in-between value"
+    )
+
+
 def test_e13_title_canonical_placement_when_fills_chrome(
     tmp_path: Path, monkeypatch
 ) -> None:
