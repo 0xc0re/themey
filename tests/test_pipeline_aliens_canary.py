@@ -66,16 +66,14 @@ def test_pipeline_scale_changes_BorderLeft(fake_home):
     cp3.read(r3.installed_dir / "Aliensrc")
     bl_3 = int(cp3["Layout"]["BorderLeft"])
 
-    # BorderLeft scales linearly with the scale factor.
-    # New formula derives from the left-edge iclass image width (BUTTONL: 3px wide),
-    # so scale=1 -> 3, scale=2 -> 6, scale=3 -> 9.
-    # The exact value can change if the iclass is found or not; assert proportionality.
+    # BorderLeft = max(BORDER_SIZE_LEFT, max anchored-part width) x scale.
+    # Aliens' CORNER_TL is 124 wide, so unclamped values are 124/248/372 at
+    # scales 1/2/3. The [2, 400] clamp accommodates all three.
     assert bl_1 > 0, "BorderLeft must be positive at scale=1"
     assert bl_3 > 0, "BorderLeft must be positive at scale=3"
-    # Must be reasonably small — NOT grotesquely large (old bug: 35, 70, 105)
-    assert bl_1 <= 20, f"BorderLeft={bl_1} at scale=1 too large (should be ≤20px thin frame)"
-    assert bl_3 <= 60, f"BorderLeft={bl_3} at scale=3 too large"
-    # bl_2 should be between bl_1 and bl_3 (monotonic with scale)
+    assert bl_1 <= 400, f"BorderLeft={bl_1} at scale=1 above the [2,400] clamp"
+    assert bl_3 <= 400, f"BorderLeft={bl_3} at scale=3 above the [2,400] clamp"
+    # bl_2 should be between bl_1 and bl_3 (monotonic with scale).
     assert bl_1 <= bl_2 <= bl_3, f"BorderLeft not monotonic: {bl_1}/{bl_2}/{bl_3}"
 
 
