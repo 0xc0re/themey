@@ -26,22 +26,88 @@ The shadow becomes a Phase-2 enhancement if wanted.
 from __future__ import annotations
 
 import configparser
+import io
 from pathlib import Path
+
+from PIL import Image
 
 from themey.analyze.buttons import title_part
 from themey.generate.composite import (
     REFERENCE_H,
     REFERENCE_W,
     button_layout,
+    compose_region,
     resolve_parts,
 )
 from themey.generate.decoration_svg import strip_thicknesses
 from themey.ir import Theme
 
+# Same cap the SVG/rc layout pair uses (mirrors decoration_svg.DEFAULT_MAX_BORDER).
+_TOP_SAMPLE_MAX_BORDER: int = 200
+
+# Luminance difference (0..1) below which we treat text and bg as too close
+# in brightness to be readable. 0.2 ≈ 50 / 255 in 8-bit terms, per the plan.
+_MIN_LUMINANCE_DIFF: float = 0.2
+
 
 def _format_color_rgba(rgb: tuple[int, int, int]) -> str:
     """Format RGB tuple as ``R,G,B,255``."""
     return f"{rgb[0]},{rgb[1]},{rgb[2]},255"
+
+
+def _luminance(rgb: tuple[int, int, int]) -> float:
+    """Rec. 709 relative luminance in 0..1 (gamma-uncorrected)."""
+    r, g, b = (c / 255.0 for c in rgb)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _sample_top_bg_rgb(
+    theme: Theme, *, prefer_active: bool
+) -> tuple[int, int, int] | None:
+    """Average opaque pixel RGB of the composited top region, or None.
+
+    Used to detect when the configured title-text color would be illegible
+    against the rendered title-bar background — e.g. white text on a
+    near-white background.
+    """
+    try:
+        data = compose_region(
+            theme,
+            "top",
+            prefer_active=prefer_active,
+            max_border_output=_TOP_SAMPLE_MAX_BORDER,
+        )
+    except Exception:
+        return None
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            rgba = im.convert("RGBA")
+    except Exception:
+        return None
+    opaque = [px for px in rgba.getdata() if px[3] > 32]
+    if not opaque:
+        return None
+    n = len(opaque)
+    return (
+        sum(px[0] for px in opaque) // n,
+        sum(px[1] for px in opaque) // n,
+        sum(px[2] for px in opaque) // n,
+    )
+
+
+def _contrast_corrected_text_rgb(
+    text_rgb: tuple[int, int, int],
+    bg_rgb: tuple[int, int, int] | None,
+) -> tuple[tuple[int, int, int], bool]:
+    """Return (text_rgb_to_emit, swapped). When ``bg_rgb`` is provided and
+    luminance contrast is below ``_MIN_LUMINANCE_DIFF``, swap text to pure
+    black or white based on bg brightness.
+    """
+    if bg_rgb is None:
+        return (text_rgb, False)
+    if abs(_luminance(text_rgb) - _luminance(bg_rgb)) >= _MIN_LUMINANCE_DIFF:
+        return (text_rgb, False)
+    return (((0, 0, 0) if _luminance(bg_rgb) > 0.5 else (255, 255, 255)), True)
 
 
 def _title_bar_part(theme: Theme) -> tuple[int, int, int, int] | None:
@@ -217,9 +283,30 @@ def write_aurorae_rc(theme: Theme, out_dir: Path) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     cp = _CaseSensitiveRawConfigParser()
 
+    active_bg = _sample_top_bg_rgb(theme, prefer_active=True)
+    inactive_bg = _sample_top_bg_rgb(theme, prefer_active=False)
+    active_text, active_swapped = _contrast_corrected_text_rgb(
+        theme.palette.text_active, active_bg
+    )
+    inactive_text, inactive_swapped = _contrast_corrected_text_rgb(
+        theme.palette.text_inactive, inactive_bg
+    )
+    if active_swapped:
+        theme.notes.append(
+            f"aurorae_rc: ActiveTextColor swapped "
+            f"{theme.palette.text_active} → {active_text} for contrast "
+            f"against title-bar bg {active_bg}"
+        )
+    if inactive_swapped:
+        theme.notes.append(
+            f"aurorae_rc: InactiveTextColor swapped "
+            f"{theme.palette.text_inactive} → {inactive_text} for contrast "
+            f"against title-bar bg {inactive_bg}"
+        )
+
     cp["General"] = {
-        "ActiveTextColor": _format_color_rgba(theme.palette.text_active),
-        "InactiveTextColor": _format_color_rgba(theme.palette.text_inactive),
+        "ActiveTextColor": _format_color_rgba(active_text),
+        "InactiveTextColor": _format_color_rgba(inactive_text),
         "TitleAlignment": "Center",
         "TitleVerticalAlignment": "Center",
         "UseTextShadow": "true",
