@@ -21,6 +21,7 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
+    "imagehash>=4.3.2",
     "pyright>=1.1.409,<2",
     "pytest>=9.0,<10",
     "ruff>=0.15,<0.16",
