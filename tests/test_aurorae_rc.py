@@ -7,8 +7,6 @@ from __future__ import annotations
 from configparser import RawConfigParser
 from pathlib import Path
 
-import pytest
-
 
 def _make_minimal_theme(
     *,
@@ -128,7 +126,7 @@ def test_aurorae_rc_borderleft_scales_with_theme_scale(tmp_path: Path) -> None:
     cp2 = _read_rc(out2)
     bl1 = int(cp1["Layout"]["BorderLeft"])
     bl2 = int(cp2["Layout"]["BorderLeft"])
-    assert bl2 == bl1 * 2, f"scale=2 BorderLeft ({bl2}) should be 2× scale=1 ({bl1})"
+    assert bl2 == bl1 * 2, f"scale=2 BorderLeft ({bl2}) should be 2x scale=1 ({bl1})"
 
 
 def test_aurorae_rc_filename_matches_theme_name(tmp_path: Path) -> None:
@@ -148,3 +146,118 @@ def test_aurorae_rc_keys_case_preserved(tmp_path: Path) -> None:
     raw = out.read_text(encoding="utf-8")
     assert "LeftButtons=" in raw, "Expected 'LeftButtons=' (capital L) in rc file"
     assert "leftbuttons=" not in raw, "Found lowercase 'leftbuttons=' — optionxform not set"
+
+
+# ---------------------------------------------------------------------------
+# Adaptive title centering — when the title-bearing part is small relative to
+# the grown chrome (e.g. Aliens grows BorderTop to 120 to fit the alien-head
+# corner art; title bar is only 26 tall), the title text should be CENTERED
+# vertically rather than pinned to the top.
+# ---------------------------------------------------------------------------
+
+
+def test_aliens_title_text_centered_in_capped_chrome(tmp_path: Path, monkeypatch) -> None:
+    """Aliens: BorderTop is grown to fit corner art; the 26-tall title text
+    must be centered within the 120-tall chrome (not pinned to y=6).
+
+    Pre-fix: TitleEdgeTop=6 placed the title at the top of a 120-tall band,
+    visually disconnected from the chrome center. Post-fix: TitleEdgeTop ≈
+    (BorderTop − TitleHeight) / 2 ≈ 47.
+    """
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("XDG_DATA_HOME", str(fake_home / ".local" / "share"))
+
+    import themey.paths as paths_mod
+
+    aurorae_dir = fake_home / ".local/share/aurorae/themes"
+    previews_dir = fake_home / ".local/share/themey/previews"
+    monkeypatch.setattr(paths_mod, "aurorae_themes", lambda: aurorae_dir)
+    monkeypatch.setattr(paths_mod, "themey_previews", lambda: previews_dir)
+
+    from themey.pipeline import convert
+
+    aliens = Path(__file__).parent / "fixtures" / "Aliens.etheme"
+    if not aliens.exists():
+        import pytest
+
+        pytest.skip("Aliens.etheme fixture not available")
+    result = convert(aliens, scale=2)
+
+    cp = _read_rc(result.installed_dir / "Aliensrc")
+    layout = cp["Layout"]
+    border_top = int(layout["BorderTop"])
+    title_height = int(layout["TitleHeight"])
+    title_edge_top = int(layout["TitleEdgeTop"])
+    title_edge_bottom = int(layout["TitleEdgeBottom"])
+
+    # Sanity preconditions: Aliens chrome must actually be the "small-title-in-
+    # big-chrome" case for this test to be meaningful. (BorderTop grows to
+    # accommodate the 179-tall CORNER_TL alien-head.)
+    assert title_height < border_top * 0.6, (
+        f"Test premise broken: title_height={title_height} not small vs "
+        f"border_top={border_top} (centering should fire)"
+    )
+
+    # Centered: TitleEdgeTop ≈ (BorderTop - TitleHeight) / 2, ±2 px.
+    expected_top = (border_top - title_height) // 2
+    assert abs(title_edge_top - expected_top) <= 2, (
+        f"TitleEdgeTop={title_edge_top} not centered "
+        f"(expected ≈ {expected_top}, BorderTop={border_top}, "
+        f"TitleHeight={title_height})"
+    )
+
+    # Layout invariant: edges + height must sum to BorderTop.
+    assert title_edge_top + title_height + title_edge_bottom == border_top, (
+        f"layout doesn't tile: top={title_edge_top} + height={title_height} "
+        f"+ bottom={title_edge_bottom} != BorderTop={border_top}"
+    )
+
+
+def test_e13_title_canonical_placement_when_fills_chrome(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """e13: title bar fills the entire top zone (46 tall ÷ 46 chrome = 100%).
+
+    When the title spans most of the chrome, canonical positioning wins —
+    we keep TitleEdgeTop at the part's reference y (which is 0 for e13).
+    Centering should NOT fire.
+    """
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("XDG_DATA_HOME", str(fake_home / ".local" / "share"))
+
+    import themey.paths as paths_mod
+
+    aurorae_dir = fake_home / ".local/share/aurorae/themes"
+    previews_dir = fake_home / ".local/share/themey/previews"
+    monkeypatch.setattr(paths_mod, "aurorae_themes", lambda: aurorae_dir)
+    monkeypatch.setattr(paths_mod, "themey_previews", lambda: previews_dir)
+
+    from themey.pipeline import convert
+
+    e13 = Path(__file__).parent / "fixtures" / "e13.etheme"
+    if not e13.exists():
+        import pytest
+
+        pytest.skip("e13.etheme fixture not available")
+    result = convert(e13, scale=2)
+
+    cp = _read_rc(result.installed_dir / "e13rc")
+    layout = cp["Layout"]
+    border_top = int(layout["BorderTop"])
+    title_height = int(layout["TitleHeight"])
+    title_edge_top = int(layout["TitleEdgeTop"])
+
+    # Canonical placement when title fills chrome: top edge is at 0 (or near).
+    assert title_edge_top <= 4, (
+        f"e13 TitleEdgeTop={title_edge_top}: expected canonical "
+        f"placement (~0), not centered (title fills chrome)"
+    )
+    # And title should fill most of the chrome.
+    assert title_height >= border_top * 0.6, (
+        f"e13 title_height={title_height} < 0.6*border_top={border_top}; "
+        f"premise of this test broken"
+    )

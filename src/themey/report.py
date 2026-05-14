@@ -63,15 +63,23 @@ def write(theme: Theme, out_path: Path) -> Path:
         "system default is used. Source font preserved as a "
         "name-only note (Aurorae limitation)."
     )
+
+    # Surface layout-decision notes (aurorae_rc:, composite:, etc.) BEFORE
+    # the truncated-state-drop bucket so they don't get buried past line 20.
+    layout_notes = [n for n in theme.notes if n.startswith(("aurorae_rc:", "composite:"))]
+    state_notes = [n for n in theme.notes if not n.startswith(("aurorae_rc:", "composite:"))]
+    for note in layout_notes:
+        lines.append(f"- {note}")
+
     lines.append(
         "- E16's 8-state image model collapsed to Aurorae's 2-state "
         "model. Sticky and disabled variants are dropped:"
     )
     # First 20 dropped-state notes (from Theme.notes)
-    for note in theme.notes[:20]:
+    for note in state_notes[:20]:
         lines.append(f"  - {note}")
-    if len(theme.notes) > 20:
-        lines.append(f"  ... ({len(theme.notes) - 20} more)")
+    if len(state_notes) > 20:
+        lines.append(f"  ... ({len(state_notes) - 20} more)")
     lines.append(
         f"- Pixel-art borders upscaled {theme.scale}x with NEAREST. "
         "Pixel-perfect on 1.0x/2.0x/3.0x display scales; "
