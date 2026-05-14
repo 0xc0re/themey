@@ -446,6 +446,12 @@ def button_dims(theme: Theme) -> tuple[int, int]:
     bst = theme.border.border_size_top
     bboxes = resolve_parts(theme.border.parts, REFERENCE_W, REFERENCE_H)
 
+    # A real titlebar button is at most a quarter of the reference window
+    # wide; anything wider is a spatial-fallback part (e.g. OPENSTEP's
+    # BORDER_PIXEL iclass spans the full window) and would poison the
+    # max-width search if admitted. Discard those candidates.
+    BUTTON_WIDTH_CAP_REF = REFERENCE_W // 4  # 200 ref → 400 output at scale=2
+
     max_w = 0
     max_h = 0
     for idx, part in enumerate(theme.border.parts):
@@ -458,7 +464,10 @@ def button_dims(theme: Theme) -> tuple[int, int]:
         # Only count buttons that live within the top zone (title bar).
         if y0 < 0 or y1 > bst:
             continue
-        max_w = max(max_w, x1 - x0)
+        width_ref = x1 - x0
+        if width_ref > BUTTON_WIDTH_CAP_REF:
+            continue
+        max_w = max(max_w, width_ref)
         max_h = max(max_h, y1 - y0)
 
     if max_w == 0 and max_h == 0:
