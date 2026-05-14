@@ -36,6 +36,7 @@ from .fallback import discover_by_filename
 from .iclasses import build_iclasses
 from .states import collapse_image_states
 from .tclasses import build_tclasses
+from .wallpaper import extract_wallpapers
 
 
 def _collect_blocks(nodes: list[AstNode], keyword: str) -> list[Block]:
@@ -261,6 +262,16 @@ def build_theme(
             )
 
     # ------------------------------------------------------------------
+    # 5c. Wallpapers — scan desktops.cfg's macro syntax for image paths.
+    # ------------------------------------------------------------------
+    wallpapers = extract_wallpapers(asset_root)
+    if wallpapers:
+        notes.append(
+            f"found {len(wallpapers)} wallpaper image(s) "
+            "(wallpaper install deferred to Phase 2)"
+        )
+
+    # ------------------------------------------------------------------
     # 6. Palette — use TEXT1 tclass colors when available; else defaults.
     #    (Phase 2 COLORS-01 does the full dominant-color palette extraction.)
     # ------------------------------------------------------------------
@@ -288,6 +299,7 @@ def build_theme(
         right_buttons=right,
         palette=palette,
         cursors=cursors,
+        wallpapers=wallpapers,
         notes=notes,
         skipped_borders=tuple(skipped),
     )
