@@ -1,222 +1,189 @@
 """Aurorae <name>rc INI writer.
 
-``RawConfigParser`` preserves ``%`` characters in values (some KDE color values
-use ``%`` in font names via ``BasicInterpolation``). The subclass form
-``optionxform = staticmethod(str)`` preserves KDE's case-sensitive keys
-(``LeftButtons``, ``BackgroundNormal``, etc.) without tripping pyright basic's
-"cannot assign method to instance" error that the bare ``cp.optionxform = str``
-form raises.
+Layout values are derived from ``decoration_svg.strip_thicknesses(theme)`` so
+the rc and the SVG see one source of truth. The invariants the SVG writer
+documents hold:
 
-Layout numerical mapping (fixed in e13 regression — visual-tune iter 1):
+    BorderTop    == decoration-top strip height
+    BorderLeft   == decoration-left strip width
+    BorderRight  == decoration-right strip width
+    BorderBottom == decoration-bottom strip height
+    TitleHeight  <= BorderTop  (title-text band lives WITHIN the top zone)
 
-    PaddingLeft  = border_size_left  * scale   (total left decoration space)
-    PaddingRight = border_size_right * scale
-    PaddingTop   = border_size_top   * scale   (total top decoration space)
-    PaddingBottom= border_size_bottom* scale
+``TitleHeight`` was historically equal to ``BorderTop`` (single-iclass-strip
+themes); since the compositor + chrome-growth work, ``BorderTop`` can grow
+to fit corner art while ``TitleHeight`` stays at the title-bearing part's
+canonical span. When the title is small relative to the grown chrome, it is
+centered vertically via ``TitleEdgeTop``.
 
-    BorderLeft   = edge_scaling_left  of left-edge iclass  (thin visual frame)
-    BorderRight  = edge_scaling_right of right-edge iclass
-    BorderBottom = edge_scaling_bottom of bottom-edge iclass
-    (BorderTop is omitted — Aurorae uses TitleHeight for the top bar area)
+``Padding*`` is 0. E16 has no shadow concept, and emitting a large shadow
+zone here paints the title text into an empty area above the actual frame.
+The shadow becomes a Phase-2 enhancement if wanted.
 
-    TitleHeight  = image height of titlebar iclass (FIN/TITLEBAR) at scale
-
-Previous (wrong) formula was ``BorderLeft = border_size_left * scale`` which
-produced grotesquely wide left borders (80px for e13 vs. ~6px correct) because
-``border_size_left`` in E16 includes the entire interactive zone (buttons +
-frame), not just the thin visual frame edge that Aurorae ``BorderLeft`` expects.
-
-These are Open Question A2 from 01-RESEARCH.md — visual-gate-tunable. The
-formula block is isolated in ``_layout_values`` so Plan 09's visual gate can
-adjust a single function without touching callers.
-
-# visual-tune iter 1: BorderLeft from edge_scaling not border_size; PaddingLeft
-# from border_size * scale; TitleHeight from iclass image height.
+``RawConfigParser`` preserves ``%`` (some KDE values use it) and
+``optionxform = staticmethod(str)`` keeps KDE's case-sensitive keys intact.
 """
 from __future__ import annotations
 
 import configparser
 from pathlib import Path
 
-from PIL import Image
-
-from themey.ir import IClassSpec, Theme
+from themey.analyze.buttons import title_part
+from themey.generate.composite import (
+    REFERENCE_H,
+    REFERENCE_W,
+    button_layout,
+    resolve_parts,
+)
+from themey.generate.decoration_svg import strip_thicknesses
+from themey.ir import Theme
 
 
 def _format_color_rgba(rgb: tuple[int, int, int]) -> str:
-    """Format RGB tuple as ``R,G,B,255`` (full alpha, 4-tuple)."""
+    """Format RGB tuple as ``R,G,B,255``."""
     return f"{rgb[0]},{rgb[1]},{rgb[2]},255"
 
 
-def _get_image_size(p: Path | None) -> tuple[int, int] | None:
-    """Return (width, height) in pixels of an image file, or None on failure."""
-    if p is None or not p.is_file():
-        return None
-    try:
-        with Image.open(p) as img:
-            return img.size
-    except Exception:
-        return None
+def _title_bar_part(theme: Theme) -> tuple[int, int, int, int] | None:
+    """Return the resolved bbox of the title-bearing part, or None.
 
-
-_SIDE_PATTERNS: dict[str, list[str]] = {
-    "left": ["WIN_SIDE_LEFT", "SIDE_LEFT", "BUTTONL", "WIN_LEFT"],
-    "right": ["WIN_SIDE_RIGHT", "SIDE_RIGHT", "BUTTONR", "WIN_RIGHT"],
-    "bottom": ["WIN_BOTTOM", "BUTTONB", "BAR_BOTTOM", "BOTTOM"],
-    "top": ["TITLE_BAR_HORIZONTAL", "TITLEBAR", "TITLE_BAR", "FIN", "BAR_TOP",
-            "WIN_TOP_TITLE", "WIN_TOP"],
-}
-
-
-def _find_iclass(side: str, iclasses: dict[str, IClassSpec]) -> IClassSpec | None:
-    """Find the best iclass for a named decoration side by name-pattern matching."""
-    upper_names = {name.upper(): name for name in iclasses}
-    for pat in _SIDE_PATTERNS.get(side, []):
-        if pat in upper_names:
-            return iclasses[upper_names[pat]]
-    # Substring fallback
-    for pat in _SIDE_PATTERNS.get(side, []):
-        for up, orig in upper_names.items():
-            if pat in up:
-                return iclasses[orig]
-    return None
-
-
-def _border_width_from_iclass(
-    ic: IClassSpec | None,
-    dimension: str,
-    fallback: int,
-    scale: int,
-) -> int:
-    """Derive a border thickness from an iclass image dimension.
-
-    For side borders (left/right), use the image WIDTH.
-    For the bottom border, use the image HEIGHT.
-
-    Falls back to edge_scaling if the image is missing, then to ``fallback``.
-
-    Args:
-        ic: The iclass (may be None).
-        dimension: ``"width"`` for left/right borders, ``"height"`` for bottom.
-        fallback: Raw pixel value to use when all other sources fail.
-        scale: The conversion scale factor.
-
-    Returns:
-        Border width in output pixels, at least 2.
+    Canonical E16 grammar (Section 6 / wilbs parse-cfg.ts:212): the title
+    region is the part flagged ``__FLAGS __FLAG_TITLE``. We look up that
+    part by flag, then return its resolved bbox at the reference window
+    size.
     """
-    if ic is not None:
-        img_path = ic.normal or ic.normal_active
-        size = _get_image_size(img_path)
-        if size is not None:
-            raw = size[0] if dimension == "width" else size[1]
-            return max(2, raw * scale)
-        # Fallback to edge_scaling
-        axis = 0 if dimension == "width" else 3
-        raw = ic.edge_scaling[axis]
-        if raw > 0:
-            return max(2, raw * scale)
-    return max(2, fallback * scale)
+    tp = title_part(theme.border.parts)
+    if tp is None:
+        return None
+    bboxes = resolve_parts(theme.border.parts, REFERENCE_W, REFERENCE_H)
+    idx = theme.border.parts.index(tp)
+    return bboxes.get(idx)
 
 
-def _title_height(theme: Theme, scale: int) -> int:
-    """Derive TitleHeight in output pixels from the titlebar iclass image height.
+def _title_bar_y_range(theme: Theme) -> tuple[int, int]:
+    """Return (y_top, y_bottom) of the title bar in reference coords.
 
-    Looks up the top-edge iclass (TITLEBAR / FIN / TITLE_BAR_HORIZONTAL) in
-    priority order:
-    1. FIN (a thin horizontal strip) — most accurate for e13-style themes
-    2. TITLEBAR (the full top area artwork)
-    3. TITLE_BAR_HORIZONTAL (generic titlebar image)
-    4. First matched "top" iclass
-
-    Reads image height (normal_active preferred, normal fallback) and scales
-    by ``scale``. Clamps to [12, 80] for KDE layout sanity.
+    NOT clamped to ``border_size_top`` — when the chrome is grown to fit
+    corner art, callers need the title's *canonical* y in reference coords
+    so they can decide whether to center it within the grown chrome.
     """
-    # Try FIN first — it's the pure titlebar strip in e13-style themes
-    for name_pref in ["FIN", "TITLEBAR", "TITLE_BAR_HORIZONTAL"]:
-        ic = theme.iclasses.get(name_pref)
-        if ic is not None:
-            img_path = ic.normal_active or ic.normal
-            size = _get_image_size(img_path)
-            if size is not None and size[1] > 0:
-                return max(12, min(80, size[1] * scale))
+    bb = _title_bar_part(theme)
+    if bb is None:
+        return (0, theme.border.border_size_top)
+    y_top = max(0, bb[1])
+    y_bot = bb[3]
+    if y_bot > y_top:
+        return (y_top, y_bot)
+    return (0, theme.border.border_size_top)
 
-    # Generic top-edge iclass
-    ic = _find_iclass("top", theme.iclasses)
-    if ic is not None:
-        img_path = ic.normal_active or ic.normal
-        size = _get_image_size(img_path)
-        if size is not None and size[1] > 0:
-            return max(12, min(80, size[1] * scale))
 
-    # Fallback: use a fraction of border_size_top that won't be grotesque
-    raw = max(12, theme.border.border_size_top * scale // 3)
-    return min(80, raw)
+def _title_bar_x_range(theme: Theme) -> tuple[int, int]:
+    """Return (x_left_offset, x_right_offset) of the title bar from inner edges."""
+    bsl = theme.border.border_size_left
+    bsr = theme.border.border_size_right
+    bb = _title_bar_part(theme)
+    if bb is None:
+        return (0, 0)
+    left_off = max(0, bb[0] - bsl)
+    right_off = max(0, (REFERENCE_W - bsr) - bb[2])
+    return (left_off, right_off)
 
 
 def _layout_values(theme: Theme) -> dict[str, str]:
-    """Compute the [Layout] section from Theme border sizes, iclass edge_scaling, and scale.
+    """Build the [Layout] section.
 
-    Key formula change (e13 regression fix, visual-tune iter 1):
-    - Border{Left,Right,Bottom} = edge_scaling of the corresponding side iclass
-      (thin visual frame edge), NOT border_size * scale (which is the full E16
-      zone including button stacking areas).
-    - Padding{Left,Right,Top,Bottom} = border_size * scale (total decoration
-      space, which Aurorae uses for window geometry / shadow region).
-    - TitleHeight = iclass image height * scale (actual artwork height).
+    Border sizes come from ``strip_thicknesses`` (full E16 zone x scale).
+    Title positioning uses the resolved bbox of the title-bearing part.
 
-    Tunable formula block (Open Question A2 — adjust here for visual gate):
+    Adaptive centering: when the title-bearing part fills < 60% of the
+    output ``BorderTop`` (e.g. Aliens grows BorderTop to 120 to fit the
+    179-tall CORNER_TL alien-head, leaving the 13-tall title floating at
+    the top of a 60-tall reference band), the title text is vertically
+    centered within the chrome. When the title fills most of the chrome
+    (e.g. e13's TITLEBAR is 46 tall in a 46 tall top zone), canonical
+    placement is honored. A note is appended to ``theme.notes`` when
+    centering fires so ``report.txt`` documents the decision.
     """
     s = theme.scale
+    thick = strip_thicknesses(theme)
+    top, bot = thick["top"], thick["bottom"]
+    lft, rgt = thick["left"], thick["right"]
 
-    # Padding = total decoration zone per side (border_size * scale)
-    pad_l = theme.border.border_size_left * s
-    pad_r = theme.border.border_size_right * s
-    pad_t = theme.border.border_size_top * s
-    pad_b = theme.border.border_size_bottom * s
+    # Canonical title y range in reference coords (NOT clamped to BST —
+    # we need the source value before deciding whether to center).
+    y_top_ref, y_bot_ref = _title_bar_y_range(theme)
+    canonical_title_height_ref = max(1, y_bot_ref - y_top_ref)
+    title_height = max(2 * s, canonical_title_height_ref * s)
+    # Cap title_height inside the (possibly grown) chrome.
+    title_height = min(title_height, max(2 * s, top))
 
-    # BorderLeft/Right/Bottom = visual frame width from the side iclass image size.
-    # Left/right borders: use image WIDTH (the iclass tile is as wide as the border).
-    # Bottom border: use image HEIGHT (the tile is as tall as the bottom border).
-    # Fallback when no iclass: border_size // 4 (much smaller than border_size itself).
-    left_ic = _find_iclass("left", theme.iclasses)
-    right_ic = _find_iclass("right", theme.iclasses)
-    bottom_ic = _find_iclass("bottom", theme.iclasses)
+    canonical_top_output = max(0, y_top_ref * s)
+    centered = False
+    if title_height < int(top * 0.6):
+        # Centering fires: title is small relative to grown chrome.
+        title_edge_top = max(0, (top - title_height) // 2)
+        centered = True
+        # Idempotent: a single rc-writer invocation per theme is the norm,
+        # but if a future code path regenerates the rc it must not duplicate
+        # this note.
+        if not any(
+            n.startswith("aurorae_rc: title centered vertically")
+            for n in theme.notes
+        ):
+            theme.notes.append(
+                f"aurorae_rc: title centered vertically "
+                f"(title_height={title_height} < 60% of BorderTop={top}); "
+                f"canonical y_top={canonical_top_output} preserved as "
+                "report-only context"
+            )
+    else:
+        title_edge_top = min(canonical_top_output, max(0, top - title_height))
+    title_edge_bottom = max(0, top - title_edge_top - title_height)
+    # Defensive: rounding pushed total > BorderTop → trim title_height
+    if title_edge_top + title_height + title_edge_bottom > top:
+        title_height = max(2 * s, top - title_edge_top - title_edge_bottom)
 
-    bl = _border_width_from_iclass(
-        left_ic, "width", max(1, theme.border.border_size_left // 4), s
-    )
-    br = _border_width_from_iclass(
-        right_ic, "width", max(1, theme.border.border_size_right // 4), s
-    )
-    bb = _border_width_from_iclass(
-        bottom_ic, "height", max(1, theme.border.border_size_bottom // 4), s
-    )
+    # Title bar x offsets relative to the inner edges of the left/right zones.
+    x_left_off, x_right_off = _title_bar_x_range(theme)
+    title_edge_left = max(0, x_left_off * s)
+    title_edge_right = max(0, x_right_off * s)
 
-    # TitleHeight from artwork image height
-    th = _title_height(theme, s)
+    btn = button_layout(theme)
+    button_w = btn["ButtonWidth"]
+    button_h = btn["ButtonHeight"]
+    button_spacing = btn["ButtonSpacing"]
+    # Aurorae's ButtonMarginTop is measured from titleEdgeTop, not chrome top.
+    # Canonical position: button_y_top_ref - title_y_top_ref (clamped to >= 0).
+    raw_margin_top = btn["ButtonMarginTop"]  # button_y_top_ref * s (legacy form)
+    button_margin_top = max(0, raw_margin_top - canonical_top_output)
+    # When centered, keep the buttons centered with the title rather than
+    # floating above — preserve their canonical offset relative to title_top.
+    # (No additional adjustment needed: button_margin_top above is already
+    # the y delta between title-top-ref and button-top-ref, scaled.)
+    _ = centered  # silence unused-warning; the flag's effect lives in notes
 
     return {
-        "BorderLeft": str(bl),
-        "BorderRight": str(br),
-        "BorderBottom": str(bb),
-        "BorderTop": str(th),
-        "TitleEdgeTop": str(2 * s),
-        "TitleEdgeBottom": str(2 * s),
-        "TitleEdgeLeft": str(4 * s),
-        "TitleEdgeRight": str(4 * s),
+        "BorderLeft": str(lft),
+        "BorderRight": str(rgt),
+        "BorderBottom": str(bot),
+        "BorderTop": str(top),
+        "TitleEdgeTop": str(title_edge_top),
+        "TitleEdgeBottom": str(title_edge_bottom),
+        "TitleEdgeLeft": str(title_edge_left),
+        "TitleEdgeRight": str(title_edge_right),
         "TitleBorderLeft": str(2 * s),
         "TitleBorderRight": str(2 * s),
-        "TitleHeight": str(th),
-        "ButtonWidth": str(12 * s),
-        "ButtonHeight": str(12 * s),
-        "ButtonSpacing": str(4 * s),
-        "ButtonMarginTop": str(2 * s),
+        "TitleHeight": str(title_height),
+        "ButtonWidth": str(button_w),
+        "ButtonHeight": str(button_h),
+        "ButtonSpacing": str(button_spacing),
+        "ButtonMarginTop": str(button_margin_top),
         "ButtonMarginLeft": str(3 * s),
         "ExplicitButtonSpacer": "0",
-        "PaddingTop": str(pad_t),
-        "PaddingBottom": str(pad_b),
-        "PaddingLeft": str(pad_l),
-        "PaddingRight": str(pad_r),
+        "PaddingTop": "0",
+        "PaddingBottom": "0",
+        "PaddingLeft": "0",
+        "PaddingRight": "0",
     }
 
 

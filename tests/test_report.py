@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 
 def _make_theme(notes: list[str] | None = None, skipped_borders: tuple[str, ...] = ()):
     """Build a minimal Theme for testing."""
