@@ -140,6 +140,70 @@ def test_no_titlebar_button_prefixes_constant() -> None:
     )
 
 
+def test_button_dims_caps_oversized_spatial_fallback() -> None:
+    """``button_dims`` must discard interactive parts that span more than a
+    quarter of the reference window width.
+
+    OPENSTEP has an interactive part (a ``BORDER_PIXEL`` iclass) whose bbox
+    spans ~the full window width (1472 output px at scale=2). Without a cap
+    that part poisons the max-width search and the per-button SVGs end up
+    1472 px wide, which KWin cannot fit on a real title bar.
+    """
+    from themey.generate.composite import REFERENCE_W, button_dims
+    from themey.ir import BorderSpec, ButtonPart, IClassSpec, Palette, Theme
+
+    # One real button (close, 16x16) plus one bogus spatial-fallback part
+    # that spans 0..799 (full width).
+    parts = (
+        ButtonPart(
+            iclass_name="BUTTON_CLOSE",
+            aclass="ACTION_CLOSE",
+            tl_x_pct=0, tl_x_abs=4, br_x_pct=0, br_x_abs=20,
+            tl_y_pct=0, tl_y_abs=2, br_y_pct=0, br_y_abs=18,
+        ),
+        ButtonPart(
+            iclass_name="BORDER_PIXEL",
+            aclass="ACTION_CLOSE",  # an interactive aclass — would normally count
+            tl_x_pct=0, tl_x_abs=0, br_x_pct=0, br_x_abs=REFERENCE_W,
+            tl_y_pct=0, tl_y_abs=0, br_y_pct=0, br_y_abs=20,
+        ),
+    )
+    theme = Theme(
+        name="Tmp", display_name="Tmp", author=None, scale=2,
+        asset_root=Path("/tmp"),
+        border=BorderSpec(
+            name="DEFAULT",
+            border_size_left=4, border_size_right=4,
+            border_size_top=20, border_size_bottom=4,
+            parts=parts,
+        ),
+        iclasses={},
+        tclasses={},
+        button_codes={"BUTTON_CLOSE": "X"},
+        left_buttons="X", right_buttons="",
+        palette=Palette((0, 0, 0), (0, 0, 0), (255, 255, 255), (255, 255, 255)),
+    )
+    w, _h = button_dims(theme)
+    # Cap is REFERENCE_W // 4 = 200 ref → 400 output at scale=2.
+    assert w <= 400, f"button_dims width {w} exceeds 400-output cap"
+    # The real close button is 16 ref wide → 32 at scale=2.
+    assert w == 32, f"expected close-button width 32, got {w}"
+
+
+def test_openstep_buttonwidth_under_200_ref() -> None:
+    """OPENSTEP must end up with a reasonable per-button slot.
+
+    Before the cap, OPENSTEP's button_dims returned a 1472-output-px width
+    (the BORDER_PIXEL spatial-fallback part spanning the full window). The
+    output-pixel ButtonWidth should be at most 200 at scale=2 (= 100 ref).
+    """
+    from themey.generate.composite import button_dims
+
+    with _theme_ctx("OPENSTEP") as theme:
+        w, _h = button_dims(theme)
+        assert w <= 400, f"OPENSTEP ButtonWidth {w} too large (> 400 output)"
+
+
 @pytest.mark.parametrize("theme_name", THEMES)
 def test_no_interactive_iclass_in_composite(
     theme_name: str, fake_home: Path
