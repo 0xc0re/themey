@@ -31,6 +31,7 @@ from .borders import _block_name as _border_block_name
 from .borders import build_border, select_default_border
 from .buttons import bin_left_right, classify_button, title_part
 from .coords import REFERENCE_WINDOW_WIDTH, resolve
+from .cursors import extract_cursors
 from .fallback import discover_by_filename
 from .iclasses import build_iclasses
 from .states import collapse_image_states
@@ -244,6 +245,22 @@ def build_theme(
         )
 
     # ------------------------------------------------------------------
+    # 5b. Cursors — parse __CURSOR blocks (Phase 3 will emit XCursor files).
+    # ------------------------------------------------------------------
+    cursors = extract_cursors(ast_nodes, asset_root)
+    if cursors:
+        missing = [c.name for c in cursors if c.xbm_path is None or not c.xbm_path.is_file()]
+        notes.append(
+            f"parsed {len(cursors)} __CURSOR blocks "
+            f"(XCursor emission deferred to Phase 3)"
+        )
+        if missing:
+            notes.append(
+                f"cursors: {len(missing)} XBM file(s) missing from asset_root: "
+                f"{', '.join(sorted(missing))}"
+            )
+
+    # ------------------------------------------------------------------
     # 6. Palette — use TEXT1 tclass colors when available; else defaults.
     #    (Phase 2 COLORS-01 does the full dominant-color palette extraction.)
     # ------------------------------------------------------------------
@@ -270,6 +287,7 @@ def build_theme(
         left_buttons=left,
         right_buttons=right,
         palette=palette,
+        cursors=cursors,
         notes=notes,
         skipped_borders=tuple(skipped),
     )
