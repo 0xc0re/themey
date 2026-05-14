@@ -85,6 +85,7 @@ def build_iclasses(
         if name is None:
             continue
         edge = (0, 0, 0, 0)  # left, right, top, bottom — LRTB order per Pitfall 1
+        padding = (0, 0, 0, 0)
         states: dict[str, Path | None] = {}
 
         for kv in block.children:
@@ -92,6 +93,13 @@ def build_iclasses(
                 continue
             if kv.keyword == "__EDGE_SCALING" and len(kv.values) >= 4:
                 edge = (
+                    _to_int(kv.values[0]),
+                    _to_int(kv.values[1]),
+                    _to_int(kv.values[2]),
+                    _to_int(kv.values[3]),
+                )
+            elif kv.keyword == "__PADDING" and len(kv.values) >= 4:
+                padding = (
                     _to_int(kv.values[0]),
                     _to_int(kv.values[1]),
                     _to_int(kv.values[2]),
@@ -123,6 +131,7 @@ def build_iclasses(
             clicked_active=states.get("__CLICKED_ACTIVE"),
             normal_sticky=states.get("__NORMAL_STICKY"),
             normal_active_sticky=states.get("__NORMAL_ACTIVE_STICKY"),
+            padding=padding,
         )
 
     return typed, raw
