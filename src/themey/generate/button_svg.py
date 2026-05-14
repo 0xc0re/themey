@@ -5,10 +5,17 @@ Aurorae loads ``close.svg``, ``maximize.svg``, ``restore.svg``, ``minimize.svg``
 the theme directory based on the button codes in ``<name>rc``'s
 ``LeftButtons``/``RightButtons``.
 
-Each SVG contains three ``<g>`` elements with IDs:
-- ``<base_id>``          — default/idle state
-- ``<base_id>-hover``    — hovered state (Aurorae button feedback)
-- ``<base_id>-pressed``  — pressed state (Aurorae button feedback)
+Each SVG contains three ``<g>`` elements whose IDs are FrameSvg 9-patch
+prefixes, so KSvg / Aurorae's ``hasElementPrefix("active"|"hover"|"pressed")``
+checks succeed:
+
+- ``active-center``  — default/idle state
+- ``hover-center``   — hovered state
+- ``pressed-center`` — pressed state
+
+(``AuroraeButton.qml`` instantiates one ``KSvg.FrameSvg`` per state with
+``imagePath`` set to this SVG; if it can't find the prefix the per-state
+group falls back to ``imagePath: ""`` and the button is hidden.)
 
 Every ``<image>`` uses ``xlink:href="data:image/png;base64,..."`` and
 ``preserveAspectRatio="none"`` (same Pitfall 6 rules as decoration.svg).
@@ -93,12 +100,12 @@ def _find_iclass_for_code(theme: Theme, code: str) -> IClassSpec | None:
     return None
 
 
-def _build_button_svg(theme: Theme, code: str, base_id: str) -> ET.Element:
+def _build_button_svg(theme: Theme, code: str) -> ET.Element:
     """Build an SVG element tree for one button.
 
-    Three states: default (``base_id``), hover (``base_id-hover``), pressed
-    (``base_id-pressed``). Falls back up the state chain if a specific state
-    image is absent.
+    Three FrameSvg-prefixed states: ``active-center`` (idle), ``hover-center``
+    (hovered), ``pressed-center`` (pressed). Falls back up the state chain
+    when a specific state image is absent.
     """
     ET.register_namespace("", SVG_NS)
     ET.register_namespace("xlink", XLINK_NS)
@@ -138,13 +145,13 @@ def _build_button_svg(theme: Theme, code: str, base_id: str) -> ET.Element:
         },
     )
 
-    # Emit three <g> elements: default, hover, pressed.
-    for sub_id, png_data in (
-        (base_id, normal),
-        (f"{base_id}-hover", hover),
-        (f"{base_id}-pressed", pressed),
+    # Emit three FrameSvg 9-patch groups: active-center, hover-center, pressed-center.
+    for prefix, png_data in (
+        ("active", normal),
+        ("hover", hover),
+        ("pressed", pressed),
     ):
-        g = ET.SubElement(svg, f"{{{SVG_NS}}}g", {"id": sub_id})
+        g = ET.SubElement(svg, f"{{{SVG_NS}}}g", {"id": f"{prefix}-center"})
         ET.SubElement(
             g,
             f"{{{SVG_NS}}}image",
@@ -180,8 +187,7 @@ def write_button_svgs(theme: Theme, out_dir: Path) -> list[Path]:
     written: list[Path] = []
     for code in sorted(codes):  # sorted for deterministic output order
         for fname in BUTTON_CODE_TO_FILES.get(code, ()):
-            base_id = fname.removesuffix(".svg")  # e.g. "close", "maximize"
-            svg = _build_button_svg(theme, code, base_id)
+            svg = _build_button_svg(theme, code)
             out_path = out_dir / fname
             ET.ElementTree(svg).write(out_path, xml_declaration=True, encoding="utf-8")
             written.append(out_path)
