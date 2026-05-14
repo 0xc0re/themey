@@ -256,3 +256,82 @@ def test_title_part_works_with_short_iclass_name() -> None:
     """
     p = _part(iclass_name="TITLEBAR", flags=("__FLAG_TITLE",))
     assert title_part((p,)) is p
+
+
+# ---------------------------------------------------------------------------
+# Step 9: ACLASS vocabulary expansion
+# ---------------------------------------------------------------------------
+
+
+def test_aclass_keep_above_maps_F() -> None:
+    assert classify_button("ACTION_KEEP_ABOVE", "anything") == ("F", "aclass")
+
+
+def test_aclass_keep_below_maps_B() -> None:
+    assert classify_button("ACTION_KEEP_BELOW", "anything") == ("B", "aclass")
+
+
+def test_aclass_menu_drops() -> None:
+    assert classify_button("ACTION_MENU", "anything") == (None, "drop")
+
+
+def test_aclass_desktop_next_drops() -> None:
+    assert classify_button("ACTION_DESKTOP_NEXT", "anything") == (None, "drop")
+
+
+def test_aclass_exec_drops() -> None:
+    assert classify_button("ACTION_EXEC", "anything") == (None, "drop")
+
+
+def test_unknown_aclass_returns_unknown_source() -> None:
+    """An ACTION_* aclass we don't speak short-circuits iclass-pattern
+    fallback so build_theme can log it instead of silently using a
+    questionable pattern match.
+    """
+    code, source = classify_button("ACTION_SOMETHING_NEW", "BUTTON_CLOSE")
+    assert (code, source) == (None, "unknown_aclass")
+
+
+def test_unknown_aclass_logged_in_notes(tmp_path) -> None:
+    """End-to-end: an unknown ACLASS produces a notes entry mentioning it."""
+    from themey.analyze.build_theme import build_theme
+    from themey.etheme.ast import Block, KeyVal
+
+    def kv(k, *v):
+        return KeyVal(keyword=k, values=tuple(v), line=0)
+
+    # Synthesize a minimal cfg: one __BORDER block with a __BORDER_PART whose
+    # __ACLASS is something we don't speak.
+    part = Block(
+        keyword="__BORDER_PART",
+        head_values=(),
+        children=(
+            kv("__ICLASS", "ZAP_BTN"),
+            kv("__ACLASS", "ACTION_BLOOP"),
+            kv("__TOPLEFT_X_PERCENTAGE", 0),
+            kv("__TOPLEFT_X_ABSOLUTE", 4),
+            kv("__TOPLEFT_Y_PERCENTAGE", 0),
+            kv("__TOPLEFT_Y_ABSOLUTE", 4),
+            kv("__BOTTOMRIGHT_X_PERCENTAGE", 0),
+            kv("__BOTTOMRIGHT_X_ABSOLUTE", 20),
+            kv("__BOTTOMRIGHT_Y_PERCENTAGE", 0),
+            kv("__BOTTOMRIGHT_Y_ABSOLUTE", 20),
+        ),
+        line=0,
+    )
+    border = Block(
+        keyword="__BORDER",
+        head_values=("DEFAULT",),
+        children=(
+            kv("__BORDER_SIZE_LEFT", 4),
+            kv("__BORDER_SIZE_RIGHT", 4),
+            kv("__BORDER_SIZE_TOP", 24),
+            kv("__BORDER_SIZE_BOTTOM", 4),
+            part,
+        ),
+        line=0,
+    )
+    theme = build_theme(tmp_path, [border], name="X", scale=1)
+    assert any(
+        "ACTION_BLOOP" in n for n in theme.notes
+    ), f"unknown ACLASS not logged; notes={theme.notes}"
