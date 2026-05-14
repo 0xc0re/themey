@@ -215,6 +215,50 @@ def test_aliens_title_text_centered_in_capped_chrome(tmp_path: Path, monkeypatch
     )
 
 
+def test_litegnome_title_edge_padding_at_least_1(tmp_path: Path, monkeypatch) -> None:
+    """LiteGnome's title-bearing part spans the full top zone (TitleEdgeTop=0
+    canonical). KWin needs at least 1-2 px of padding at top and bottom to
+    position the text baseline; otherwise the title vanishes.
+
+    Post-fix: both TitleEdgeTop and TitleEdgeBottom must be >= max(1, scale).
+    """
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("XDG_DATA_HOME", str(fake_home / ".local" / "share"))
+
+    import themey.paths as paths_mod
+
+    aurorae_dir = fake_home / ".local/share/aurorae/themes"
+    previews_dir = fake_home / ".local/share/themey/previews"
+    monkeypatch.setattr(paths_mod, "aurorae_themes", lambda: aurorae_dir)
+    monkeypatch.setattr(paths_mod, "themey_previews", lambda: previews_dir)
+
+    from themey.pipeline import convert
+
+    litegnome = Path(__file__).parent / "fixtures" / "LiteGnome.etheme"
+    if not litegnome.exists():
+        import pytest
+        pytest.skip("LiteGnome.etheme fixture not available")
+    result = convert(litegnome, scale=2)
+    cp = _read_rc(result.installed_dir / "LiteGnomerc")
+    layout = cp["Layout"]
+    title_edge_top = int(layout["TitleEdgeTop"])
+    title_edge_bottom = int(layout["TitleEdgeBottom"])
+    # At scale=2, minimum padding is max(1, scale) = 2.
+    assert title_edge_top >= 1, f"TitleEdgeTop={title_edge_top} < 1 — title text will clip"
+    assert title_edge_bottom >= 1, (
+        f"TitleEdgeBottom={title_edge_bottom} < 1 — title text will clip"
+    )
+    # Invariant: padding + height = BorderTop must still hold.
+    border_top = int(layout["BorderTop"])
+    title_height = int(layout["TitleHeight"])
+    assert title_edge_top + title_height + title_edge_bottom == border_top, (
+        f"layout doesn't tile: {title_edge_top} + {title_height} + "
+        f"{title_edge_bottom} != {border_top}"
+    )
+
+
 def _luminance(rgb: tuple[int, int, int]) -> float:
     r, g, b = (c / 255 for c in rgb)
     return 0.2126 * r + 0.7152 * g + 0.0722 * b

@@ -205,9 +205,25 @@ def _layout_values(theme: Theme) -> dict[str, str]:
     else:
         title_edge_top = min(canonical_top_output, max(0, top - title_height))
     title_edge_bottom = max(0, top - title_edge_top - title_height)
-    # Defensive: rounding pushed total > BorderTop → trim title_height
+
+    # KWin needs at least 1-2 px of padding at top and bottom for the text
+    # baseline; without it the title vanishes (LiteGnome's title-bearing
+    # part spans the full top zone → canonical TitleEdgeTop=0). Clamp both
+    # edges to max(1, scale) and trim title_height to keep the layout
+    # tiling — total padding + height must equal BorderTop.
+    min_pad = max(1, s)
+    if title_edge_top < min_pad:
+        title_edge_top = min_pad
+    if title_edge_bottom < min_pad:
+        title_edge_bottom = min_pad
     if title_edge_top + title_height + title_edge_bottom > top:
         title_height = max(2 * s, top - title_edge_top - title_edge_bottom)
+    # If trimming still doesn't fit, give up on the clamp on the side that
+    # has slack — preserve title_height >= 2*s above all.
+    if title_edge_top + title_height + title_edge_bottom > top:
+        title_edge_bottom = max(0, top - title_edge_top - title_height)
+    if title_edge_top + title_height + title_edge_bottom > top:
+        title_edge_top = max(0, top - title_height - title_edge_bottom)
 
     # Title bar x offsets relative to the inner edges of the left/right zones.
     x_left_off, x_right_off = _title_bar_x_range(theme)
