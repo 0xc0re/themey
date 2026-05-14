@@ -231,3 +231,71 @@ def test_build_border_name_defaults_when_no_head_values() -> None:
     border_block = _border_block(name=None)
     spec = build_border(border_block)
     assert spec.name == "DEFAULT"
+
+
+# ---------------------------------------------------------------------------
+# Step 10: BORDERPART extras (__CURSOR, __TCLASS, __KEEP_*, __MIN_/__MAX_*)
+# ---------------------------------------------------------------------------
+
+
+def _part_with_kvs(*kvs: KeyVal) -> Block:
+    return Block(keyword="__BORDER_PART", head_values=(), children=tuple(kvs), line=0)
+
+
+def test_borderpart_parses_min_max_width() -> None:
+    part_block = _part_with_kvs(
+        _kv("__ICLASS", "BTN"),
+        _kv("__MIN_WIDTH", 12),
+        _kv("__MAX_WIDTH", 12),
+        _kv("__MIN_HEIGHT", 11),
+        _kv("__MAX_HEIGHT", 14),
+    )
+    border = _border_block(name="DEFAULT", parts=[part_block])
+    parts = extract_button_parts(border)
+    p = parts[0]
+    assert p.min_w == 12
+    assert p.max_w == 12
+    assert p.min_h == 11
+    assert p.max_h == 14
+
+
+def test_borderpart_parses_cursor_and_tclass() -> None:
+    part_block = _part_with_kvs(
+        _kv("__ICLASS", "BTN"),
+        _kv("__CURSOR", "ICONIFY"),
+        _kv("__TCLASS", "TEXT1"),
+    )
+    border = _border_block(name="DEFAULT", parts=[part_block])
+    parts = extract_button_parts(border)
+    assert parts[0].cursor_name == "ICONIFY"
+    assert parts[0].tclass_name == "TEXT1"
+
+
+def test_borderpart_parses_keep_when_shaded() -> None:
+    part_on = _part_with_kvs(_kv("__ICLASS", "B"), _kv("__KEEP_WHEN_SHADED", "__ON"))
+    part_off = _part_with_kvs(_kv("__ICLASS", "B"), _kv("__KEEP_WHEN_SHADED", "__OFF"))
+    parts = extract_button_parts(
+        _border_block(name="DEFAULT", parts=[part_on, part_off])
+    )
+    assert parts[0].keep_when_shaded is True
+    assert parts[1].keep_when_shaded is False
+
+
+def test_borderpart_parses_keep_on_top() -> None:
+    part_block = _part_with_kvs(_kv("__ICLASS", "B"), _kv("__KEEP_ON_TOP", "__ON"))
+    parts = extract_button_parts(
+        _border_block(name="DEFAULT", parts=[part_block])
+    )
+    assert parts[0].keep_on_top is True
+
+
+def test_borderpart_extras_default_to_unspecified() -> None:
+    """A part with none of the optional extras must produce safe defaults."""
+    part_block = _part_with_kvs(_kv("__ICLASS", "B"))
+    p = extract_button_parts(_border_block(name="DEFAULT", parts=[part_block]))[0]
+    assert p.cursor_name is None
+    assert p.tclass_name is None
+    assert p.keep_when_shaded is False
+    assert p.keep_on_top is False
+    assert p.min_w == 0 and p.max_w == 0
+    assert p.min_h == 0 and p.max_h == 0

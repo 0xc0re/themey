@@ -57,6 +57,14 @@ def extract_button_parts(border: Block) -> tuple[ButtonPart, ...]:
         iclass = ""
         aclass: str | None = None  # null sentinel — distinguishes "no __ACLASS" from missing
         flags: tuple[str, ...] = ()
+        cursor_name: str | None = None
+        tclass_name: str | None = None
+        keep_when_shaded = False
+        keep_on_top = False
+        min_w = 0
+        min_h = 0
+        max_w = 0
+        max_h = 0
         coords: dict[str, int] = {
             "tl_x_pct": 0,
             "tl_x_abs": 0,
@@ -99,7 +107,38 @@ def extract_button_parts(border: Block) -> tuple[ButtonPart, ...]:
                 coords["br_origin"] = _to_int(kv.values[0])
             elif k == "__FLAGS" and kv.values:
                 flags = tuple(str(v) for v in kv.values)
-        parts.append(ButtonPart(iclass_name=iclass, aclass=aclass, flags=flags, **coords))
+            elif k == "__CURSOR" and kv.values:
+                cursor_name = str(kv.values[0])
+            elif k == "__TCLASS" and kv.values:
+                tclass_name = str(kv.values[0])
+            elif k == "__KEEP_WHEN_SHADED" and kv.values:
+                keep_when_shaded = str(kv.values[0]).upper() == "__ON"
+            elif k == "__KEEP_ON_TOP" and kv.values:
+                keep_on_top = str(kv.values[0]).upper() == "__ON"
+            elif k == "__MIN_WIDTH" and kv.values:
+                min_w = _to_int(kv.values[0])
+            elif k == "__MAX_WIDTH" and kv.values:
+                max_w = _to_int(kv.values[0])
+            elif k == "__MIN_HEIGHT" and kv.values:
+                min_h = _to_int(kv.values[0])
+            elif k == "__MAX_HEIGHT" and kv.values:
+                max_h = _to_int(kv.values[0])
+        parts.append(
+            ButtonPart(
+                iclass_name=iclass,
+                aclass=aclass,
+                flags=flags,
+                cursor_name=cursor_name,
+                tclass_name=tclass_name,
+                keep_when_shaded=keep_when_shaded,
+                keep_on_top=keep_on_top,
+                min_w=min_w,
+                min_h=min_h,
+                max_w=max_w,
+                max_h=max_h,
+                **coords,
+            )
+        )
     return tuple(parts)
 
 

@@ -474,6 +474,10 @@ def button_dims(theme: Theme) -> tuple[int, int]:
     # max-width search if admitted. Discard those candidates.
     BUTTON_WIDTH_CAP_REF = REFERENCE_W // 4  # 200 ref → 400 output at scale=2
 
+    # Honor every interactive part's __MAX_WIDTH (when set) as an upper
+    # bound on the ButtonWidth — a theme that says "no button should be
+    # wider than 20 ref px" must not get a 200-px slot from us.
+    part_max_w_cap = 0
     max_w = 0
     max_h = 0
     for idx, part in enumerate(theme.border.parts):
@@ -491,6 +495,14 @@ def button_dims(theme: Theme) -> tuple[int, int]:
             continue
         max_w = max(max_w, width_ref)
         max_h = max(max_h, y1 - y0)
+        if part.max_w > 0:
+            part_max_w_cap = (
+                part.max_w
+                if part_max_w_cap == 0
+                else max(part_max_w_cap, part.max_w)
+            )
+    if part_max_w_cap > 0:
+        max_w = min(max_w, part_max_w_cap) if max_w > 0 else max_w
 
     if max_w == 0 and max_h == 0:
         # Fallback: scan iclasses referenced by interactive parts. Use the
