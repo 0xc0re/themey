@@ -1,27 +1,26 @@
 """decoration.svg writer with 18 FrameSvg IDs + hint margins + base64-embedded raster.
 
-Pitfall 5: 18 IDs verbatim — Aurorae matches by literal ``decoration-`` prefix.
-The 9 active IDs are:
-  ``decoration-topleft``, ``decoration-top``, ``decoration-topright``,
-  ``decoration-left``, ``decoration-center``, ``decoration-right``,
-  ``decoration-bottomleft``, ``decoration-bottom``, ``decoration-bottomright``
-Plus the same 9 with ``decoration-inactive-`` prefix = 18 total.
+The 18 required FrameSvg IDs are emitted verbatim:
+  ``decoration-{topleft,top,topright,left,center,right,bottomleft,bottom,bottomright}``
+plus the same 9 with the ``decoration-inactive-`` prefix.
 
-Pitfall 6: every ``<image>`` uses ``data:image/png;base64,...`` href and
-``preserveAspectRatio="none"``. Relative paths fail after install relocation.
+Each region's PNG is *composited* from the E16 ``__BORDER_PART`` entries that
+overlap the region's bbox. See ``composite.py`` for the layout math and
+overlap-clipping rules. Interactive button iclasses (close/min/max/etc.) are
+omitted — Aurorae renders those on top via the rc's ``LeftButtons``/
+``RightButtons`` strings.
 
-Maximized variants are NOT emitted (Edna ships without them and works;
-01-RESEARCH.md Pitfall 5 closing note + assumption A8).
+Strip thicknesses follow the user-confirmed full-E16-zone rule:
 
-SVG namespace registration:
-  ``ET.register_namespace("", SVG_NS)`` is called so ``xml.etree.ElementTree``
-  serialises elements without the ``ns0:`` prefix mangling.
+    BorderTop    == TitleHeight == decoration-top strip height = BORDER_SIZE_TOP x scale
+    BorderLeft   == decoration-left strip width                = BORDER_SIZE_LEFT x scale
+    BorderRight  == decoration-right strip width               = BORDER_SIZE_RIGHT x scale
+    BorderBottom == decoration-bottom strip height             = BORDER_SIZE_BOTTOM x scale
 
-Per-region iclass mapping (fix for visual smoke test — e13 regression):
-  Each of the 9 Aurorae decoration regions is mapped to the most appropriate
-  E16 iclass by name-pattern matching. A single titlebar image stretched across
-  all 9 regions causes grossly wrong visual output (the "cream gradient blob"
-  bug observed with e13.etheme).
+``aurorae_rc.py`` imports ``strip_thicknesses`` so the rc and the SVG see one
+source of truth. The corner regions inherit ``Border*`` dimensions on each
+axis (e.g., topleft.w = BorderLeft, topleft.h = BorderTop), preserving the
+9-patch invariants asserted by ``test_svg_rc_invariant.py``.
 """
 from __future__ import annotations
 
@@ -31,9 +30,13 @@ from pathlib import Path
 
 from PIL import Image
 
+from themey.generate.composite import (
+    MIDDLE_REF,
+    compose_region,
+    required_border_extents,
+)
 from themey.images.embed import embed_png_b64
-from themey.images.upscale import upscale_nearest
-from themey.ir import IClassSpec, Theme
+from themey.ir import Theme
 
 SVG_NS = "http://www.w3.org/2000/svg"
 XLINK_NS = "http://www.w3.org/1999/xlink"
@@ -51,136 +54,83 @@ SIDES: tuple[str, ...] = (
 )
 
 
-def _png_bytes(p: Path | None, scale: int) -> bytes | None:
-    """Open a PNG at path, convert to RGBA, upscale NEAREST by scale, return bytes.
+# ---------------------------------------------------------------------------
+# Strip thickness derivation — single source of truth shared with aurorae_rc.py
+# ---------------------------------------------------------------------------
 
-    Returns None if the path is absent or the file doesn't exist.
+
+DEFAULT_MAX_BORDER: int = 120
+"""Default cap (in output pixels) per border side.
+
+Grown borders that would render the full corner art (Aliens'
+CORNER_TL is 179x124 source = 358x248 at scale=2) can exceed what KWin
+displays gracefully — the chrome ends up looking like a separate banner
+rather than a frame around the content. 120 output px keeps the chrome
+visually framing the content while still showing a clipped but
+recognizable portion of the corner art (~half the alien head).
+
+Override with the CLI ``--max-border N`` flag for users who want
+bigger chrome at the cost of usable content area.
+"""
+
+
+def strip_thicknesses(theme: Theme, max_border: int = DEFAULT_MAX_BORDER) -> dict[str, int]:
+    """Compute the four strip thicknesses (in output pixels) for *theme*.
+
+    Single source of truth — the rc writer imports this. Returns a dict
+    with keys ``top``, ``bottom``, ``left``, ``right``.
+
+    Rule (user-confirmed "match the E16 look" semantics):
+
+    For each side, take the max of:
+      1. ``__BORDER_SIZE_<side>`` (the E16 chrome zone), and
+      2. the extent of any non-interactive ``__BORDER_PART`` anchored to
+         that edge — so corner art renders uncompressed.
+
+    Each result is clamped to ``[2, max_border]`` after scaling. The upper
+    bound prevents Aurorae from getting a chrome zone so large it looks
+    disconnected from the window content; corner art that wouldn't fit
+    is clipped on the inside edge by the compositor.
     """
-    if p is None or not p.is_file():
-        return None
-    with Image.open(p) as src:
-        rgba = src.convert("RGBA")
-        scaled = upscale_nearest(rgba, scale)
-        buf = io.BytesIO()
-        scaled.save(buf, format="PNG")
-        return buf.getvalue()
-
-
-def _iclass_bytes(ic: IClassSpec | None, scale: int, prefer_active: bool = True) -> bytes | None:
-    """Get PNG bytes for an iclass, preferring active or normal state."""
-    if ic is None:
-        return None
-    if prefer_active:
-        b = _png_bytes(ic.normal_active, scale)
-        if b is None:
-            b = _png_bytes(ic.normal, scale)
-    else:
-        b = _png_bytes(ic.normal, scale)
-        if b is None:
-            b = _png_bytes(ic.normal_active, scale)
-    return b
-
-
-def _iclass_bytes_inactive(ic: IClassSpec | None, scale: int) -> bytes | None:
-    """Get PNG bytes for the inactive (normal) state of an iclass."""
-    if ic is None:
-        return None
-    b = _png_bytes(ic.normal, scale)
-    if b is None:
-        b = _png_bytes(ic.normal_active, scale)
-    return b
+    s = theme.scale
+    ext = required_border_extents(theme)
+    return {
+        "top": max(2, min(max_border, ext["top"] * s)),
+        "bottom": max(2, min(max_border, ext["bottom"] * s)),
+        "left": max(2, min(max_border, ext["left"] * s)),
+        "right": max(2, min(max_border, ext["right"] * s)),
+    }
 
 
 # ---------------------------------------------------------------------------
-# Per-region iclass selection
+# Canvas + region layout
 # ---------------------------------------------------------------------------
 
-_REGION_PATTERNS: dict[str, list[str]] = {
-    # Ordered from most-specific to least-specific. First matching iclass wins.
-    "topleft": ["CORNER_TL", "CORNER_TOP_LEFT", "TOPLEFT", "TOP_LEFT"],
-    "top": ["TITLE_BAR_HORIZONTAL", "TITLEBAR", "TITLE_BAR", "FIN", "TOP_BAR",
-            "BAR_TOP", "WIN_TOP_TITLE", "WIN_TOP"],
-    "topright": ["CORNER_TR", "CORNER_TOP_RIGHT", "TOPRIGHT", "TOP_RIGHT"],
-    "left": ["WIN_SIDE_LEFT", "SIDE_LEFT", "BUTTONL", "WIN_LEFT", "BAR_LEFT"],
-    "center": [],  # transparent fallback — center is window content, not decoration
-    "right": ["WIN_SIDE_RIGHT", "SIDE_RIGHT", "BUTTONR", "WIN_RIGHT", "BAR_RIGHT"],
-    "bottomleft": ["WIN_CORNER_BL", "CORNER_BL", "CORNER_BOTTOM_LEFT", "BOTTOMLEFT"],
-    "bottom": ["WIN_BOTTOM", "BUTTONB", "BAR_BOTTOM", "BOTTOM"],
-    "bottomright": ["WIN_CORNER_BR", "CORNER_BR", "CORNER_BOTTOM_RIGHT", "BOTTOMRIGHT"],
-}
+# Middle stretchable region width/height. KWin tiles/stretches this, so the
+# exact value mostly doesn't matter — match composite.MIDDLE_REF so the
+# composited PNGs are 1:1 in output pixels (x scale).
+_MIDDLE_REF = MIDDLE_REF
 
 
-def _select_region_iclass(
-    side: str,
-    iclasses: dict[str, IClassSpec],
-) -> IClassSpec | None:
-    """Select the best iclass for a given Aurorae 9-patch region.
-
-    Tries exact name matches from ``_REGION_PATTERNS[side]`` first, then
-    falls back to substring matching (upper-case comparison).
-
-    For the ``center`` region, always returns None (transparent).
-    """
-    if side == "center":
-        return None
-
-    upper_names = {name.upper(): name for name in iclasses}
-    patterns = _REGION_PATTERNS.get(side, [])
-
-    # Exact match first
-    for pat in patterns:
-        if pat in upper_names:
-            return iclasses[upper_names[pat]]
-
-    # Substring match — look for any iclass whose upper name contains the pattern
-    for pat in patterns:
-        for up, orig in upper_names.items():
-            if pat in up:
-                return iclasses[orig]
-
-    return None
-
-
-def _select_titlebar_iclass(theme: Theme) -> IClassSpec | None:
-    """Prefer TITLE_BAR_HORIZONTAL; fall back to first iclass with any image."""
-    # Try per-region patterns for "top" first
-    ic = _select_region_iclass("top", theme.iclasses)
-    if ic is not None:
-        return ic
-    for ic_val in theme.iclasses.values():
-        if ic_val.normal is not None or ic_val.normal_active is not None:
-            return ic_val
-    return None
-
-
-def _compute_region_bbox(
-    side: str,
-    w: int,
-    h: int,
-    edge_l: int,
-    edge_r: int,
-    edge_t: int,
-    edge_b: int,
+def _region_bbox(
+    side: str, top: int, bot: int, lft: int, rgt: int, mw: int, mh: int
 ) -> tuple[int, int, int, int]:
-    """Return (x, y, width, height) for a 9-patch region inside the canvas."""
-    cw = max(0, w - edge_l - edge_r)
-    ch = max(0, h - edge_t - edge_b)
-    regions: dict[str, tuple[int, int, int, int]] = {
-        "topleft": (0, 0, edge_l, edge_t),
-        "top": (edge_l, 0, cw, edge_t),
-        "topright": (edge_l + cw, 0, edge_r, edge_t),
-        "left": (0, edge_t, edge_l, ch),
-        "center": (edge_l, edge_t, cw, ch),
-        "right": (edge_l + cw, edge_t, edge_r, ch),
-        "bottomleft": (0, edge_t + ch, edge_l, edge_b),
-        "bottom": (edge_l, edge_t + ch, cw, edge_b),
-        "bottomright": (edge_l + cw, edge_t + ch, edge_r, edge_b),
+    """Return (x, y, w, h) for a 9-patch region within the SVG canvas."""
+    regions = {
+        "topleft": (0, 0, lft, top),
+        "top": (lft, 0, mw, top),
+        "topright": (lft + mw, 0, rgt, top),
+        "left": (0, top, lft, mh),
+        "center": (lft, top, mw, mh),
+        "right": (lft + mw, top, rgt, mh),
+        "bottomleft": (0, top + mh, lft, bot),
+        "bottom": (lft, top + mh, mw, bot),
+        "bottomright": (lft + mw, top + mh, rgt, bot),
     }
     return regions[side]
 
 
 def _placeholder_bytes() -> bytes:
-    """Return bytes for a 1x1 transparent PNG placeholder."""
     with Image.new("RGBA", (1, 1), (0, 0, 0, 0)) as blank:
         buf = io.BytesIO()
         blank.save(buf, format="PNG")
@@ -190,105 +140,56 @@ def _placeholder_bytes() -> bytes:
 def write_decoration_svg(theme: Theme, out_dir: Path) -> Path:
     """Write ``decoration.svg`` with 18 FrameSvg IDs, hint margins, and base64 PNG.
 
-    The SVG contains:
-    - 9 ``<g id="decoration-{side}">`` elements (active state)
-    - 9 ``<g id="decoration-inactive-{side}">`` elements (inactive state)
-    - 4 ``<rect id="hint-{top,bottom,left,right}-margin">`` hint rects
-
-    Each of the 9 regions uses the most appropriate E16 iclass image
-    (matched by name pattern) rather than a single titlebar image stretched
-    across all regions. This prevents the "cream gradient blob" rendering bug
-    observed when a decorative bar image is used for left/right/bottom regions.
-
-    Hint-margin rects use the correct orientation convention:
-    - hint-left-margin:  ``width`` = left border thickness
-    - hint-right-margin: ``width`` = right border thickness
-    - hint-top-margin:   ``height`` = top border thickness
-    - hint-bottom-margin: ``height`` = bottom border thickness
-
-    Every ``<image>`` uses ``xlink:href="data:image/png;base64,..."`` and
-    ``preserveAspectRatio="none"`` to satisfy FrameSvg's rendering contract.
+    Strip thicknesses come from ``strip_thicknesses(theme)`` — the same function
+    ``aurorae_rc.py`` reads. Each region's PNG comes from
+    ``composite.compose_region``.
 
     Raises:
-        AssertionError: If any of the 18 required FrameSvg IDs are absent
-            in the written file (validated by post-write parse).
-
-    Args:
-        theme: Frozen Theme IR. Uses iclass name-pattern matching for each region.
-        out_dir: Directory to write ``decoration.svg`` into.
-
-    Returns:
-        Path to the written ``decoration.svg``.
+        AssertionError: If any required FrameSvg ID is missing post-write.
     """
-    # Register namespaces BEFORE creating any elements so ET doesn't emit ns0:.
     ET.register_namespace("", SVG_NS)
     ET.register_namespace("xlink", XLINK_NS)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    scale = theme.scale
+    s = theme.scale
 
-    # Select a titlebar iclass for canvas dimensions and edge scaling reference.
-    titlebar_ic = _select_titlebar_iclass(theme)
-
-    # Canvas edge metrics — from titlebar iclass edge_scaling * scale.
-    if titlebar_ic is not None:
-        el, er, et, eb = titlebar_ic.edge_scaling
-    else:
-        el, er, et, eb = (4, 4, 18, 4)
-    el *= scale
-    er *= scale
-    et *= scale
-    eb *= scale
-
-    body_w = max(64, el + er + 32)
-    body_h = max(64, et + eb + 32)
+    thick = strip_thicknesses(theme)
+    top = thick["top"]
+    bot = thick["bottom"]
+    lft = thick["left"]
+    rgt = thick["right"]
+    mw, mh = _MIDDLE_REF * s, _MIDDLE_REF * s
+    canvas_w = lft + mw + rgt
+    canvas_h = top + mh + bot
 
     placeholder = _placeholder_bytes()
 
     svg = ET.Element(
         f"{{{SVG_NS}}}svg",
-        {
-            "width": str(body_w),
-            "height": str(body_h),
-            "version": "1.1",
-        },
+        {"width": str(canvas_w), "height": str(canvas_h), "version": "1.1"},
     )
 
-    # Emit 9 active + 9 inactive <g> elements, each containing an <image>.
-    # Each region gets its own iclass image.
     for prefix, prefer_active in (
         ("decoration", True),
         ("decoration-inactive", False),
     ):
         for side in SIDES:
             g = ET.SubElement(svg, f"{{{SVG_NS}}}g", {"id": f"{prefix}-{side}"})
-            x, y, rw, rh = _compute_region_bbox(side, body_w, body_h, el, er, et, eb)
+            x, y, rw, rh = _region_bbox(side, top, bot, lft, rgt, mw, mh)
 
-            # Select appropriate iclass for this region
-            region_ic = _select_region_iclass(side, theme.iclasses)
-            if prefer_active:
-                png_bytes = _iclass_bytes(region_ic, scale, prefer_active=True)
-            else:
-                png_bytes = _iclass_bytes_inactive(region_ic, scale)
+            png = compose_region(
+                theme, side,
+                prefer_active=prefer_active,
+                max_border_output=DEFAULT_MAX_BORDER,
+            )
+            if not png:
+                png = placeholder
 
-            # Fallback to titlebar iclass if no specific iclass found for this region
-            if png_bytes is None and region_ic is None and titlebar_ic is not None:
-                if side == "top":
-                    if prefer_active:
-                        png_bytes = _iclass_bytes(titlebar_ic, scale, prefer_active=True)
-                    else:
-                        png_bytes = _iclass_bytes_inactive(titlebar_ic, scale)
-
-            # Final fallback: transparent placeholder
-            if png_bytes is None:
-                png_bytes = placeholder
-
-            href = embed_png_b64(png_bytes)
             ET.SubElement(
                 g,
                 f"{{{SVG_NS}}}image",
                 {
-                    f"{{{XLINK_NS}}}href": href,
+                    f"{{{XLINK_NS}}}href": embed_png_b64(png),
                     "x": str(x),
                     "y": str(y),
                     "width": str(max(1, rw)),
@@ -297,17 +198,14 @@ def write_decoration_svg(theme: Theme, out_dir: Path) -> Path:
                 },
             )
 
-    # FrameSvg hint-margin rects — invisible rects telling FrameSvg the border
-    # thickness in each direction. Orientation convention (verified from Edna SVG):
-    #   hint-left-margin:  width  = left margin thickness
-    #   hint-right-margin: width  = right margin thickness
-    #   hint-top-margin:   height = top margin thickness
-    #   hint-bottom-margin: height = bottom margin thickness
+    # FrameSvg hint-margin rects. Width or height = the corresponding strip
+    # thickness — same value the rc declares. This makes the SVG bounding-box-
+    # detected margins consistent with the rc.
     for hint_id, orient, dim in (
-        ("hint-top-margin", "height", et),
-        ("hint-bottom-margin", "height", eb),
-        ("hint-left-margin", "width", el),
-        ("hint-right-margin", "width", er),
+        ("hint-top-margin", "height", top),
+        ("hint-bottom-margin", "height", bot),
+        ("hint-left-margin", "width", lft),
+        ("hint-right-margin", "width", rgt),
     ):
         attrs: dict[str, str] = {
             "id": hint_id,
@@ -326,8 +224,8 @@ def write_decoration_svg(theme: Theme, out_dir: Path) -> Path:
     out_path = out_dir / "decoration.svg"
     ET.ElementTree(svg).write(out_path, xml_declaration=True, encoding="utf-8")
 
-    # Post-write validation: assert all 18 required IDs are present.
-    from themey.generate.aurorae import REQUIRED_FRAMESVG_IDS  # avoid circular at module load
+    # Post-write validation: all 18 IDs must be present.
+    from themey.generate.aurorae import REQUIRED_FRAMESVG_IDS
 
     root = ET.parse(out_path).getroot()
     present = {e.get("id") for e in root.iter() if e.get("id")}

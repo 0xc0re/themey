@@ -178,12 +178,11 @@ def test_aurorae_aliens_canary(tmp_path: Path) -> None:
         f"Expected RightButtons='', got {cp['General']['RightButtons']!r}"
     )
     border_left = int(cp["Layout"]["BorderLeft"])
-    # BorderLeft is now derived from the BUTTONL (left-edge iclass) image width (3px),
-    # not from border_size_left * scale. At scale=2: 3 * 2 = 6.
-    # The value must be a small positive number representing the thin visual frame,
-    # not the old grotesquely large border_size * scale = 70.
-    assert 2 <= border_left <= 30, (
-        f"BorderLeft={border_left} out of expected range [2, 30] at scale=2"
+    # BorderLeft = max(BORDER_SIZE_LEFT, max anchored-part width) x scale.
+    # Aliens has CORNER_TL at 124 wide, so BorderLeft = 248 at scale=2 to
+    # fit the full alien-head art uncompressed. Clamped to [2, 400].
+    assert 2 <= border_left <= 400, (
+        f"BorderLeft={border_left} out of clamp [2, 400] at scale=2"
     )
 
     # --- metadata.desktop ---

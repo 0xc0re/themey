@@ -1,13 +1,10 @@
 """Tests for decoration_svg.py — 18 FrameSvg IDs + hint margins + base64 PNG."""
 from __future__ import annotations
 
-import io
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-import pytest
 from PIL import Image
-
 
 SVG_NS = "http://www.w3.org/2000/svg"
 XLINK_NS = "http://www.w3.org/1999/xlink"
