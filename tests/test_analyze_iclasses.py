@@ -3,11 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-from themey.etheme.ast import Block, KeyVal
 from themey.analyze.iclasses import build_iclasses
-
+from themey.etheme.ast import Block, KeyVal
 
 # ---------------------------------------------------------------------------
 # Helpers: synthetic AST factories

@@ -1,9 +1,8 @@
 """Unit tests for themey.analyze.tclasses — AST __TCLASS block extraction."""
 from __future__ import annotations
 
-from themey.etheme.ast import Block, KeyVal
 from themey.analyze.tclasses import FG_COLOR_KEYS, build_tclasses
-
+from themey.etheme.ast import Block, KeyVal
 
 # ---------------------------------------------------------------------------
 # Helpers: synthetic AST factories

@@ -1,5 +1,6 @@
 """Unit tests for themey.analyze.buttons — three-tier button classification cascade."""
-from themey.analyze.buttons import bin_left_right, classify_button
+from themey.analyze.buttons import bin_left_right, classify_button, title_part
+from themey.ir import ButtonPart
 
 # ---------------------------------------------------------------------------
 # Tier-1 aclass tests
@@ -172,3 +173,86 @@ def test_bin_left_sorted_ascending() -> None:
     buttons = [("I", 140), ("A", 118), ("X", 11)]  # out of spatial order
     result = bin_left_right(buttons, titlebar_min_x=200, titlebar_max_x=800)
     assert result == ("XAI", "", [])
+
+
+# ---------------------------------------------------------------------------
+# Sentinel fallback — when titlebar bounds are missing
+# ---------------------------------------------------------------------------
+
+
+def test_bin_left_right_sentinel_falls_back_to_midpoint() -> None:
+    """When titlebar_max <= titlebar_min (no title bar identified), bin around
+    REFERENCE_WINDOW_WIDTH/2.
+
+    The e13 regression: titlebar bounds were left at the inversion sentinel
+    (min=800, max=0), and the existing `x < min AND x > max` predicate made
+    every button satisfy BOTH conditions, so each got duplicated into Left
+    AND Right (e.g. LeftButtons=XILS, RightButtons=XILS). With the fallback,
+    buttons in the left half of the reference window go left; right half go
+    right.
+    """
+    # x=100 should bin left, x=700 should bin right.
+    buttons = [("X", 100), ("A", 700)]
+    left, right, overlap = bin_left_right(buttons, titlebar_min_x=800, titlebar_max_x=0)
+    assert left == "X"
+    assert right == "A"
+    assert overlap == []
+
+
+def test_bin_left_right_sentinel_no_duplicate_assignment() -> None:
+    """A button must not appear in BOTH left and right strings.
+
+    Reproduces the e13 LeftButtons=XILS, RightButtons=XILS bug. Each input
+    button must end up in exactly one of (left, right, overlap).
+    """
+    buttons = [("X", 100), ("I", 150), ("L", 200), ("S", 250)]
+    left, right, overlap = bin_left_right(buttons, titlebar_min_x=800, titlebar_max_x=0)
+    # Total characters across both strings + overlap entries == total buttons.
+    assert len(left) + len(right) + len(overlap) == len(buttons)
+    # And no character appears in both.
+    assert set(left).isdisjoint(set(right))
+
+
+# ---------------------------------------------------------------------------
+# title_part() — canonical __FLAG_TITLE identification
+# ---------------------------------------------------------------------------
+
+
+def _part(**kw: object) -> ButtonPart:
+    """ButtonPart factory for tests with sensible coord defaults."""
+    defaults: dict[str, object] = {
+        "iclass_name": "FOO",
+        "aclass": None,
+        "tl_x_pct": 0,
+        "tl_x_abs": 0,
+        "tl_y_pct": 0,
+        "tl_y_abs": 0,
+        "br_x_pct": 0,
+        "br_x_abs": 0,
+        "br_y_pct": 0,
+        "br_y_abs": 0,
+    }
+    defaults.update(kw)
+    return ButtonPart(**defaults)  # type: ignore[arg-type]
+
+
+def test_title_part_picks_flag_title_member() -> None:
+    """title_part() returns the part whose flags include __FLAG_TITLE."""
+    other = _part(iclass_name="CORNER_TL")
+    title = _part(iclass_name="TITLEBAR", flags=("__FLAG_TITLE",))
+    result = title_part((other, title))
+    assert result is title
+
+
+def test_title_part_none_when_no_flag_title() -> None:
+    """Returns None when no part has __FLAG_TITLE."""
+    p = _part(iclass_name="TITLE_BAR_HORIZONTAL")  # name match but no flag
+    assert title_part((p,)) is None
+
+
+def test_title_part_works_with_short_iclass_name() -> None:
+    """e13 uses __ICLASS TITLEBAR (no underscore) — the old substring 'TITLE_BAR'
+    match misses it, but canonical __FLAG_TITLE matches.
+    """
+    p = _part(iclass_name="TITLEBAR", flags=("__FLAG_TITLE",))
+    assert title_part((p,)) is p

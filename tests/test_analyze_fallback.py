@@ -3,10 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from themey.analyze.fallback import CANONICAL_FILENAMES, discover_by_filename
-
 
 # ---------------------------------------------------------------------------
 # CANONICAL_FILENAMES constant shape tests

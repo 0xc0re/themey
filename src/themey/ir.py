@@ -61,6 +61,15 @@ class ButtonPart:
     br_x_abs: int
     br_y_pct: int
     br_y_abs: int
+    # Origin part index for hybrid coords. -1 = window-relative (the default
+    # in all fixture themes); >=0 = relative to the bbox of that part.
+    tl_origin: int = -1
+    br_origin: int = -1
+    # __FLAGS tokens verbatim (e.g. ("__FLAG_TITLE",) or ("__FLAG_MINIICON",)).
+    # Per E16 grammar Section 6 / wilbs parse-cfg.ts:212-227, __FLAGS is a
+    # whitespace-separated list of tokens. We retain ordering so consumers can
+    # use simple membership tests.
+    flags: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

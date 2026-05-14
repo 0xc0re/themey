@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pytest
 
-from themey.etheme.ast import Block, KeyVal
 from themey.analyze.build_theme import build_theme
+from themey.etheme.ast import Block, KeyVal
 
 # ---------------------------------------------------------------------------
 # Constants / fixtures path
