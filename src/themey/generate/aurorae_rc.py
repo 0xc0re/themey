@@ -320,14 +320,31 @@ def write_aurorae_rc(theme: Theme, out_dir: Path) -> Path:
             f"against title-bar bg {inactive_bg}"
         )
 
+    # Map TEXT1's __JUSTIFICATION / __DRAWING_EFFECT into Aurorae values
+    # where the theme expresses an opinion; otherwise keep the sensible
+    # "Center" + "shadow" defaults.
+    text1 = theme.tclasses.get("TEXT1")
+    title_alignment = "Center"
+    use_text_shadow = "true"
+    active_shadow_color = "0,0,0,255"
+    inactive_shadow_color = "0,0,0,255"
+    if text1 is not None:
+        if text1.alignment is not None:
+            title_alignment = text1.alignment
+        if text1.effect is not None:
+            use_text_shadow = "true" if text1.effect == "__EFFECT_SHADOW" else "false"
+        if text1.effect_color is not None:
+            active_shadow_color = _format_color_rgba(text1.effect_color)
+            inactive_shadow_color = active_shadow_color
+
     cp["General"] = {
         "ActiveTextColor": _format_color_rgba(active_text),
         "InactiveTextColor": _format_color_rgba(inactive_text),
-        "TitleAlignment": "Center",
+        "TitleAlignment": title_alignment,
         "TitleVerticalAlignment": "Center",
-        "UseTextShadow": "true",
-        "ActiveTextShadowColor": "0,0,0,255",
-        "InactiveTextShadowColor": "0,0,0,255",
+        "UseTextShadow": use_text_shadow,
+        "ActiveTextShadowColor": active_shadow_color,
+        "InactiveTextShadowColor": inactive_shadow_color,
         "TextShadowOffsetX": "0",
         "TextShadowOffsetY": "1",
         "LeftButtons": theme.left_buttons,
