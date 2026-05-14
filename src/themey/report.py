@@ -105,10 +105,16 @@ def write(theme: Theme, out_path: Path) -> Path:
     lines.append(
         "- Wallpaper: deferred to later phase (WALLPAPER-01 / Phase 2)."
     )
-    lines.append(
-        "- XCursor pointer theme: deferred to later phase "
-        "(CURSORS-01 / Phase 3)."
-    )
+    if theme.cursors:
+        lines.append(
+            f"- XCursor pointer theme: {len(theme.cursors)} __CURSOR "
+            "block(s) parsed but emission deferred to Phase 3."
+        )
+    else:
+        lines.append(
+            "- XCursor pointer theme: deferred to later phase "
+            "(CURSORS-01 / Phase 3)."
+        )
     lines.append(
         "- Plasma Look-and-Feel bundle: deferred to later phase "
         "(BUNDLE-01 / Phase 4)."

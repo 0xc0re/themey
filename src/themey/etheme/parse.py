@@ -63,7 +63,12 @@ def parse_tree(
     in entry-file declaration order, with includes inlined at their position.
     """
     if entry_files is None:
-        entry_files = ["borders.cfg", "imageclasses.cfg", "textclasses.cfg"]
+        entry_files = [
+            "borders.cfg",
+            "imageclasses.cfg",
+            "textclasses.cfg",
+            "cursors.cfg",
+        ]
     seen: set[Path] = set()
     nodes: list[AstNode] = []
     for entry in entry_files:

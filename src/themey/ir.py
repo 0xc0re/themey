@@ -85,6 +85,26 @@ class BorderSpec:
 
 
 @dataclass(frozen=True)
+class CursorSpec:
+    """One ``__CURSOR`` block: an XBM cursor with its hotspot and fg/bg colors.
+
+    E16 cursors.c parses __CURSOR blocks with optional __NAME, __XBM_FILE,
+    __HOT_X, __HOT_Y, __FG_COLOR, __BG_COLOR. Hotspots default to 0 when
+    the cfg omits them. Foreground/background default to white/black (the
+    E16 source default). xbm_path is None when the cfg references a file
+    outside asset_root or that doesn't exist on disk — emission code is
+    responsible for handling that case.
+    """
+
+    name: str  # E16 cursor name (e.g. "DEFAULT", "MOVE", "RESIZE_BR")
+    xbm_path: Path | None
+    hot_x: int
+    hot_y: int
+    fg_rgb: tuple[int, int, int]
+    bg_rgb: tuple[int, int, int]
+
+
+@dataclass(frozen=True)
 class Theme:
     """Complete analyzed representation of one E16 theme.
 
@@ -105,5 +125,7 @@ class Theme:
     left_buttons: str  # final Aurorae LeftButtons string, e.g. "XAI"
     right_buttons: str
     palette: Palette
+    cursors: tuple[CursorSpec, ...] = ()
+    wallpapers: tuple[Path, ...] = ()
     notes: list[str] = field(default_factory=list)  # ONLY mutable accumulator
     skipped_borders: tuple[str, ...] = ()
