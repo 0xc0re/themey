@@ -1,7 +1,6 @@
 """Tests for themey.install.deploy — atomic install with rollback."""
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest

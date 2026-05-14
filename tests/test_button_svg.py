@@ -6,7 +6,6 @@ from pathlib import Path
 
 from PIL import Image
 
-
 SVG_NS = "http://www.w3.org/2000/svg"
 
 

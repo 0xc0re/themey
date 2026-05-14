@@ -35,9 +35,9 @@ def test_slug_strips_trailing_extension() -> None:
 
 
 def test_slug_replaces_spaces() -> None:
-    from themey.slug import slugify
-
     import re
+
+    from themey.slug import slugify
 
     result = slugify("My Cool Theme")
     assert re.match(r"^[A-Za-z0-9_-]+$", result)
