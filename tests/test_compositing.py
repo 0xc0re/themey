@@ -124,6 +124,44 @@ def test_aliens_topleft_composite_has_multiple_parts(fake_home: Path) -> None:
         )
 
 
+def test_aliens_border_top_grown_for_corner_face(fake_home: Path) -> None:
+    """Aliens: the CORNER_TL alien-head art is 179 ref tall against a
+    ``BORDER_SIZE_TOP`` of 30. Without corner-driven top growth the chrome
+    is 30-ref tall and clips the face above the eye line. The plan caps
+    corner growth at ``min(2 × border_size_top, 96)`` ref so we get 60 ref
+    (= 120 output at scale=2) — enough to render the eyes and face shape.
+
+    The cap deliberately limits side widths from growing along with it
+    (post-commit 45b6690): corners aren't allowed to inflate side strips.
+    """
+    from themey.generate.composite import required_border_extents
+
+    with _theme_ctx("Aliens") as theme:
+        ext = required_border_extents(theme)
+        bs = theme.border
+        # Cap: min(2 × border_size_top, 96). For Aliens (bst=30): cap = 60.
+        cap = min(2 * bs.border_size_top, 96)
+        # Corner growth must lift req_top right to the cap — both corners
+        # are taller than the cap, so they max out.
+        assert ext["top"] >= cap, (
+            f"Aliens req_top={ext['top']} did not reach corner-growth cap "
+            f"{cap} (= min(2 × {bs.border_size_top}, 96)); corner art clipped"
+        )
+        assert ext["top"] <= cap, (
+            f"Aliens req_top={ext['top']} exceeds the corner-growth cap {cap}"
+        )
+        # The cap must keep side widths bounded by their canonical values
+        # (we did NOT add corner-driven side growth).
+        # left should not grow above the bs.border_size_left + whatever the
+        # side strips contribute through the original spans_y_center path.
+        # Specifically, Aliens has no left strip that spans the y center,
+        # so req_left should equal bs.border_size_left.
+        assert ext["left"] == bs.border_size_left, (
+            f"Aliens req_left={ext['left']} grew (was {bs.border_size_left}) — "
+            f"corner-driven side growth must NOT happen"
+        )
+
+
 def test_no_titlebar_button_prefixes_constant() -> None:
     """Canary: composite module must not export _TITLEBAR_BUTTON_PREFIXES.
 
