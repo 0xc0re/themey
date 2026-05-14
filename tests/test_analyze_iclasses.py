@@ -177,3 +177,63 @@ def test_build_iclass_multiple(tmp_path: Path) -> None:
     assert "B" in typed
     assert "A" in raw
     assert "B" in raw
+
+
+# ---------------------------------------------------------------------------
+# Step 11: __CLICKED_STICKY logged-as-dropped + __PADDING parsing
+# ---------------------------------------------------------------------------
+
+
+def test_iclass_clicked_sticky_logged_as_dropped(tmp_path: Path) -> None:
+    """An iclass with __CLICKED_STICKY must produce a dropped-state note via
+    collapse_image_states (it's not a state Aurorae renders).
+    """
+    from themey.analyze.iclasses import build_iclasses
+    from themey.analyze.states import collapse_image_states
+    from themey.etheme.ast import Block, KeyVal
+
+    # Create the asset on disk so the path resolves as non-None.
+    asset = tmp_path / "x.png"
+    asset.write_bytes(b"")
+    block = Block(
+        keyword="__ICLASS",
+        head_values=("FOO",),
+        children=(
+            KeyVal(keyword="__NORMAL", values=("x.png",), line=0),
+            KeyVal(keyword="__CLICKED_STICKY", values=("x.png",), line=0),
+        ),
+        line=0,
+    )
+    _typed, raw = build_iclasses([block], tmp_path)
+    notes: list[str] = []
+    collapse_image_states(raw["FOO"], "button-default", notes, "FOO")
+    assert any("__CLICKED_STICKY" in n for n in notes), (
+        f"__CLICKED_STICKY not surfaced as dropped; notes={notes}"
+    )
+
+
+def test_iclass_padding_parsed(tmp_path: Path) -> None:
+    """__PADDING l r t b is captured into IClassSpec.padding."""
+    from themey.analyze.iclasses import build_iclasses
+    from themey.etheme.ast import Block, KeyVal
+
+    block = Block(
+        keyword="__ICLASS",
+        head_values=("BAR",),
+        children=(
+            KeyVal(keyword="__PADDING", values=(2, 2, 1, 1), line=0),
+        ),
+        line=0,
+    )
+    typed, _raw = build_iclasses([block], tmp_path)
+    assert typed["BAR"].padding == (2, 2, 1, 1)
+
+
+def test_iclass_padding_defaults_to_zero(tmp_path: Path) -> None:
+    """An iclass without __PADDING has padding=(0, 0, 0, 0)."""
+    from themey.analyze.iclasses import build_iclasses
+    from themey.etheme.ast import Block
+
+    block = Block(keyword="__ICLASS", head_values=("BAR",), children=(), line=0)
+    typed, _raw = build_iclasses([block], tmp_path)
+    assert typed["BAR"].padding == (0, 0, 0, 0)
