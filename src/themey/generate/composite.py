@@ -201,9 +201,19 @@ def resolve_parts(
 def required_border_extents(theme: Theme) -> dict[str, int]:
     """Return the grown border extents (in REFERENCE coords) for each side.
 
-    Same anchoring rule as ``decoration_svg.strip_thicknesses`` but without
-    the scale multiplication or clamping — used by ``region_bbox_reference``
-    to size composite canvases consistently with the SVG/rc dimensions.
+    A part is allowed to grow a side ONLY when it genuinely belongs to that
+    side — defined as "spans the perpendicular center" of the reference
+    window. A part anchored only to a corner (e.g. CORNER_TL at x=0..124,
+    y=0..179) is excluded from both the TOP and LEFT growth budgets,
+    because admitting it inflates BorderLeft/BorderTop far beyond what the
+    SIDE strips between corners actually contain — Aurorae reserves the
+    grown width across the whole side, and the strip between corners gets
+    rendered as mostly-empty (8% opaque for Aliens).
+
+    This is the canonical "Aurorae chrome model" trade-off: corner art
+    that doesn't fit gets clipped to the corner slot rather than
+    inflating the side widths. The result is a chrome that visibly wraps
+    the window content rather than reserving huge transparent zones.
     """
     bs = theme.border
     req_top = bs.border_size_top
@@ -211,12 +221,14 @@ def required_border_extents(theme: Theme) -> dict[str, int]:
     req_left = bs.border_size_left
     req_right = bs.border_size_right
 
+    half_w = REFERENCE_W // 2
+    half_h = REFERENCE_H // 2
+
     for part in theme.border.parts:
         if is_interactive(part):
             continue
         if part.tl_origin != -1 or part.br_origin != -1:
             continue
-        # Apply the same typo-correction the compositor uses.
         tlx_p, tlx_a, brx_p, brx_a = _typo_corrected_pct_abs(
             part.tl_x_pct, part.tl_x_abs, part.br_x_pct, part.br_x_abs
         )
@@ -227,15 +239,23 @@ def required_border_extents(theme: Theme) -> dict[str, int]:
         tl_y = resolve(tly_p, tly_a, REFERENCE_H)
         br_x = resolve(brx_p, brx_a, REFERENCE_W)
         br_y = resolve(bry_p, bry_a, REFERENCE_H)
+        x0, x1 = min(tl_x, br_x), max(tl_x, br_x)
+        y0, y1 = min(tl_y, br_y), max(tl_y, br_y)
+        spans_x_center = x0 < half_w < x1
+        spans_y_center = y0 < half_h < y1
 
-        if tly_p == 0 and bry_p == 0:
+        # TOP growth: part is anchored to top AND spans the horizontal
+        # center — i.e. it's a TOP strip, not a top-left/top-right corner.
+        if tly_p == 0 and bry_p == 0 and spans_x_center:
             req_top = max(req_top, max(tl_y, br_y))
-        elif tly_p == 1024 and bry_p == 1024:
+        elif tly_p == 1024 and bry_p == 1024 and spans_x_center:
             req_bot = max(req_bot, REFERENCE_H - min(tl_y, br_y))
 
-        if tlx_p == 0 and brx_p == 0:
+        # LEFT/RIGHT growth: part is anchored to a side AND spans the
+        # vertical center — i.e. it's a SIDE strip, not a corner.
+        if tlx_p == 0 and brx_p == 0 and spans_y_center:
             req_left = max(req_left, max(tl_x, br_x))
-        elif tlx_p == 1024 and brx_p == 1024:
+        elif tlx_p == 1024 and brx_p == 1024 and spans_y_center:
             req_right = max(req_right, REFERENCE_W - min(tl_x, br_x))
 
     return {
