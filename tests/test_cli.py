@@ -68,3 +68,32 @@ def test_cli_verbose_emits_debug(fake_home, monkeypatch):
     # -v sets DEBUG level; pipeline emits log.debug() — should appear
     assert ("DEBUG themey.pipeline" in result.output
             or "DEBUG" in result.output), result.output
+
+
+def test_cli_output_dir_skips_install(fake_home, tmp_path, monkeypatch):
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    out = tmp_path / "out"
+    result = CliRunner().invoke(
+        app, ["--output", str(out), "--no-open", str(FIXTURES / "Aliens.etheme")]
+    )
+    assert result.exit_code == 0, result.output
+    # Theme tree + report + preview land under --output, nothing under HOME.
+    assert (out / "Aliens" / "decoration.svg").is_file()
+    assert (out / "Aliens" / "Aliensrc").is_file()
+    assert (out / "Aliens.report.txt").is_file()
+    assert (out / "Aliens.html").is_file()
+    assert not (fake_home / ".local/share/aurorae").exists()
+    assert "Wrote:" in result.output
+
+
+def test_cli_no_open_suppresses_browser(fake_home, monkeypatch):
+    monkeypatch.setenv("DISPLAY", ":0")
+    calls: list = []
+    monkeypatch.setattr(
+        "themey.external.open_preview_unless_headless",
+        lambda p: calls.append(p) or True,
+    )
+    result = CliRunner().invoke(app, ["--no-open", str(FIXTURES / "Aliens.etheme")])
+    assert result.exit_code == 0, result.output
+    assert calls == []
