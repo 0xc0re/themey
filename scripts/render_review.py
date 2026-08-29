@@ -1,4 +1,10 @@
-"""Render a high-fidelity mock window from an installed theme.
+"""Render a mock window from an installed theme (APPROXIMATION).
+
+This is a hand-rolled approximation of Aurorae's QML layout, not FrameSvg.
+It is fast and deterministic but can disagree with KWin (tiling vs
+stretching, hint margins, v2 border clamping). ``themey render`` — the
+headless nested-KWin harness in ``src/themey/render.py`` — is the truth;
+use this only when kwin_wayland/spectacle are unavailable.
 
 Used in the vision-iteration loop: produces a PNG that approximates what
 KWin would render with the installed Aurorae theme, at a real-window size

@@ -14,6 +14,10 @@ Two modes:
 Usage:
     uv run python scripts/visual_review.py <theme> [W H]            # mock
     uv run python scripts/visual_review.py <theme> --live [W H]     # live
+    ... --live --library=org.kde.kwin.aurorae.v2                    # v2 plugin
+
+Prefer ``themey render`` (headless nested KWin, no live-session side effects)
+when kwin_wayland + spectacle are available; this script is the fallback.
 
 Live mode needs (in PATH):
     * ``kwriteconfig6`` (apply ``kwinrc`` ``theme`` key)
@@ -41,8 +45,8 @@ def _which(*names: str) -> str | None:
     return None
 
 
-def _apply_aurorae_theme(theme_name: str) -> None:
-    """Apply <theme_name> as the active KWin Aurorae decoration."""
+def _apply_aurorae_theme(theme_name: str, library: str = "org.kde.kwin.aurorae") -> None:
+    """Apply <theme_name> as the active KWin Aurorae decoration via *library*."""
     kw = _which("kwriteconfig6", "kwriteconfig5")
     if kw is None:
         raise SystemExit("kwriteconfig6 not found on PATH")
@@ -50,7 +54,7 @@ def _apply_aurorae_theme(theme_name: str) -> None:
         [
             kw, "--file", "kwinrc",
             "--group", "org.kde.kdecoration2",
-            "--key", "library", "org.kde.kwin.aurorae",
+            "--key", "library", library,
         ],
         check=True,
     )
@@ -93,11 +97,11 @@ def _capture_screenshot(out: Path) -> bool:
     return False
 
 
-def _live_review(theme_name: str) -> Path:
+def _live_review(theme_name: str, library: str = "org.kde.kwin.aurorae") -> Path:
     out = Path("/tmp/themey_review") / f"{theme_name}.live.png"
     print(f"Applying {theme_name} ...", file=sys.stderr)
     try:
-        _apply_aurorae_theme(theme_name)
+        _apply_aurorae_theme(theme_name, library)
         # KWin needs a beat to reconfigure and repaint.
         time.sleep(1.5)
         print(f"Capturing screenshot ...", file=sys.stderr)
@@ -148,6 +152,11 @@ def main() -> None:
     if "--live" in argv:
         live = True
         argv.remove("--live")
+    library = "org.kde.kwin.aurorae"
+    for a in list(argv):
+        if a.startswith("--library="):
+            library = a.split("=", 1)[1]
+            argv.remove(a)
     if not argv:
         print(__doc__)
         raise SystemExit(2)
@@ -156,7 +165,7 @@ def main() -> None:
     w = int(argv[1]) if len(argv) > 1 else 1000
     h = int(argv[2]) if len(argv) > 2 else 700
 
-    out = _live_review(name) if live else _mock_review(name, w, h)
+    out = _live_review(name, library) if live else _mock_review(name, w, h)
     print(out)
 
 
