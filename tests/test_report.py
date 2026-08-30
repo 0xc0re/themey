@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from themey.report import write
+
 
 def _make_theme(notes: list[str] | None = None, skipped_borders: tuple[str, ...] = ()):
     """Build a minimal Theme for testing."""
@@ -106,3 +108,11 @@ def test_report_includes_scale_note(tmp_path: Path) -> None:
     text = out.read_text()
     # Scale quality note should mention fractional scales
     assert "fractional" in text.lower() or "1.25" in text or "1.5" in text
+
+
+def test_report_apply_section_mentions_border_size_clamp(tmp_path: Path) -> None:
+    theme = _make_theme()
+    text = write(theme, tmp_path / "r.txt").read_text()
+    assert "## Apply" in text
+    assert "Oversized" in text
+    assert "Border size =" in text and "themey apply" in text

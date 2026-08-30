@@ -165,18 +165,13 @@ def test_aurorae_aliens_canary(tmp_path: Path) -> None:
     missing = set(REQUIRED_FRAMESVG_IDS) - present
     assert not missing, f"Missing FrameSvg IDs: {missing}"
 
-    # --- <name>rc: [General] LeftButtons=XAI, [Layout] BorderLeft=70 ---
+    # --- <name>rc: button SVGs exist for XAI, [Layout] BorderLeft=70 ---
     rc_path = out_dir / "Aliensrc"
     assert rc_path.is_file(), f"Expected 'Aliensrc', not found in {list(out_dir.iterdir())}"
     cp = RawConfigParser()
     cp.optionxform = str  # type: ignore[method-assign]
     cp.read(rc_path, encoding="utf-8")
-    assert cp["General"]["LeftButtons"] == "XAI", (
-        f"Expected LeftButtons=XAI, got {cp['General']['LeftButtons']!r}"
-    )
-    assert cp["General"]["RightButtons"] == "", (
-        f"Expected RightButtons='', got {cp['General']['RightButtons']!r}"
-    )
+    assert "LeftButtons" not in cp["General"]
     border_left = int(cp["Layout"]["BorderLeft"])
     # BorderLeft = max(BORDER_SIZE_LEFT, max anchored-part width) x scale.
     # Aliens has CORNER_TL at 124 wide, so BorderLeft = 248 at scale=2 to
@@ -195,7 +190,7 @@ def test_aurorae_aliens_canary(tmp_path: Path) -> None:
     mj_path = out_dir / "metadata.json"
     assert mj_path.is_file()
     mj = json.loads(mj_path.read_text())
-    assert mj["KPackageStructure"] == "aurorae"
+    assert mj["KPackageStructure"] == "KWin/Aurorae"
     assert mj["KPlugin"]["Id"] == "Aliens"
 
     # --- button SVGs ---

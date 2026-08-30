@@ -264,6 +264,14 @@ def render(theme: Theme, out_path: Path) -> Path:
 <p>Open <strong>System Settings &rarr; Window Decorations</strong> and select
    <strong>{name_safe}</strong> from the list, OR run from a terminal:</p>
 <pre>{kwrite_cmd}</pre>
+<p><strong>Borders look thin?</strong> Both Aurorae plugins in Plasma 6.6 clamp
+   the left/right/bottom borders to the <em>Border size</em> setting (Normal =
+   4&ndash;6&nbsp;px, Oversized = 36&ndash;48&nbsp;px); only the title band
+   follows the theme, so wide corner art is folded into it. For the fattest
+   frame set <em>Border size = Oversized</em> on that page, or run:</p>
+<pre>themey apply {plugin_id_safe} --border-size Oversized</pre>
+<p>Button order is global (Window Decorations &rarr; Titlebar Buttons), not part
+   of the theme.</p>
 
 <h2>Conversion notes ({len(theme.notes)} entries)</h2>
 <ul class="notes">

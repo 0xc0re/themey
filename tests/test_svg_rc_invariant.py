@@ -54,6 +54,14 @@ def _region_image_attrs(svg_path: Path, region_id: str) -> tuple[float, float]:
     raise AssertionError(f"no <g id='{region_id}'> in {svg_path}")
 
 
+def _hint_width(svg_path: Path, hint_id: str) -> int:
+    root = ET.parse(svg_path).getroot()
+    for r in root.iter(f"{SVG_NS}rect"):
+        if r.get("id") == hint_id:
+            return int(r.get("width", "0"))
+    raise AssertionError(f"no <rect id='{hint_id}'> in {svg_path}")
+
+
 def _read_layout(rc_path: Path) -> dict[str, int]:
     cp = RawConfigParser()
     cp.optionxform = str  # type: ignore[method-assign]
@@ -63,7 +71,13 @@ def _read_layout(rc_path: Path) -> dict[str, int]:
 
 @pytest.mark.parametrize("theme_name", THEMES)
 def test_svg_strip_dims_match_rc_borders(theme_name: str, fake_home: Path) -> None:
-    """Each strip's native SVG size equals the corresponding rc Border*/TitleHeight."""
+    """Top/bottom strips equal the rc BorderTop/BorderBottom.
+
+    Left/right strips are frame COLUMNS: they equal the hint-left/right-
+    margin width and are >= the rc BorderLeft/Right. FrameSvg paints the
+    frame at the hint width under the client, so a column wider than the
+    (KWin-clamped) border is how folded corner art escapes the clamp.
+    """
     result = convert(FIXTURES / f"{theme_name}.etheme", scale=2)
     svg = result.installed_dir / "decoration.svg"
     rc = result.installed_dir / f"{theme_name}rc"
@@ -77,10 +91,12 @@ def test_svg_strip_dims_match_rc_borders(theme_name: str, fake_home: Path) -> No
     assert int(top_h) == L["BorderTop"], (
         f"{theme_name}: top strip h={top_h} BorderTop={L['BorderTop']}"
     )
-    assert int(left_w) == L["BorderLeft"], (
+    assert int(left_w) == _hint_width(svg, "decoration-hint-left-margin")
+    assert int(left_w) >= L["BorderLeft"], (
         f"{theme_name}: left strip w={left_w} BorderLeft={L['BorderLeft']}"
     )
-    assert int(right_w) == L["BorderRight"], (
+    assert int(right_w) == _hint_width(svg, "decoration-hint-right-margin")
+    assert int(right_w) >= L["BorderRight"], (
         f"{theme_name}: right strip w={right_w} BorderRight={L['BorderRight']}"
     )
     assert int(bot_h) == L["BorderBottom"], (
@@ -98,7 +114,12 @@ def test_svg_strip_dims_match_rc_borders(theme_name: str, fake_home: Path) -> No
 
 @pytest.mark.parametrize("theme_name", THEMES)
 def test_corner_dims_match_adjacent_strips(theme_name: str, fake_home: Path) -> None:
-    """Corners must match adjacent strip thicknesses (FrameSvg 9-patch contract)."""
+    """Corners must match adjacent strip thicknesses (FrameSvg 9-patch contract).
+
+    Corners share the width of their frame column (== the left/right strip
+    width, >= the rc BorderLeft/Right) and the height of the adjacent
+    top/bottom strip (== BorderTop/BorderBottom).
+    """
     result = convert(FIXTURES / f"{theme_name}.etheme", scale=2)
     svg = result.installed_dir / "decoration.svg"
     L = _read_layout(result.installed_dir / f"{theme_name}rc")
@@ -108,10 +129,12 @@ def test_corner_dims_match_adjacent_strips(theme_name: str, fake_home: Path) -> 
     bl_w, bl_h = _region_image_attrs(svg, "decoration-bottomleft")
     br_w, br_h = _region_image_attrs(svg, "decoration-bottomright")
 
-    assert int(tl_w) == L["BorderLeft"] and int(tl_h) == L["BorderTop"]
-    assert int(tr_w) == L["BorderRight"] and int(tr_h) == L["BorderTop"]
-    assert int(bl_w) == L["BorderLeft"] and int(bl_h) == L["BorderBottom"]
-    assert int(br_w) == L["BorderRight"] and int(br_h) == L["BorderBottom"]
+    left_w, _ = _region_image_attrs(svg, "decoration-left")
+    right_w, _ = _region_image_attrs(svg, "decoration-right")
+    assert int(tl_w) == int(left_w) >= L["BorderLeft"] and int(tl_h) == L["BorderTop"]
+    assert int(tr_w) == int(right_w) >= L["BorderRight"] and int(tr_h) == L["BorderTop"]
+    assert int(bl_w) == int(left_w) and int(bl_h) == L["BorderBottom"]
+    assert int(br_w) == int(right_w) and int(br_h) == L["BorderBottom"]
 
 
 @pytest.mark.parametrize("theme_name", THEMES)

@@ -126,7 +126,7 @@ def convert_cmd(
     if result.installed:
         typer.echo(
             f"Apply via System Settings - Window Decorations - {result.theme_name}, "
-            f"or: themey apply {result.theme_name} --legacy-plugin"
+            f"or: themey apply {result.theme_name}"
         )
 
     if no_open:
@@ -153,7 +153,10 @@ def render_cmd(
     ] = "legacy",
     border_size: Annotated[
         str,
-        typer.Option("--border-size", help="KWin BorderSize (Tiny..Oversized); v2 clamps to it"),
+        typer.Option(
+            "--border-size",
+            help="KWin BorderSize (Tiny..Oversized); both plugins clamp sides to it",
+        ),
     ] = "Normal",
     maximized: Annotated[
         bool,
@@ -188,12 +191,15 @@ def apply_cmd(
         bool,
         typer.Option(
             "--legacy-plugin",
-            help="Use org.kde.kwin.aurorae (honours theme border sizes) instead of aurorae.v2",
+            help="Use the v1 QML plugin org.kde.kwin.aurorae instead of Plasma's default .v2",
         ),
     ] = False,
     border_size: Annotated[
         str | None,
-        typer.Option("--border-size", help="Set KWin BorderSize (Tiny..Oversized)"),
+        typer.Option(
+            "--border-size",
+            help="KWin BorderSize (Tiny..Oversized); default = bracket that fits the theme",
+        ),
     ] = None,
 ) -> None:
     """Point the live KWin session at an installed theme (writes kwinrc, reconfigures)."""

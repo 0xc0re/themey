@@ -68,7 +68,8 @@ def test_metadata_json_kpackage_structure(tmp_path: Path) -> None:
     out = write_metadata_json(theme, tmp_path)
     assert out.is_file()
     data = json.loads(out.read_text())
-    assert data["KPackageStructure"] == "aurorae"
+    assert data["KPackageStructure"] == "KWin/Aurorae"
+    assert data["KPlugin"]["ServiceTypes"] == ["KWin/Aurorae"]
 
 
 def test_metadata_json_kplugin_id_matches_folder(tmp_path: Path) -> None:

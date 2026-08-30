@@ -136,7 +136,9 @@ def test_button_svg_skipped_when_no_code(tmp_path: Path) -> None:
     out = tmp_path / "out"
     out.mkdir(exist_ok=True)
     written = write_button_svgs(theme, out)
-    assert written == [], f"Expected no buttons written, got {written}"
+    # menu.svg is unconditional (kwinrc's default ButtonsOnLeft is "M");
+    # nothing else should be written when the theme has no button codes.
+    assert [p.name for p in written] == ["menu.svg"], written
 
 
 def test_button_svg_uses_framesvg_prefixes(tmp_path: Path) -> None:
@@ -177,3 +179,15 @@ def test_button_svg_each_has_hover_and_pressed_subelements(tmp_path: Path) -> No
     # FrameSvg 9-patch prefixes for each state.
     assert "hover-center" in ids, f"missing hover-center; ids={ids}"
     assert "pressed-center" in ids, f"missing pressed-center; ids={ids}"
+
+
+def test_button_svg_menu_written_for_M(tmp_path: Path) -> None:
+    """Code M has no E16 iclass; a placeholder menu.svg must still exist so
+    kwinrc ButtonsOnLeft=M renders something."""
+    from themey.generate.button_svg import write_button_svgs
+
+    theme = _make_theme(tmp_path, {}, left_buttons="M", right_buttons="")
+    written = write_button_svgs(theme, tmp_path / "out")
+    assert (tmp_path / "out" / "menu.svg") in written
+    content = (tmp_path / "out" / "menu.svg").read_text()
+    assert 'id="active-center"' in content
