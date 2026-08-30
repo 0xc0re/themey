@@ -134,10 +134,10 @@ def test_aliens_border_top_grown_for_corner_face(fake_home: Path) -> None:
     The cap deliberately limits side widths from growing along with it
     (post-commit 45b6690): corners aren't allowed to inflate side strips.
     """
-    from themey.generate.composite import required_border_extents
+    from themey.generate.composite import declared_zone_extents
 
     with _theme_ctx("Aliens") as theme:
-        ext = required_border_extents(theme)
+        ext = declared_zone_extents(theme)
         bs = theme.border
         # Cap: min(2 × border_size_top, 96). For Aliens (bst=30): cap = 60.
         cap = min(2 * bs.border_size_top, 96)
@@ -151,14 +151,13 @@ def test_aliens_border_top_grown_for_corner_face(fake_home: Path) -> None:
             f"Aliens req_top={ext['top']} exceeds the corner-growth cap {cap}"
         )
         # The cap must keep side widths bounded by their canonical values
-        # (we did NOT add corner-driven side growth).
-        # left should not grow above the bs.border_size_left + whatever the
-        # side strips contribute through the original spans_y_center path.
-        # Specifically, Aliens has no left strip that spans the y center,
-        # so req_left should equal bs.border_size_left.
+        # (we did NOT add corner-driven side growth). The DECLARED zone is
+        # the pre-trim value; the interactive-side trim is asserted
+        # separately in test_aliens_left_trimmed_for_kill_from_side_button.
         assert ext["left"] == bs.border_size_left, (
-            f"Aliens req_left={ext['left']} grew (was {bs.border_size_left}) — "
-            f"corner-driven side growth must NOT happen"
+            f"Aliens declared left={ext['left']} grew (was "
+            f"{bs.border_size_left}) — corner-driven side growth must NOT "
+            "happen"
         )
 
 
@@ -320,6 +319,61 @@ def test_e13_corner_extents_include_cap_reach() -> None:
         ext = corner_extents(theme)
         assert ext["left"] == 45, ext
         assert ext["right"] == 131, ext
+
+
+def test_e13_left_border_trimmed_to_opaque_art() -> None:
+    """The 40-ref left zone hosts a button stack; the strip trims to the art.
+
+    e13's declared left zone (40) exists to hold KILL/ICONIFY/SHADE/STICK,
+    which migrate to the Aurorae title row. The non-interactive art in the
+    zone (WIN_SIDE_LEFT) is opaque only in cols 24-29 → the required extent
+    trims to the ~7-ref opaque span. Right/bottom host no interactive parts,
+    so their gates must not fire.
+    """
+    from themey.generate.composite import (
+        declared_zone_extents,
+        required_border_extents,
+    )
+
+    with _theme_ctx("e13") as theme:
+        dz = declared_zone_extents(theme)
+        req = required_border_extents(theme)
+        assert dz["left"] == 40, dz
+        assert req["left"] == 7, req
+        assert req["right"] == dz["right"], (req, dz)
+        assert req["bottom"] == dz["bottom"], (req, dz)
+
+
+def test_aliens_left_trimmed_for_kill_from_side_button() -> None:
+    """Aliens hosts a kill-from-side BUTTON_KILL at (11,46)-(22,58) in its
+    35-ref left zone; the only non-interactive art there is the 5-ref
+    BUTTONL resize strip at x 30-35 (the rest is shaped-transparent
+    breathing room for the corner head). The gate fires and the left
+    border trims to the visible strip; other sides are untouched.
+    """
+    from themey.generate.composite import (
+        declared_zone_extents,
+        required_border_extents,
+    )
+
+    with _theme_ctx("Aliens") as theme:
+        dz = declared_zone_extents(theme)
+        req = required_border_extents(theme)
+        assert dz["left"] == 35 and req["left"] == 5, (dz, req)
+        for side in ("top", "right", "bottom"):
+            assert req[side] == dz[side], (side, req, dz)
+
+
+def test_e13_left_crop_anchored_on_visible_art() -> None:
+    """The left strip's crop window must land on the opaque art.
+
+    e13's visible left edge is WIN_SIDE_LEFT's cols 24-29 → ref x 33-40.
+    The old bbox-based scan anchored the crop at x=9 (the part's declared
+    origin) and the visible border showed only transparency.
+    """
+    with _theme_ctx("e13") as theme:
+        rx0, _, rx1, _ = region_bbox_reference(theme, "left", 120, 48)
+        assert rx0 == 33, (rx0, rx1)
 
 
 def test_no_titlebar_button_prefixes_constant() -> None:
