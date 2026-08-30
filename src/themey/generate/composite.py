@@ -48,6 +48,7 @@ from themey.analyze.buttons import (
 )
 from themey.analyze.coords import resolve
 from themey.images.ninepatch import slice_9patch
+from themey.images.opaque import structural_span
 from themey.ir import ButtonPart, IClassSpec, Theme
 
 REFERENCE_W: int = 800
@@ -238,8 +239,13 @@ def resolve_parts(
     return resolved
 
 
-def required_border_extents(theme: Theme) -> dict[str, int]:
-    """Return the grown border extents (in REFERENCE coords) for each side.
+def declared_zone_extents(theme: Theme) -> dict[str, int]:
+    """Return the declared (grown) border extents in REFERENCE coords.
+
+    This is the raw E16 zone geometry: ``__BORDER_SIZE_*`` grown by the
+    strips/corners that occupy each side. ``required_border_extents`` wraps
+    it with the interactive-side trim; use THAT for emitted geometry, and
+    this only when scanning the full E16 zone for art.
 
     A part is allowed to grow a side ONLY when it genuinely belongs to that
     side — defined as "spans the perpendicular center" of the reference
@@ -326,6 +332,115 @@ def required_border_extents(theme: Theme) -> dict[str, int]:
         "left": max(2, min(200, req_left)),
         "right": max(2, min(200, req_right)),
     }
+
+
+def _side_hosts_interactive(theme: Theme, side: str, declared: int) -> bool:
+    """True when interactive parts occupy *side*'s strip zone.
+
+    The exact failure shape the trim targets: a wide declared side zone
+    whose width exists to host a button stack (e13's 40-ref left zone holds
+    KILL/ICONIFY/SHADE/STICK). Those buttons migrate to the Aurorae title
+    row, so the zone width must not be reserved as border. Buttons already
+    in the top band don't count — a close button at the title bar's left
+    edge is not a side stack.
+    """
+    bst = theme.border.border_size_top
+    bboxes = resolve_parts(theme.border.parts, REFERENCE_W, REFERENCE_H)
+    for idx, part in enumerate(theme.border.parts):
+        if not is_interactive(part):
+            continue
+        x0, y0, x1, y1 = bboxes.get(idx, (0, 0, 0, 0))
+        if x1 <= x0 or y1 <= y0:
+            continue
+        if side == "left" and x1 <= declared and y1 > bst:
+            return True
+        if side == "right" and x0 >= REFERENCE_W - declared and y1 > bst:
+            return True
+        if side == "bottom" and y0 >= REFERENCE_H - declared:
+            return True
+    return False
+
+
+def _zone_art_span(
+    theme: Theme, side: str, declared: int, *, prefer_active: bool = True
+) -> tuple[int, int] | None:
+    """Opaque-art span (window ref coords) of *side*'s strip-zone art.
+
+    Scans the non-interactive parts that span the side's perpendicular
+    centre (the same strip filter ``compose_region`` uses) and intersect
+    the declared zone, mapping each part image's ``structural_span`` into
+    window coordinates (floor/ceil so partial ref pixels stay inside).
+    Falls back to the part's bbox when its image can't be opened. Returns
+    the union (min, max) clipped to the zone, or None when the zone holds
+    no measurable art.
+    """
+    if side == "left":
+        lo, hi = 0, declared
+    elif side == "right":
+        lo, hi = REFERENCE_W - declared, REFERENCE_W
+    else:  # bottom
+        lo, hi = REFERENCE_H - declared, REFERENCE_H
+    cx, cy = REFERENCE_W // 2, REFERENCE_H // 2
+    axis = "y" if side == "bottom" else "x"
+    bboxes = resolve_parts(theme.border.parts, REFERENCE_W, REFERENCE_H)
+    art_min: int | None = None
+    art_max: int | None = None
+    for idx, part in enumerate(theme.border.parts):
+        if is_interactive(part):
+            continue
+        px0, py0, px1, py1 = bboxes.get(idx, (0, 0, 0, 0))
+        if px1 <= px0 or py1 <= py0:
+            continue
+        if side == "bottom":
+            if py1 <= lo or py0 >= hi or not (px0 < cx < px1):
+                continue
+            p0, p1 = py0, py1
+        else:
+            if px1 <= lo or px0 >= hi or not (py0 < cy < py1):
+                continue
+            p0, p1 = px0, px1
+        a0, a1 = p0, p1
+        img = _iclass_image(theme.iclasses.get(part.iclass_name), prefer_active)
+        if img is not None:
+            s0, s1 = structural_span(img, axis)
+            img_dim = img.width if axis == "x" else img.height
+            if s1 > s0 and img_dim > 0:
+                extent = p1 - p0
+                a0 = p0 + (s0 * extent) // img_dim
+                a1 = p0 + -((-s1 * extent) // img_dim)  # ceil
+            elif s1 <= s0:
+                continue  # image is fully transparent — no structure here
+        a0, a1 = max(a0, lo), min(a1, hi)
+        if a1 <= a0:
+            continue
+        art_min = a0 if art_min is None else min(art_min, a0)
+        art_max = a1 if art_max is None else max(art_max, a1)
+    if art_min is None or art_max is None:
+        return None
+    return (art_min, art_max)
+
+
+def required_border_extents(theme: Theme) -> dict[str, int]:
+    """Declared zone extents, trimmed where a side zone hosts buttons.
+
+    A side extent is trimmed ONLY when interactive parts occupy that side's
+    strip zone (``_side_hosts_interactive``) — the declared width then
+    exists to host buttons that migrate to the Aurorae title row, and
+    reserving it as border leaves a mostly-transparent band. The trimmed
+    extent is the opaque span width of the zone's non-interactive strip
+    art, clamped to ``[2, declared]``. e13: left 40 → 7 (WIN_SIDE_LEFT's
+    real edge); Aliens/OPENSTEP: no side-zone buttons, nothing changes.
+    """
+    ext = declared_zone_extents(theme)
+    for side in ("left", "right", "bottom"):
+        declared = ext[side]
+        if not _side_hosts_interactive(theme, side, declared):
+            continue
+        span = _zone_art_span(theme, side, declared)
+        if span is None:
+            continue
+        ext[side] = max(2, min(declared, span[1] - span[0]))
+    return ext
 
 
 def capped_border_extents(
@@ -479,12 +594,12 @@ def region_bbox_reference(
     # of the E16 frame. When a column/bottom is narrower than the E16 zone
     # (48-px cap), the crop window is anchored on the zone's actual art
     # (see ``_capped_window``) so the visible strip is never cropped away.
-    req = required_border_extents(theme)
+    zones = declared_zone_extents(theme)
     lw = max(bsl, tlw)
     rw = max(bsr, trw)
-    lx0, lx1 = _capped_window(theme, "left", req["left"], lw)
-    rx0, rx1 = _capped_window(theme, "right", req["right"], rw)
-    by0, by1 = _capped_window(theme, "bottom", req["bottom"], bsb)
+    lx0, lx1 = _capped_window(theme, "left", zones["left"], lw, visible=bsl)
+    rx0, rx1 = _capped_window(theme, "right", zones["right"], rw, visible=bsr)
+    by0, by1 = _capped_window(theme, "bottom", zones["bottom"], bsb, visible=bsb)
 
     regions: dict[str, tuple[int, int, int, int]] = {
         "topleft": (0, 0, tlw, bst),
@@ -500,66 +615,61 @@ def region_bbox_reference(
     return regions[region]
 
 
-def _capped_window(theme: Theme, side: str, zone: int, cap: int) -> tuple[int, int]:
+def _capped_window(
+    theme: Theme, side: str, zone: int, cap: int, visible: int | None = None
+) -> tuple[int, int]:
     """Return the (start, end) reference span of a possibly-capped side.
 
-    ``zone`` is the E16 border extent on that side, ``cap`` the width we
-    can emit. When ``cap >= zone`` the whole zone is used. Otherwise the
-    ``cap``-wide window is placed where the zone's non-interactive art is:
-    E16 themes put the visible resize strip anywhere in the zone (Aliens'
-    BUTTONL is at the inner edge of the left zone, BUTTONB at the outer
-    edge of the bottom zone), and cropping blindly from either edge throws
-    the only visible art away.
+    ``zone`` is the DECLARED E16 zone extent on that side (the area scanned
+    for art), ``cap`` the width we can emit, and ``visible`` the reserved
+    ``Border*`` width in ref px — the outer slice of the emitted column that
+    KWin actually shows (the rest sits under the client when corner folding
+    widens the column past the border). The window is placed so the zone's
+    *opaque* non-interactive art lands inside that visible slice: E16 themes
+    put the visible resize strip anywhere in the zone (e13's WIN_SIDE_LEFT
+    edge is at the inner cols 33-40 of a 40 zone; Aliens' BUTTONB at the
+    outer edge of the bottom zone), and cropping blindly from either edge
+    throws the only visible art away.
     """
+    if visible is None:
+        visible = cap
     if side == "left":
         lo, hi = 0, zone
     elif side == "right":
         lo, hi = REFERENCE_W - zone, REFERENCE_W
     else:  # bottom
         lo, hi = REFERENCE_H - zone, REFERENCE_H
-    if cap >= zone:
-        # Column wider than (or equal to) the zone: span the whole column
-        # from the outer edge so the composite is 1:1 with the SVG slot.
-        if side == "left":
-            return (0, cap)
-        if side == "right":
-            return (REFERENCE_W - cap, REFERENCE_W)
-        return (REFERENCE_H - cap, REFERENCE_H)
 
-    cx, cy = REFERENCE_W // 2, REFERENCE_H // 2
-    half = MIDDLE_REF // 2
-    bboxes = resolve_parts(theme.border.parts, REFERENCE_W, REFERENCE_H)
-    art_min: int | None = None
-    art_max: int | None = None
-    for idx, part in enumerate(theme.border.parts):
-        if is_interactive(part):
-            continue
-        x0, y0, x1, y1 = bboxes.get(idx, (0, 0, 0, 0))
-        if x1 <= x0 or y1 <= y0:
-            continue
-        if side == "bottom":
-            # must intersect the zone AND the horizontal middle slice
-            if y1 <= lo or y0 >= hi or x1 <= cx - half or x0 >= cx + half:
-                continue
-            a0, a1 = max(y0, lo), min(y1, hi)
-        else:
-            if x1 <= lo or x0 >= hi or y1 <= cy - half or y0 >= cy + half:
-                continue
-            a0, a1 = max(x0, lo), min(x1, hi)
-        art_min = a0 if art_min is None else min(art_min, a0)
-        art_max = a1 if art_max is None else max(art_max, a1)
+    art = _zone_art_span(theme, side, zone)
 
     if side == "left":
-        # Prefer to start at the art's near (outer) edge, else keep the inner
-        # ``cap`` px.
-        start = hi - cap if art_min is None else min(art_min, hi - cap)
+        if cap >= zone:
+            start = 0
+        elif art is None:
+            start = hi - cap
+        else:
+            # Prefer to start at the art's near (outer) edge, else keep the
+            # inner ``cap`` px.
+            start = min(art[0], hi - cap)
+        # Visible-band rule: the outer ``visible`` px are all KWin shows.
+        # If the art overflows them, anchor the window on the art.
+        if art is not None and art[1] > start + visible:
+            start = art[0]
         start = max(lo, start)
+        return (start, start + cap)
+
+    # right / bottom: the visible band is the OUTER (far-edge) slice.
+    outer = REFERENCE_W if side == "right" else REFERENCE_H
+    if cap >= zone:
+        end = outer
+    elif art is None:
+        end = lo + cap
     else:
-        # right/bottom: prefer to end at the art's far (outer) edge.
-        end = lo + cap if art_max is None else max(art_max, lo + cap)
-        end = min(hi, end)
-        start = end - cap
-    return (start, start + cap)
+        # Prefer to end at the art's far (outer) edge.
+        end = min(hi, max(art[1], lo + cap))
+    if art is not None and art[0] < end - visible:
+        end = min(outer, art[1])
+    return (end - cap, end)
 
 
 def _resize_with_edge_scaling(
