@@ -212,13 +212,81 @@ themey is a local Python CLI that converts Enlightenment DR16 (E16) `.etheme` ar
 <!-- GSD:conventions-start source:CONVENTIONS.md -->
 ## Conventions
 
-Conventions not yet established. Will populate as patterns emerge during development.
+**Module style**
+
+- `from __future__ import annotations` at the top of every module; `X | None`, not `Optional[X]`.
+- Every module opens with a docstring that states what it does and names the
+  contract it satisfies — the IDs KDE matches on, the invariant it upholds, the
+  pitfall it avoids. Read those docstrings before editing; they carry the
+  reasoning the code alone does not.
+- Module-level `log = logging.getLogger(__name__)`. `log.setup_logging()` runs
+  once, in the CLI.
+- Errors are typed per subsystem: `UnsafeArchiveError`, `InstallError`,
+  `RenderError`, `ApplyError`. Raise those, not bare `Exception`.
+
+**Data**
+
+- `ir.Theme` and its members are frozen dataclasses. `Theme.notes` is the one
+  mutable field — the analysis stage appends fidelity notes there, and
+  `report.py` categorizes them by prefix.
+- `theme.asset_root` is valid only inside the `with extract(...)` block. Never
+  read it after the block closes; `pipeline.py` documents the lifecycle.
+- Install paths come from `paths.py`, which reads `os.environ` at call time
+  (not import time) so tests can monkeypatch `XDG_DATA_HOME`.
+
+**Output**
+
+- `RawConfigParser` with `optionxform = str` for KDE INI; a hand-rolled writer
+  for `.desktop` files.
+- `Image.Resampling.NEAREST` for border art. LANCZOS must not appear anywhere
+  under `src/themey/images/`.
+- Everything is written under `$XDG_DATA_HOME`, staged first and installed with
+  `os.replace`. No system paths, no root.
+
+**Tests**
+
+- pytest with the `fake_home` fixture for anything that touches install paths.
+- Real themes in `tests/fixtures/` are the canaries: Aliens, e13, LiteGnome,
+  Mac3D, OPENSTEP. Malicious archives cover the extract validator.
+- `tests/test_svg_rc_invariant.py` and the phash snapshots in
+  `tests/snapshots/visual/` guard rendering. A phash diff means the pixels
+  moved — regenerate only when the change is intended and verified.
+- Verify with `uv run pytest`, `uv run ruff check src/`, `uv run pyright src`.
 <!-- GSD:conventions-end -->
 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
 ## Architecture
 
-Architecture not yet mapped. Follow existing patterns found in the codebase.
+Pipeline: `.etheme` → ingest → analyze → generate → install → report + preview.
+`pipeline.convert()` composes it; `cli.py` is the only entry point.
+
+| Package | Role |
+|---------|------|
+| `etheme/` | `archive.py` (validating tar extract), `lex.py`, `parse.py`, `ast.py` — the E16 grammar front end |
+| `analyze/` | AST → frozen `ir.Theme`: iclass resolution, state collapse, button binning, coordinate math, palette, borders |
+| `images/` | `ninepatch.py`, `upscale.py`, `embed.py` — raster primitives, NEAREST only |
+| `generate/` | `aurorae.py` orchestrates `decoration_svg.py`, `aurorae_rc.py`, `aurorae_meta.py`, `button_svg.py`, `composite.py` |
+| root modules | `ir.py` (IR), `paths.py` (XDG), `install.py` (atomic deploy), `report.py`, `preview.py`, `kwin.py`, `render.py`, `apply.py`, `external.py`, `slug.py`, `log.py` |
+
+Two contracts govern the generated theme:
+
+1. **Aurorae matches by element ID.** `decoration.svg` carries all 36
+   `decoration-*` IDs (nine regions × active / inactive / maximized /
+   maximized-inactive) plus `hint-*` margin rects. Missing maximized groups
+   render a blank title bar on maximized windows.
+2. **SVG and rc must agree.** Strip thicknesses in `decoration.svg` and
+   `Border*` / `TitleHeight` in `<name>rc` both come from
+   `decoration_svg.strip_thicknesses()`. `tests/test_svg_rc_invariant.py`
+   enforces it.
+
+`kwin.py` is a leaf module (no themey imports) holding the KWin facts — plugin
+IDs and the per-`BorderSize` clamp brackets from the Plasma 6.6.6 Aurorae
+sources — so `report` and `render` can both use it without an import cycle. Both
+plugins clamp side and bottom borders to the selected bracket, which is why wide
+corner art is folded into the title band instead.
+
+Visual verification: `themey render` (nested headless KWin) is the truth.
+`scripts/render_review.py` is a fast approximation and can disagree with KWin.
 <!-- GSD:architecture-end -->
 
 <!-- GSD:skills-start source:skills/ -->
