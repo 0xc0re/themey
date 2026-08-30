@@ -10,8 +10,10 @@ all of this layout data and rendered only a single image per region.
 
 This module composites *all* non-interactive parts that overlap an Aurorae
 region's bbox into a single RGBA PNG. Interactive parts (close/min/max
-buttons) are excluded because Aurorae renders those natively from the rc's
-``LeftButtons``/``RightButtons`` strings.
+buttons) are excluded because Aurorae renders those natively from the
+per-button SVGs; their ORDER is global (kwinrc ``ButtonsOnLeft`` /
+``ButtonsOnRight``), not something the theme controls — the theme only
+decides which button SVGs exist.
 
 Each region's bbox in reference (unscaled) window coordinates:
 
@@ -51,11 +53,15 @@ REFERENCE_W: int = 800
 REFERENCE_H: int = 600
 
 # Width/height of the centered slice used to render the stretchable strips
-# (top, bottom, left, right, center). KWin tiles/stretches the slice anyway,
-# so its exact size doesn't matter for rendering — but it has to be big enough
-# to hold any tileable iclass content. 64 in reference coords matches the
-# previous decoration_svg ``_MIDDLE_REF`` value.
-MIDDLE_REF: int = 64
+# (top, bottom, left, right, center). decoration.svg sets
+# ``decoration-hint-stretch-borders`` so KWin STRETCHES (not tiles) the
+# slice across the window; a wide slice therefore carries the theme's real
+# horizontal gradient instead of a 64-px sample repeated with a seam.
+MIDDLE_REF: int = 256
+
+# Corner art is allowed to extend this far (reference px) into the top band
+# when it is folded out of a clamped side (see ``corner_extents``).
+CORNER_FOLD_CAP_REF: int = 256
 
 
 def is_interactive(part: ButtonPart) -> bool:
@@ -288,37 +294,120 @@ def required_border_extents(theme: Theme) -> dict[str, int]:
     }
 
 
-def capped_border_extents(theme: Theme, max_border_output: int) -> dict[str, int]:
+def capped_border_extents(
+    theme: Theme, max_border_output: int, max_side_output: int | None = None
+) -> dict[str, int]:
     """Return border extents in REFERENCE coords, capped to match
-    ``strip_thicknesses``'s output-pixel cap. Used so the composite PNG
+    ``strip_thicknesses``'s output-pixel caps. Used so the composite PNG
     dimensions agree with the SVG <image> slot dimensions — without this,
     KWin would stretch a 248x358 alien-head PNG into a 120x120 slot and
     squash it. Capping clips the source art instead.
+
+    ``max_border_output`` caps the top band; ``max_side_output`` (defaults
+    to the same value) caps left/right/bottom — Aurorae v2 clamps those to
+    the System Settings border bracket, so keeping them small avoids a
+    squashed frame.
     """
     s = theme.scale
-    cap_ref = max(2, max_border_output // s)
+    if max_side_output is None:
+        max_side_output = max_border_output
+    cap_top = max(2, max_border_output // s)
+    cap_side = max(2, max_side_output // s)
     ext = required_border_extents(theme)
-    return {side: min(cap_ref, ext[side]) for side in ("top", "bottom", "left", "right")}
+    return {
+        "top": min(cap_top, ext["top"]),
+        "bottom": min(cap_side, ext["bottom"]),
+        "left": min(cap_side, ext["left"]),
+        "right": min(cap_side, ext["right"]),
+    }
+
+
+def corner_extents(theme: Theme) -> dict[str, int]:
+    """Horizontal reach (reference px) of top-left / top-right corner art.
+
+    Returns ``{"left": x1_of_widest_top_left_corner_part,
+    "right": width_from_right_edge_of_widest_top_right_corner_part}``. A
+    corner part is a non-interactive, window-relative part anchored to the
+    top AND to one horizontal edge that does not span the horizontal
+    center. Zero when a side has no corner art. Capped at
+    ``CORNER_FOLD_CAP_REF``.
+    """
+    half_w = REFERENCE_W // 2
+    left = 0
+    right = 0
+    for part in theme.border.parts:
+        if is_interactive(part):
+            continue
+        if part.tl_origin != -1 or part.br_origin != -1:
+            continue
+        tlx_p, tlx_a, brx_p, brx_a = _typo_corrected_pct_abs(
+            part.tl_x_pct, part.tl_x_abs, part.br_x_pct, part.br_x_abs
+        )
+        tly_p, _tly_a, bry_p, _bry_a = _typo_corrected_pct_abs(
+            part.tl_y_pct, part.tl_y_abs, part.br_y_pct, part.br_y_abs
+        )
+        if not (tly_p == 0 and bry_p == 0):
+            continue
+        tl_x = resolve(tlx_p, tlx_a, REFERENCE_W)
+        br_x = resolve(brx_p, brx_a, REFERENCE_W)
+        x0, x1 = min(tl_x, br_x), max(tl_x, br_x)
+        if x0 < half_w < x1:
+            continue
+        if tlx_p == 0 and brx_p == 0:
+            left = max(left, x1)
+        elif tlx_p == 1024 and brx_p == 1024:
+            right = max(right, REFERENCE_W - x0)
+    return {
+        "left": min(CORNER_FOLD_CAP_REF, left),
+        "right": min(CORNER_FOLD_CAP_REF, right),
+    }
+
+
+def folded_corner_widths(
+    theme: Theme, max_border_output: int, max_side_output: int | None = None
+) -> dict[str, int]:
+    """Width (reference px) of the topleft / topright cells.
+
+    Normally these equal the capped left/right extents. When a side is
+    clamped BELOW what its corner art needs (Aliens: 35-ref left border
+    but 124-ref-wide CORNER_TL, sides capped at 24 ref), the corner cell is
+    widened to hold the art — it lives in the unclamped top band, so both
+    Aurorae plugins render it in full.
+    """
+    ext = capped_border_extents(theme, max_border_output, max_side_output)
+    corner = corner_extents(theme)
+    return {
+        side: max(ext[side], corner[side]) for side in ("left", "right")
+    }
 
 
 def region_bbox_reference(
-    theme: Theme, region: str, max_border_output: int | None = None
+    theme: Theme,
+    region: str,
+    max_border_output: int | None = None,
+    max_side_output: int | None = None,
 ) -> tuple[int, int, int, int]:
     """Return (x0, y0, x1, y1) for *region* in reference (unscaled) coords.
 
     If ``max_border_output`` is given, the extents are capped so the
     composite canvas matches the SVG/rc dimensions; corner art that
     exceeds the cap is clipped (showing the natural top-left portion of
-    the source image rather than a squashed-to-fit version).
+    the source image rather than a squashed-to-fit version) — except the
+    top corners, which widen to hold folded corner art (see
+    ``folded_corner_widths``).
     """
     if max_border_output is not None:
-        ext = capped_border_extents(theme, max_border_output)
+        ext = capped_border_extents(theme, max_border_output, max_side_output)
+        cw = folded_corner_widths(theme, max_border_output, max_side_output)
     else:
         ext = required_border_extents(theme)
+        cw = {"left": ext["left"], "right": ext["right"]}
     bsl = ext["left"]
     bsr = ext["right"]
     bst = ext["top"]
     bsb = ext["bottom"]
+    tlw = cw["left"]
+    trw = cw["right"]
     cx = REFERENCE_W // 2
     cy = REFERENCE_H // 2
     mid = MIDDLE_REF
@@ -326,18 +415,101 @@ def region_bbox_reference(
     mx1 = cx + mid // 2
     my0 = cy - mid // 2
     my1 = cy + mid // 2
+
+    # Inner-edge anchoring for capped sides. When the left/right/bottom
+    # strip is narrower than the E16 zone (v2-friendly 48 px cap), keep the
+    # ``cap`` reference px ADJACENT TO THE CLIENT rather than the outer
+    # ones: E16 themes put the visible resize strip at the inner edge of
+    # the zone (Aliens' BUTTONL is x=30..35 of a 35-wide zone) and leave the
+    # outer part transparent for the corner art to breathe. Cropping from
+    # the outer edge would throw the only visible side art away.
+    # The left/right frame COLUMNS are as wide as the folded corner cells
+    # (``tlw``/``trw`` >= ``bsl``/``bsr``); the strips and bottom corners
+    # share that width so the column is one continuous, unstretched piece
+    # of the E16 frame. When a column/bottom is narrower than the E16 zone
+    # (48-px cap), the crop window is anchored on the zone's actual art
+    # (see ``_capped_window``) so the visible strip is never cropped away.
+    req = required_border_extents(theme)
+    lw = max(bsl, tlw)
+    rw = max(bsr, trw)
+    lx0, lx1 = _capped_window(theme, "left", req["left"], lw)
+    rx0, rx1 = _capped_window(theme, "right", req["right"], rw)
+    by0, by1 = _capped_window(theme, "bottom", req["bottom"], bsb)
+
     regions: dict[str, tuple[int, int, int, int]] = {
-        "topleft": (0, 0, bsl, bst),
+        "topleft": (0, 0, tlw, bst),
         "top": (mx0, 0, mx1, bst),
-        "topright": (REFERENCE_W - bsr, 0, REFERENCE_W, bst),
-        "left": (0, my0, bsl, my1),
+        "topright": (REFERENCE_W - trw, 0, REFERENCE_W, bst),
+        "left": (lx0, my0, lx1, my1),
         "center": (mx0, my0, mx1, my1),
-        "right": (REFERENCE_W - bsr, my0, REFERENCE_W, my1),
-        "bottomleft": (0, REFERENCE_H - bsb, bsl, REFERENCE_H),
-        "bottom": (mx0, REFERENCE_H - bsb, mx1, REFERENCE_H),
-        "bottomright": (REFERENCE_W - bsr, REFERENCE_H - bsb, REFERENCE_W, REFERENCE_H),
+        "right": (rx0, my0, rx1, my1),
+        "bottomleft": (lx0, by0, lx1, by1),
+        "bottom": (mx0, by0, mx1, by1),
+        "bottomright": (rx0, by0, rx1, by1),
     }
     return regions[region]
+
+
+def _capped_window(theme: Theme, side: str, zone: int, cap: int) -> tuple[int, int]:
+    """Return the (start, end) reference span of a possibly-capped side.
+
+    ``zone`` is the E16 border extent on that side, ``cap`` the width we
+    can emit. When ``cap >= zone`` the whole zone is used. Otherwise the
+    ``cap``-wide window is placed where the zone's non-interactive art is:
+    E16 themes put the visible resize strip anywhere in the zone (Aliens'
+    BUTTONL is at the inner edge of the left zone, BUTTONB at the outer
+    edge of the bottom zone), and cropping blindly from either edge throws
+    the only visible art away.
+    """
+    if side == "left":
+        lo, hi = 0, zone
+    elif side == "right":
+        lo, hi = REFERENCE_W - zone, REFERENCE_W
+    else:  # bottom
+        lo, hi = REFERENCE_H - zone, REFERENCE_H
+    if cap >= zone:
+        # Column wider than (or equal to) the zone: span the whole column
+        # from the outer edge so the composite is 1:1 with the SVG slot.
+        if side == "left":
+            return (0, cap)
+        if side == "right":
+            return (REFERENCE_W - cap, REFERENCE_W)
+        return (REFERENCE_H - cap, REFERENCE_H)
+
+    cx, cy = REFERENCE_W // 2, REFERENCE_H // 2
+    half = MIDDLE_REF // 2
+    bboxes = resolve_parts(theme.border.parts, REFERENCE_W, REFERENCE_H)
+    art_min: int | None = None
+    art_max: int | None = None
+    for idx, part in enumerate(theme.border.parts):
+        if is_interactive(part):
+            continue
+        x0, y0, x1, y1 = bboxes.get(idx, (0, 0, 0, 0))
+        if x1 <= x0 or y1 <= y0:
+            continue
+        if side == "bottom":
+            # must intersect the zone AND the horizontal middle slice
+            if y1 <= lo or y0 >= hi or x1 <= cx - half or x0 >= cx + half:
+                continue
+            a0, a1 = max(y0, lo), min(y1, hi)
+        else:
+            if x1 <= lo or x0 >= hi or y1 <= cy - half or y0 >= cy + half:
+                continue
+            a0, a1 = max(x0, lo), min(x1, hi)
+        art_min = a0 if art_min is None else min(art_min, a0)
+        art_max = a1 if art_max is None else max(art_max, a1)
+
+    if side == "left":
+        # Prefer to start at the art's near (outer) edge, else keep the inner
+        # ``cap`` px.
+        start = hi - cap if art_min is None else min(art_min, hi - cap)
+        start = max(lo, start)
+    else:
+        # right/bottom: prefer to end at the art's far (outer) edge.
+        end = lo + cap if art_max is None else max(art_max, lo + cap)
+        end = min(hi, end)
+        start = end - cap
+    return (start, start + cap)
 
 
 def _iclass_image(ic: IClassSpec | None, prefer_active: bool) -> Image.Image | None:
@@ -369,6 +541,7 @@ def compose_region(
     *,
     prefer_active: bool = True,
     max_border_output: int | None = None,
+    max_side_output: int | None = None,
 ) -> bytes:
     """Render *region* as a RGBA PNG composited from overlapping border parts.
 
@@ -386,12 +559,16 @@ def compose_region(
             same cap used by ``strip_thicknesses``. Corner art that exceeds
             the cap is clipped (showing the top-left portion of the source)
             instead of stretched.
+        max_side_output: Separate cap for left/right/bottom (defaults to
+            ``max_border_output``).
 
     Returns:
         PNG bytes of the composited region at output (scaled) size.
     """
     scale = theme.scale
-    rx0, ry0, rx1, ry1 = region_bbox_reference(theme, region, max_border_output)
+    rx0, ry0, rx1, ry1 = region_bbox_reference(
+        theme, region, max_border_output, max_side_output
+    )
     region_w_ref = max(1, rx1 - rx0)
     region_h_ref = max(1, ry1 - ry0)
     canvas_w = region_w_ref * scale
@@ -401,11 +578,21 @@ def compose_region(
 
     bboxes = resolve_parts(theme.border.parts, REFERENCE_W, REFERENCE_H)
 
+    # Stretchable strips only take strip-like parts — those spanning the
+    # window centre on the strip's axis. Corner art (e.g. Aliens' CORNER_TL
+    # reaching 179 ref px down the left edge) belongs to the corner cells;
+    # letting a sliver of it into the left strip would be stretched down the
+    # whole window height by ``hint-stretch-borders``.
+    cx, cy = REFERENCE_W // 2, REFERENCE_H // 2
     for idx, part in enumerate(theme.border.parts):
         if is_interactive(part):
             continue
         px0, py0, px1, py1 = bboxes[idx]
         if px1 <= px0 or py1 <= py0:
+            continue
+        if region in ("left", "right") and not (py0 < cy < py1):
+            continue
+        if region in ("top", "bottom") and not (px0 < cx < px1):
             continue
         # Intersect part bbox with region bbox (reference coords)
         ix0 = max(px0, rx0)
@@ -537,6 +724,65 @@ def button_dims(theme: Theme) -> tuple[int, int]:
         max_h = min(max_h, max(2, title_h_ref - 1))
 
     return (max_w * s, max_h * s)
+
+
+# Aurorae rc key suffix per button code (``ButtonWidth<Suffix>``).
+BUTTON_CODE_TO_RC_SUFFIX: dict[str, str] = {
+    "X": "Close",
+    "I": "Minimize",
+    "A": "MaximizeRestore",
+    # Aurorae reads these with this exact (odd) casing — see
+    # aurorae v1/lib/themeconfig.cpp + v2/decorationtheme.cpp.
+    "S": "Alldesktops",
+    "L": "Shade",
+    "F": "Keepabove",
+    "B": "Keepbelow",
+    "M": "Menu",
+}
+
+
+def button_widths_by_code(theme: Theme) -> dict[str, int]:
+    """Per-button ``ButtonWidth<Suffix>`` values in output pixels.
+
+    Each interactive part's resolved bbox width x scale, keyed by Aurorae
+    button code (via ``__ACLASS`` or the iclass-name pattern). Codes with
+    no part fall back to the shared ``ButtonWidth`` from ``button_dims``.
+    """
+    s = theme.scale
+    bst = theme.border.border_size_top
+    default_w, _ = button_dims(theme)
+    bboxes = resolve_parts(theme.border.parts, REFERENCE_W, REFERENCE_H)
+    widths: dict[str, int] = {}
+    cap_ref = REFERENCE_W // 4
+    for idx, part in enumerate(theme.border.parts):
+        if not is_interactive(part):
+            continue
+        code: str | None = None
+        if part.aclass is not None and part.aclass in ACLASS_TO_BUTTON:
+            code = ACLASS_TO_BUTTON[part.aclass]
+        else:
+            up = part.iclass_name.upper()
+            for pattern, c in ICLASS_PATTERN_TO_BUTTON:
+                if pattern in up:
+                    code = c
+                    break
+        if code is None:
+            continue
+        bb = bboxes.get(idx)
+        if bb is None:
+            continue
+        x0, y0, x1, y1 = bb
+        if y0 < 0 or y1 > bst:
+            continue
+        w = x1 - x0
+        if w <= 0 or w > cap_ref:
+            continue
+        if part.max_w > 0:
+            w = min(w, part.max_w)
+        widths[code] = max(widths.get(code, 0), w * s)
+    return {
+        code: widths.get(code, default_w) for code in BUTTON_CODE_TO_RC_SUFFIX
+    }
 
 
 def _title_bar_height_ref(theme: Theme) -> int:

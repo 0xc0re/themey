@@ -68,8 +68,38 @@ def test_aurorae_rc_general_section(tmp_path: Path) -> None:
     out = write_aurorae_rc(theme, tmp_path)
     assert out.is_file()
     cp = _read_rc(out)
-    assert cp["General"]["LeftButtons"] == "XAI"
-    assert cp["General"]["RightButtons"] == ""
+    # Button order is global (kwinrc ButtonsOnLeft/Right); Aurorae ignores
+    # these keys, so we no longer emit them.
+    for dead in ("LeftButtons", "RightButtons", "Shadow"):
+        assert dead not in cp["General"], dead
+    # v1 (org.kde.kwin.aurorae) reads the text-shadow keys; keep emitting them.
+    assert cp["General"]["UseTextShadow"] in ("true", "false")
+    assert "ButtonMarginLeft" not in cp["Layout"]
+    assert "TitleAlignment" in cp["General"]
+
+
+def test_aurorae_rc_maximized_layout_keys(tmp_path: Path) -> None:
+    from themey.generate.aurorae_rc import write_aurorae_rc
+
+    theme = _make_minimal_theme(left_buttons="XAI", right_buttons="")
+    cp = _read_rc(write_aurorae_rc(theme, tmp_path))
+    L = cp["Layout"]
+    for k in ("TitleEdgeTop", "TitleEdgeBottom", "TitleEdgeLeft", "TitleEdgeRight", "ButtonMarginTop"):
+        assert L[f"{k}Maximized"] == L[k]
+
+
+def test_aurorae_rc_per_button_widths(tmp_path: Path) -> None:
+    from themey.generate.aurorae_rc import write_aurorae_rc
+
+    theme = _make_minimal_theme(left_buttons="XAI", right_buttons="")
+    cp = _read_rc(write_aurorae_rc(theme, tmp_path))
+    L = cp["Layout"]
+    for k in (
+        "ButtonWidthClose", "ButtonWidthMinimize", "ButtonWidthMaximizeRestore",
+        "ButtonWidthAlldesktops", "ButtonWidthShade", "ButtonWidthKeepabove",
+        "ButtonWidthKeepbelow", "ButtonWidthMenu",
+    ):
+        assert int(L[k]) > 0, k
 
 
 def test_aurorae_rc_active_text_color_format(tmp_path: Path) -> None:
@@ -115,8 +145,9 @@ def test_aurorae_rc_layout_keys_present(tmp_path: Path) -> None:
 def test_aurorae_rc_borderleft_scales_with_theme_scale(tmp_path: Path) -> None:
     from themey.generate.aurorae_rc import write_aurorae_rc
 
-    theme1 = _make_minimal_theme(scale=1, border_size_left=35)
-    theme2 = _make_minimal_theme(scale=2, border_size_left=35)
+    # 20 ref -> 40 output at scale=2, under the 48-px v2 side cap.
+    theme1 = _make_minimal_theme(scale=1, border_size_left=20)
+    theme2 = _make_minimal_theme(scale=2, border_size_left=20)
     out1 = write_aurorae_rc(theme1, tmp_path / "s1")
     (tmp_path / "s1").mkdir(parents=True, exist_ok=True)
     out1 = write_aurorae_rc(theme1, tmp_path / "s1")
@@ -138,14 +169,14 @@ def test_aurorae_rc_filename_matches_theme_name(tmp_path: Path) -> None:
 
 
 def test_aurorae_rc_keys_case_preserved(tmp_path: Path) -> None:
-    """Open written file as raw text; confirm LeftButtons= (capital L) NOT leftbuttons=."""
+    """Open written file as raw text; confirm TitleAlignment= (capital) NOT titlealignment=."""
     from themey.generate.aurorae_rc import write_aurorae_rc
 
     theme = _make_minimal_theme()
     out = write_aurorae_rc(theme, tmp_path)
     raw = out.read_text(encoding="utf-8")
-    assert "LeftButtons=" in raw, "Expected 'LeftButtons=' (capital L) in rc file"
-    assert "leftbuttons=" not in raw, "Found lowercase 'leftbuttons=' — optionxform not set"
+    assert "TitleAlignment=" in raw, "Expected 'TitleAlignment=' (capital) in rc file"
+    assert "titlealignment=" not in raw, "Found lowercase key — optionxform not set"
 
 
 # ---------------------------------------------------------------------------
@@ -247,64 +278,6 @@ def test_tclass_justification_maps_to_titlealignment(tmp_path: Path) -> None:
     out = write_aurorae_rc(theme, tmp_path / "out")
     cp = _read_rc(out)
     assert cp["General"]["TitleAlignment"] == "Left"
-
-
-def test_tclass_drawing_effect_shadow_enables_text_shadow(tmp_path: Path) -> None:
-    """TEXT1.effect=__EFFECT_SHADOW + effect_color → UseTextShadow=true with that color."""
-    from themey.generate.aurorae_rc import write_aurorae_rc
-    from themey.ir import BorderSpec, Palette, TClassSpec, Theme
-
-    theme = Theme(
-        name="X", display_name="X", author=None, scale=1,
-        asset_root=tmp_path,
-        border=BorderSpec("DEFAULT", 4, 4, 20, 4, ()),
-        iclasses={},
-        tclasses={
-            "TEXT1": TClassSpec(
-                name="TEXT1",
-                fg_normal=(255, 255, 255),
-                fg_active=(255, 255, 255),
-                alignment=None,
-                effect="__EFFECT_SHADOW",
-                effect_color=(50, 50, 50),
-            )
-        },
-        button_codes={}, left_buttons="", right_buttons="",
-        palette=Palette((0, 0, 0), (0, 0, 0), (255, 255, 255), (192, 192, 192)),
-    )
-    out = write_aurorae_rc(theme, tmp_path / "out")
-    cp = _read_rc(out)
-    assert cp["General"]["UseTextShadow"] == "true"
-    assert cp["General"]["ActiveTextShadowColor"] == "50,50,50,255"
-    assert cp["General"]["InactiveTextShadowColor"] == "50,50,50,255"
-
-
-def test_tclass_drawing_effect_none_disables_text_shadow(tmp_path: Path) -> None:
-    """TEXT1.effect=__EFFECT_NONE → UseTextShadow=false."""
-    from themey.generate.aurorae_rc import write_aurorae_rc
-    from themey.ir import BorderSpec, Palette, TClassSpec, Theme
-
-    theme = Theme(
-        name="X", display_name="X", author=None, scale=1,
-        asset_root=tmp_path,
-        border=BorderSpec("DEFAULT", 4, 4, 20, 4, ()),
-        iclasses={},
-        tclasses={
-            "TEXT1": TClassSpec(
-                name="TEXT1",
-                fg_normal=(255, 255, 255),
-                fg_active=(255, 255, 255),
-                alignment=None,
-                effect="__EFFECT_NONE",
-                effect_color=None,
-            )
-        },
-        button_codes={}, left_buttons="", right_buttons="",
-        palette=Palette((0, 0, 0), (0, 0, 0), (255, 255, 255), (192, 192, 192)),
-    )
-    out = write_aurorae_rc(theme, tmp_path / "out")
-    cp = _read_rc(out)
-    assert cp["General"]["UseTextShadow"] == "false"
 
 
 def test_litegnome_title_edge_padding_at_least_1(tmp_path: Path, monkeypatch) -> None:
@@ -567,3 +540,16 @@ def test_e13_title_canonical_placement_when_fills_chrome(
         f"e13 title_height={title_height} < 0.6*border_top={border_top}; "
         f"premise of this test broken"
     )
+
+
+def test_aurorae_rc_text_shadow_from_tclass_effect(tmp_path: Path) -> None:
+    """__DRAWING_EFFECT on TEXT1 drives UseTextShadow (read by Aurorae v1)."""
+    from themey.generate.aurorae_rc import write_aurorae_rc
+    from themey.ir import TClassSpec
+
+    theme = _make_minimal_theme(left_buttons="XAI", right_buttons="")
+    theme.tclasses["TEXT1"] = TClassSpec(
+        name="TEXT1", fg_normal=None, fg_active=None, effect="__EFFECT_NONE"
+    )
+    cp = _read_rc(write_aurorae_rc(theme, tmp_path))
+    assert cp["General"]["UseTextShadow"] == "false"

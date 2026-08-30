@@ -81,6 +81,13 @@ A theme whose unfocused window looks identical to its focused one (you fell back
 
 ### Pitfall 4: Button binning by midpoint loses themes that use right-then-left layout
 
+> **Superseded (2026-08):** Aurorae in Plasma 6 does NOT read `LeftButtons` /
+> `RightButtons` from the theme rc — button order is **global**, from kwinrc
+> `[org.kde.kdecoration2] ButtonsOnLeft` / `ButtonsOnRight`. The binning below
+> still runs (it decides *which* button SVGs exist and feeds `report.txt`),
+> but nothing about on-screen order is per-theme. themey no longer emits the
+> two keys.
+
 **What goes wrong:**
 You bin buttons into Aurorae's `LeftButtons` / `RightButtons` by comparing each button's center-X against `window_width/2`. For the default Aliens.etheme border, `__TOPLEFT_X_ABSOLUTE 140` for ICONIFY puts it at x=140 (with `_PERCENTAGE 0`), and the titlebar starts at x=153 — so iconify-at-140 is to the **left** of the titlebar text region but it's still well past zero. Worst case: themes with two buttons on the left margin and three buttons clustered just inside the title text get bucketed weirdly because midpoint-of-window is the wrong reference. The buttons shuffle into a cluster that doesn't match the theme author's design.
 

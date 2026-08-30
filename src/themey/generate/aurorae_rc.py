@@ -33,17 +33,20 @@ from PIL import Image
 
 from themey.analyze.buttons import title_part
 from themey.generate.composite import (
+    BUTTON_CODE_TO_RC_SUFFIX,
     REFERENCE_H,
     REFERENCE_W,
     button_layout,
+    button_widths_by_code,
     compose_region,
     resolve_parts,
 )
-from themey.generate.decoration_svg import strip_thicknesses
+from themey.generate.decoration_svg import (
+    DEFAULT_MAX_BORDER,
+    DEFAULT_MAX_SIDE_BORDER,
+    strip_thicknesses,
+)
 from themey.ir import Theme
-
-# Same cap the SVG/rc layout pair uses (mirrors decoration_svg.DEFAULT_MAX_BORDER).
-_TOP_SAMPLE_MAX_BORDER: int = 200
 
 # Luminance difference (0..1) below which we treat text and bg as too close
 # in brightness to be readable. 0.2 ≈ 50 / 255 in 8-bit terms, per the plan.
@@ -75,7 +78,8 @@ def _sample_top_bg_rgb(
             theme,
             "top",
             prefer_active=prefer_active,
-            max_border_output=_TOP_SAMPLE_MAX_BORDER,
+            max_border_output=DEFAULT_MAX_BORDER,
+            max_side_output=DEFAULT_MAX_SIDE_BORDER,
         )
     except Exception:
         return None
@@ -244,7 +248,7 @@ def _layout_values(theme: Theme) -> dict[str, str]:
     # the y delta between title-top-ref and button-top-ref, scaled.)
     _ = centered  # silence unused-warning; the flag's effect lives in notes
 
-    return {
+    layout = {
         "BorderLeft": str(lft),
         "BorderRight": str(rgt),
         "BorderBottom": str(bot),
@@ -253,6 +257,11 @@ def _layout_values(theme: Theme) -> dict[str, str]:
         "TitleEdgeBottom": str(title_edge_bottom),
         "TitleEdgeLeft": str(title_edge_left),
         "TitleEdgeRight": str(title_edge_right),
+        # Maximized windows keep the same title band geometry.
+        "TitleEdgeTopMaximized": str(title_edge_top),
+        "TitleEdgeBottomMaximized": str(title_edge_bottom),
+        "TitleEdgeLeftMaximized": str(title_edge_left),
+        "TitleEdgeRightMaximized": str(title_edge_right),
         "TitleBorderLeft": str(2 * s),
         "TitleBorderRight": str(2 * s),
         "TitleHeight": str(title_height),
@@ -260,19 +269,24 @@ def _layout_values(theme: Theme) -> dict[str, str]:
         "ButtonHeight": str(button_h),
         "ButtonSpacing": str(button_spacing),
         "ButtonMarginTop": str(button_margin_top),
-        "ButtonMarginLeft": str(3 * s),
+        "ButtonMarginTopMaximized": str(button_margin_top),
         "ExplicitButtonSpacer": "0",
         "PaddingTop": "0",
         "PaddingBottom": "0",
         "PaddingLeft": "0",
         "PaddingRight": "0",
     }
+    # Per-button widths from each part's own bbox (E16 buttons are often
+    # different sizes; Aurorae reads ButtonWidth<Suffix> per button).
+    for code, width in button_widths_by_code(theme).items():
+        layout[f"ButtonWidth{BUTTON_CODE_TO_RC_SUFFIX[code]}"] = str(width)
+    return layout
 
 
 class _CaseSensitiveRawConfigParser(configparser.RawConfigParser):
     """RawConfigParser subclass that preserves key case verbatim.
 
-    KDE reads keys like ``LeftButtons`` and ``BackgroundNormal`` case-
+    KDE reads keys like ``TitleAlignment`` and ``BackgroundNormal`` case-
     sensitively. The default ``optionxform = str.lower`` silently mangles them.
 
     Pyright basic flags the bare ``cp.optionxform = str`` form as
@@ -321,8 +335,9 @@ def write_aurorae_rc(theme: Theme, out_dir: Path) -> Path:
         )
 
     # Map TEXT1's __JUSTIFICATION / __DRAWING_EFFECT into Aurorae values
-    # where the theme expresses an opinion; otherwise keep the sensible
-    # "Center" + "shadow" defaults.
+    # where the theme expresses an opinion. The text-shadow keys are read
+    # by the v1 plugin (org.kde.kwin.aurorae, themeconfig.cpp) and ignored
+    # by v2 — harmless there, faithful on v1.
     text1 = theme.tclasses.get("TEXT1")
     title_alignment = "Center"
     use_text_shadow = "true"
@@ -337,6 +352,10 @@ def write_aurorae_rc(theme: Theme, out_dir: Path) -> Path:
             active_shadow_color = _format_color_rgba(text1.effect_color)
             inactive_shadow_color = active_shadow_color
 
+    # Only keys Aurorae (Plasma 6.6, v1 or v2) actually reads. Button ORDER
+    # comes from kwinrc ButtonsOnLeft/Right, so LeftButtons/RightButtons are
+    # not emitted; ButtonMarginLeft is likewise unread. Shadow defaults to
+    # true in v1 and is not read by v2.
     cp["General"] = {
         "ActiveTextColor": _format_color_rgba(active_text),
         "InactiveTextColor": _format_color_rgba(inactive_text),
@@ -347,9 +366,6 @@ def write_aurorae_rc(theme: Theme, out_dir: Path) -> Path:
         "InactiveTextShadowColor": inactive_shadow_color,
         "TextShadowOffsetX": "0",
         "TextShadowOffsetY": "1",
-        "LeftButtons": theme.left_buttons,
-        "RightButtons": theme.right_buttons,
-        "Shadow": "true",
         "Animation": "1",
     }
     cp["Layout"] = _layout_values(theme)

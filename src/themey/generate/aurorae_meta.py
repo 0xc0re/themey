@@ -64,7 +64,7 @@ def write_metadata_json(theme: Theme, out_dir: Path) -> Path:
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     data = {
-        "KPackageStructure": "aurorae",
+        "KPackageStructure": "KWin/Aurorae",
         "KPlugin": {
             "Authors": [
                 {
@@ -73,7 +73,7 @@ def write_metadata_json(theme: Theme, out_dir: Path) -> Path:
                 }
             ],
             "Category": "Plasma 6 Window Decorations",
-            "ServiceTypes": ["aurorae"],
+            "ServiceTypes": ["KWin/Aurorae"],
             "EnabledByDefault": True,
             "Name": theme.display_name,
             "Description": (

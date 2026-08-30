@@ -149,8 +149,71 @@ def test_decoration_svg_hint_margins_present(tmp_path: Path) -> None:
 
     tree = ET.parse(out_dir / "decoration.svg")
     ids = _collect_ids(tree)
-    for hint_id in ("hint-top-margin", "hint-bottom-margin", "hint-left-margin", "hint-right-margin"):
-        assert hint_id in ids, f"Missing hint margin: {hint_id}"
+    for side in ("top", "bottom", "left", "right"):
+        assert f"decoration-hint-{side}-margin" in ids
+        assert f"decoration-inactive-hint-{side}-margin" in ids
+    # Unprefixed ids are inert in Aurorae — must not be emitted.
+    assert "hint-top-margin" not in ids
+
+
+def test_decoration_svg_stretch_borders_hint(tmp_path: Path) -> None:
+    from themey.generate.decoration_svg import write_decoration_svg
+
+    theme = _make_theme_with_iclass(tmp_path / "assets")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    write_decoration_svg(theme, out_dir)
+    ids = _collect_ids(ET.parse(out_dir / "decoration.svg"))
+    assert "decoration-hint-stretch-borders" in ids
+    assert "decoration-inactive-hint-stretch-borders" in ids
+
+
+def test_decoration_svg_maximized_groups(tmp_path: Path) -> None:
+    from themey.generate.aurorae import REQUIRED_FRAMESVG_IDS
+    from themey.generate.decoration_svg import SIDES, write_decoration_svg
+
+    theme = _make_theme_with_iclass(tmp_path / "assets")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    write_decoration_svg(theme, out_dir)
+    ids = _collect_ids(ET.parse(out_dir / "decoration.svg"))
+    for side in SIDES:
+        assert f"decoration-maximized-{side}" in ids
+        assert f"decoration-maximized-inactive-{side}" in ids
+        assert f"decoration-maximized-{side}" in REQUIRED_FRAMESVG_IDS
+        assert f"decoration-maximized-inactive-{side}" in REQUIRED_FRAMESVG_IDS
+    assert len(REQUIRED_FRAMESVG_IDS) == 36
+
+
+def test_decoration_svg_maximized_center_carries_title_band(tmp_path: Path) -> None:
+    """Aurorae paints decoration-maximized with NoBorder: only ``center`` is
+    drawn (stretched over the title band), so it must hold the top-strip art
+    and be as tall as BorderTop."""
+    from themey.generate.decoration_svg import strip_thicknesses, write_decoration_svg
+
+    theme = _make_theme_with_iclass(tmp_path / "assets")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    write_decoration_svg(theme, out_dir)
+    root = ET.parse(out_dir / "decoration.svg").getroot()
+    ns = {"s": "http://www.w3.org/2000/svg"}
+    top_img = root.find("s:g[@id='decoration-top']/s:image", ns)
+    max_img = root.find("s:g[@id='decoration-maximized-center']/s:image", ns)
+    assert top_img is not None and max_img is not None
+    href = "{http://www.w3.org/1999/xlink}href"
+    assert max_img.get(href) == top_img.get(href)
+    assert int(max_img.get("height")) == strip_thicknesses(theme)["top"]
+
+
+def test_side_borders_capped_at_48_top_unclamped() -> None:
+    """Aurorae v2 clamps sides to the Oversized bracket (48); the title band is free."""
+    from themey.generate.decoration_svg import (
+        DEFAULT_MAX_BORDER,
+        DEFAULT_MAX_SIDE_BORDER,
+    )
+
+    assert DEFAULT_MAX_SIDE_BORDER == 48
+    assert DEFAULT_MAX_BORDER > DEFAULT_MAX_SIDE_BORDER
 
 
 def test_decoration_svg_no_ns0_prefix(tmp_path: Path) -> None:

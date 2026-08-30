@@ -87,10 +87,94 @@ def test_pipeline_malicious_archive_writes_nothing(fake_home):
             "no theme files should be written for a rejected archive"
 
 
-def test_pipeline_aliens_rc_left_buttons_xai(fake_home):
+def test_pipeline_aliens_button_svgs_for_xai(fake_home):
+    """Button ORDER is global (kwinrc), so the rc carries no LeftButtons;
+    the theme decides only which button SVGs exist (X, A, I → 4 files)."""
     result = convert(FIXTURES / "Aliens.etheme", scale=2)
     cp = RawConfigParser()
     cp.optionxform = str  # type: ignore[method-assign]
     cp.read(result.installed_dir / "Aliensrc")
-    assert cp["General"]["LeftButtons"] == "XAI"
-    assert cp["General"]["RightButtons"] == ""
+    assert "LeftButtons" not in cp["General"]
+    for f in ("close.svg", "maximize.svg", "restore.svg", "minimize.svg", "menu.svg"):
+        assert (result.installed_dir / f).is_file(), f
+
+
+def _region_opaque_fraction(svg: Path, gid: str) -> float:
+    import base64
+    import io
+
+    from PIL import Image
+
+    ns = {"s": "http://www.w3.org/2000/svg"}
+    root = ET.parse(svg).getroot()
+    g = root.find(f"s:g[@id='{gid}']", ns)
+    assert g is not None, gid
+    im = g.find("s:image", ns)
+    assert im is not None
+    href = im.get("{http://www.w3.org/1999/xlink}href") or ""
+    data = base64.b64decode(href.split(",", 1)[1])
+    with Image.open(io.BytesIO(data)) as img:
+        alpha = img.convert("RGBA").getchannel("A").getdata()
+        px = list(alpha)
+    return sum(1 for a in px if a > 32) / len(px)
+
+
+def test_pipeline_capped_left_strip_keeps_inner_edge_art(fake_home):
+    """Aliens' BUTTONL resize strip sits at x=30..35 of a 35-wide left zone.
+
+    Whatever width the left frame column ends up (folded corner width, or
+    the 48-px side cap when there is no corner art), that strip must still
+    be inside it: when the column is narrower than the zone the crop anchors
+    at the INNER edge (next to the client); when wider, it spans the zone.
+    Either way the strip must not render empty. (5 of 124 ref px ≈ 4%.)
+    """
+    result = convert(FIXTURES / "Aliens.etheme", scale=2)
+    svg = result.installed_dir / "decoration.svg"
+    assert _region_opaque_fraction(svg, "decoration-left") > 0.02
+    assert _region_opaque_fraction(svg, "decoration-bottom") > 0.02
+
+
+def test_pipeline_hint_left_margin_matches_folded_corner(fake_home):
+    """FrameSvg sizes the topleft corner by the left margin hint, and paints
+    the frame independently of KWin's clamped BorderLeft. So when corner art
+    is folded into the title band, the hint (and the left strip slot) must be
+    as wide as the corner slot or the art gets squashed to BorderLeft."""
+    result = convert(FIXTURES / "Aliens.etheme", scale=2)
+    ns = {"s": "http://www.w3.org/2000/svg"}
+    root = ET.parse(result.installed_dir / "decoration.svg").getroot()
+
+    def slot_w(gid: str) -> int:
+        g = root.find(f"s:g[@id='{gid}']", ns)
+        assert g is not None, gid
+        return int(g.find("s:image", ns).get("width"))
+
+    hint = root.find("s:rect[@id='decoration-hint-left-margin']", ns)
+    assert hint is not None
+    tl = slot_w("decoration-topleft")
+    assert tl >= 200, tl  # CORNER_TL is 124 ref = 248 out
+    assert int(hint.get("width")) == tl
+    assert slot_w("decoration-left") == tl
+    assert slot_w("decoration-bottomleft") == tl
+
+
+def test_pipeline_side_composites_match_slots(fake_home):
+    """Every region PNG must be exactly the size of its SVG slot — a
+    narrower composite gets stretched by FrameSvg (Aliens' 70-px left zone
+    in a 248-px folded column rendered 3.5x wide)."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    result = convert(FIXTURES / "Aliens.etheme", scale=2)
+    ns = {"s": "http://www.w3.org/2000/svg"}
+    root = ET.parse(result.installed_dir / "decoration.svg").getroot()
+    for g in root.findall("s:g", ns):
+        gid = g.get("id") or ""
+        if not gid.startswith("decoration-") or "maximized" in gid:
+            continue
+        im = g.find("s:image", ns)
+        href = im.get("{http://www.w3.org/1999/xlink}href") or ""
+        data = base64.b64decode(href.split(",", 1)[1])
+        with Image.open(io.BytesIO(data)) as png:
+            assert png.size == (int(im.get("width")), int(im.get("height"))), gid

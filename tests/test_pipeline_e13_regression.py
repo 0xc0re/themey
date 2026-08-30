@@ -123,16 +123,17 @@ def test_e13_buttons_bound_to_one_side(tmp_path, monkeypatch):
     monkeypatch.setattr(paths_mod, "aurorae_themes", lambda: aurorae_dir)
     monkeypatch.setattr(paths_mod, "themey_previews", lambda: previews_dir)
 
-    from themey.pipeline import convert
+    from themey.analyze.build_theme import build_theme
+    from themey.etheme.archive import extract
+    from themey.etheme.parse import parse_tree
 
-    result = convert(E13_PATH, scale=2)
-    rc_path = result.installed_dir / "e13rc"
-    cp = RawConfigParser()
-    cp.optionxform = str  # type: ignore[method-assign]
-    cp.read(rc_path)
-
-    left = cp["General"].get("LeftButtons", "")
-    right = cp["General"].get("RightButtons", "")
+    with extract(E13_PATH) as raw:
+        theme = build_theme(
+            raw.asset_root, parse_tree(raw.asset_root), name="e13",
+            display_name="e13", scale=2,
+        )
+    left = theme.left_buttons
+    right = theme.right_buttons
     combined = left + right
 
     # No character appears in both strings — buttons must not duplicate.

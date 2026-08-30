@@ -9,9 +9,10 @@ grabs the virtual framebuffer with ``spectacle -b -n``.
 
 Mechanism:
   1. Copy the theme tree into ``$XDG_DATA_HOME/aurorae/themes/<name>/``.
-  2. Write ``kwinrc`` selecting the Aurorae plugin (``legacy`` =
-     ``org.kde.kwin.aurorae`` honours ``Border*`` verbatim; ``v2`` =
-     ``org.kde.kwin.aurorae.v2`` clamps sides to ``BorderSize``).
+  2. Write ``kwinrc`` selecting the Aurorae plugin (``legacy`` = the v1 QML
+     plugin ``org.kde.kwin.aurorae``; ``v2`` = ``org.kde.kwin.aurorae.v2``,
+     Plasma's default). Both clamp ``BorderLeft/Right/Bottom`` to the
+     ``BorderSize`` bracket; ``--border-size`` selects it.
   3. ``dbus-run-session -- kwin_wayland --virtual --exit-with-session <script>``
      where the script starts ``kdialog`` and runs spectacle.
   4. Return the PNG path.
@@ -30,18 +31,16 @@ import tempfile
 from pathlib import Path
 
 from . import paths
+from .kwin import (  # noqa: F401  (re-exported for callers/tests)
+    BORDER_SIZE_BRACKETS,
+    BORDER_SIZES,
+    PLUGINS,
+    recommended_border_size,
+)
 from .pipeline import convert
 
 log = logging.getLogger(__name__)
 
-PLUGINS: dict[str, str] = {
-    "legacy": "org.kde.kwin.aurorae",
-    "v2": "org.kde.kwin.aurorae.v2",
-}
-BORDER_SIZES: tuple[str, ...] = (
-    "None", "NoSides", "Tiny", "Normal", "Large", "VeryLarge", "Huge",
-    "VeryHuge", "Oversized",
-)
 REQUIRED_TOOLS: tuple[str, ...] = ("kwin_wayland", "dbus-run-session", "spectacle", "kdialog")
 
 SCREEN_W = 900

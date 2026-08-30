@@ -1,9 +1,10 @@
 """report.txt scaffold (Phase 1 — Phase 2 fills full semantics).
 
-Three sections (per REPORT-01):
+Four sections (per REPORT-01):
   - Preserved: what mapped 1:1 from E16 to KDE
   - Approximated: what was lossy and how (e.g. dropped states)
   - Skipped: what we couldn't convert and why (e.g. non-DEFAULT borders)
+  - Apply: how to make KWin actually show the borders (v2 clamp caveat)
 
 Hard limit ~50 lines (per UX Pitfalls in PITFALLS.md). Phase 1 ships the
 scaffold; Phase 2 fills the full Preserved/Approximated/Skipped semantics
@@ -13,7 +14,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .generate.decoration_svg import strip_thicknesses
 from .ir import Theme
+from .kwin import recommended_border_size
 
 
 def write(theme: Theme, out_path: Path) -> Path:
@@ -38,8 +41,9 @@ def write(theme: Theme, out_path: Path) -> Path:
     )
     if theme.left_buttons or theme.right_buttons:
         lines.append(
-            f"- Button layout: LeftButtons={theme.left_buttons or '(empty)'}"
-            f"  RightButtons={theme.right_buttons or '(empty)'}"
+            f"- Buttons found: left={theme.left_buttons or '(none)'}"
+            f"  right={theme.right_buttons or '(none)'} "
+            "(order on screen follows kwinrc ButtonsOnLeft/Right, not the theme)"
         )
     if "TEXT1" in theme.tclasses:
         t = theme.tclasses["TEXT1"]
@@ -124,6 +128,32 @@ def write(theme: Theme, out_path: Path) -> Path:
     lines.append(
         "- Plasma Look-and-Feel bundle: deferred to later phase "
         "(BUNDLE-01 / Phase 4)."
+    )
+    lines.append("")
+
+    # ------------------------------------------------------------------ #
+    # Apply
+    # ------------------------------------------------------------------ #
+    lines.append("## Apply")
+    lines.append(
+        "- Both Aurorae plugins in Plasma 6.6 (org.kde.kwin.aurorae and "
+        ".v2) clamp BorderLeft/Right/Bottom to the System Settings 'Border "
+        "size' bracket (Normal = 4-6 px ... Oversized = 36-48 px); only the "
+        "title band is theme-controlled. Corner art wider than the side is "
+        "folded into the title band so it survives the clamp."
+    )
+    thick = strip_thicknesses(theme)
+    rec = recommended_border_size(thick["left"], thick["right"], thick["bottom"])
+    lines.append(
+        f"- This theme's sides are {thick['left']}/{thick['right']}/"
+        f"{thick['bottom']} px (L/R/B) -> set Window Decorations -> Border "
+        f"size = {rec}, or run `themey apply {theme.name}` (picks {rec}; "
+        "override with --border-size, add --legacy-plugin for the v1 QML "
+        "plugin, which also honours the text-shadow keys)."
+    )
+    lines.append(
+        "- Button order is global: adjust it under Window Decorations -> "
+        "Titlebar Buttons (kwinrc ButtonsOnLeft/Right)."
     )
     lines.append("")
 

@@ -61,3 +61,11 @@ def test_render_aliens_headless(tmp_path):
     bg = px[0]
     differing = sum(1 for p in px if abs(p[0] - bg[0]) + abs(p[1] - bg[1]) + abs(p[2] - bg[2]) > 30)
     assert differing / len(px) > 0.05
+
+
+def test_recommended_border_size_brackets():
+    assert render.recommended_border_size(2, 2, 4) == "Tiny"
+    assert render.recommended_border_size(6, 6, 5) == "Normal"
+    assert render.recommended_border_size(8, 4, 20) == "Huge"
+    assert render.recommended_border_size(48, 40, 48) == "Oversized"
+    assert render.recommended_border_size(120, 0, 0) == "Oversized"
