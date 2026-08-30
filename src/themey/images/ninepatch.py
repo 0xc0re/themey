@@ -4,11 +4,11 @@ Field order is L R T B (Pitfall 1, verified against E16 iclass.c:
 ``sscanf("%i %i %i %i", &l, &r, &t, &b)`` and the
 ``EImageBorder { left, right, top, bottom }`` struct in eimage.h).
 
-Phase 1 Aurorae generator embeds the WHOLE PNG inside decoration.svg
-and lets FrameSvg perform the 9-patch rendering via hint margins. This
-primitive is included for completeness, future use (e.g. per-region
-color sampling for Phase 2 palette extraction), and as a place to
-validate __EDGE_SCALING fits inside image dimensions.
+Production caller: ``generate.composite._resize_with_edge_scaling`` slices
+each part image with these regions so caps render 1:1 (x scale, NEAREST)
+and only the middle slices stretch to the part's bbox — E16's own 9-patch
+semantics. The ValueError on oversized caps is load-bearing: the caller
+catches it and falls back to a uniform resize with a fidelity note.
 """
 from __future__ import annotations
 
