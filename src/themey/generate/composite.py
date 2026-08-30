@@ -47,6 +47,7 @@ from themey.analyze.buttons import (
     title_part,
 )
 from themey.analyze.coords import resolve
+from themey.images.ninepatch import slice_9patch
 from themey.ir import ButtonPart, IClassSpec, Theme
 
 REFERENCE_W: int = 800
@@ -363,7 +364,15 @@ def corner_extents(theme: Theme) -> dict[str, int]:
     corner part is a non-interactive, window-relative part anchored to the
     top AND to one horizontal edge that does not span the horizontal
     center. Zero when a side has no corner art. Capped at
-    ``CORNER_FOLD_CAP_REF``.
+    ``CORNER_FOLD_CAP_REF`` (< the centre crop's mx0, so a widened corner
+    can never collide with the ``MIDDLE_REF`` crop).
+
+    Centre-spanning top-band strips also contribute **cap reach**: their
+    ``__EDGE_SCALING`` caps render unstretched (``_resize_with_edge_scaling``)
+    and must land inside the corner cells, outside the stretchable top
+    strip — left reach ``x0 + edge_l``, right reach ``W - (x1 - edge_r)``.
+    e13: TITLEBAR's 5px rounded cap starting at x=40 → topleft 45; FIN's
+    129px right-pinned fin ornament → topright 131.
     """
     half_w = REFERENCE_W // 2
     left = 0
@@ -385,6 +394,14 @@ def corner_extents(theme: Theme) -> dict[str, int]:
         br_x = resolve(brx_p, brx_a, REFERENCE_W)
         x0, x1 = min(tl_x, br_x), max(tl_x, br_x)
         if x0 < half_w < x1:
+            # Centre-spanning top-band strip: its unstretchable
+            # __EDGE_SCALING caps must fit inside the corner cells.
+            ic = theme.iclasses.get(part.iclass_name)
+            edge_l, edge_r = (ic.edge_scaling[0], ic.edge_scaling[1]) if ic else (0, 0)
+            if edge_l > 0:
+                left = max(left, x0 + edge_l)
+            if edge_r > 0:
+                right = max(right, REFERENCE_W - (x1 - edge_r))
             continue
         if tlx_p == 0 and brx_p == 0:
             left = max(left, x1)
@@ -545,6 +562,80 @@ def _capped_window(theme: Theme, side: str, zone: int, cap: int) -> tuple[int, i
     return (start, start + cap)
 
 
+def _resize_with_edge_scaling(
+    img: Image.Image,
+    edge_scaling: tuple[int, int, int, int],
+    target_w: int,
+    target_h: int,
+    scale: int,
+    notes: list[str] | None = None,
+    part_name: str = "",
+) -> Image.Image:
+    """Resize a part image to its bbox honoring ``__EDGE_SCALING`` caps.
+
+    E16 renders each part as a 9-patch: the ``__EDGE_SCALING`` (L R T B)
+    caps are drawn 1:1 and only the middle slices stretch. Uniformly
+    resizing the whole image to the bbox (the pre-fix behavior) stretched
+    titlebar caps 4-11x horizontally, smearing e13's 31px title capsule
+    across the whole band and painting its shaped notch shut.
+
+    Caps are NEAREST-upscaled by ``scale`` and pinned to the target's
+    edges; middle slices stretch (NEAREST) to fill the remainder.
+    ``(0, 0, 0, 0)`` takes the legacy uniform-resize path byte-identically.
+    Caps that exceed the source image or the target fall back to uniform
+    resize with an idempotent ``composite:`` note.
+    """
+    left, right, top, bottom = edge_scaling
+
+    def _uniform() -> Image.Image:
+        if img.size != (target_w, target_h):
+            return img.resize((target_w, target_h), Image.Resampling.NEAREST)
+        return img
+
+    if (left, right, top, bottom) == (0, 0, 0, 0):
+        return _uniform()
+
+    lo, ro = left * scale, right * scale
+    to, bo = top * scale, bottom * scale
+    fits_target = lo + ro <= target_w and to + bo <= target_h
+    try:
+        regions = slice_9patch(img, left, right, top, bottom) if fits_target else None
+    except ValueError:
+        regions = None
+    if regions is None:
+        if notes is not None:
+            msg = (
+                f"composite: __EDGE_SCALING {edge_scaling} of {part_name} "
+                f"does not fit image {img.size} / slot {target_w}x{target_h}; "
+                "part stretched uniformly"
+            )
+            if msg not in notes:
+                notes.append(msg)
+        return _uniform()
+
+    mid_w = target_w - lo - ro
+    mid_h = target_h - to - bo
+    out = Image.new("RGBA", (target_w, target_h), (0, 0, 0, 0))
+
+    def _paste(piece: Image.Image, w: int, h: int, x: int, y: int) -> None:
+        if w <= 0 or h <= 0 or piece.width == 0 or piece.height == 0:
+            return
+        if piece.size != (w, h):
+            piece = piece.resize((w, h), Image.Resampling.NEAREST)
+        out.paste(piece, (x, y))
+
+    _paste(regions.topleft, lo, to, 0, 0)
+    _paste(regions.top, mid_w, to, lo, 0)
+    _paste(regions.topright, ro, to, target_w - ro, 0)
+    _paste(regions.left, lo, mid_h, 0, to)
+    _paste(regions.center, mid_w, mid_h, lo, to)
+    _paste(regions.right, ro, mid_h, target_w - ro, to)
+    _paste(regions.bottomleft, lo, bo, 0, target_h - bo)
+    _paste(regions.bottom, mid_w, bo, lo, target_h - bo)
+    _paste(regions.bottomright, ro, bo, target_w - ro, target_h - bo)
+    return out
+
+
 def _iclass_image(ic: IClassSpec | None, prefer_active: bool) -> Image.Image | None:
     """Open the iclass's primary image, preferring active if requested.
 
@@ -641,11 +732,19 @@ def compose_region(
 
         part_w_ref = px1 - px0
         part_h_ref = py1 - py0
-        # Resize the iclass image to the part's bbox (at scaled output size)
+        # Resize the iclass image to the part's bbox (at scaled output size),
+        # honoring __EDGE_SCALING: caps stay 1:1 (x scale), middles stretch.
         target_w = max(1, part_w_ref * scale)
         target_h = max(1, part_h_ref * scale)
-        if img.size != (target_w, target_h):
-            img = img.resize((target_w, target_h), Image.Resampling.NEAREST)
+        img = _resize_with_edge_scaling(
+            img,
+            ic.edge_scaling if ic is not None else (0, 0, 0, 0),
+            target_w,
+            target_h,
+            scale,
+            notes=theme.notes,
+            part_name=part.iclass_name,
+        )
 
         # Source crop within the resized image: portion that lies in region
         src_x = (ix0 - px0) * scale

@@ -217,6 +217,111 @@ def test_min_pin_noop_when_extent_already_satisfies() -> None:
     assert bb == (0, 0, 40, 38), bb
 
 
+def _nine_patch_source() -> Image.Image:
+    """12x12 RGBA: 3px caps in distinct colors, distinct edge/middle fills.
+
+    Corners: TL red, TR green, BL yellow, BR cyan. Top/bottom edge strips
+    magenta/white, left/right edge strips orange/purple, middle blue.
+    """
+    img = Image.new("RGBA", (12, 12), (0, 0, 255, 255))  # middle blue
+    def fill(x0, y0, x1, y1, c):
+        for y in range(y0, y1):
+            for x in range(x0, x1):
+                img.putpixel((x, y), c)
+    fill(3, 0, 9, 3, (255, 0, 255, 255))    # top edge magenta
+    fill(3, 9, 9, 12, (255, 255, 255, 255)) # bottom edge white
+    fill(0, 3, 3, 9, (255, 128, 0, 255))    # left edge orange
+    fill(9, 3, 12, 9, (128, 0, 255, 255))   # right edge purple
+    fill(0, 0, 3, 3, (255, 0, 0, 255))      # TL red
+    fill(9, 0, 12, 3, (0, 255, 0, 255))     # TR green
+    fill(0, 9, 3, 12, (255, 255, 0, 255))   # BL yellow
+    fill(9, 9, 12, 12, (0, 255, 255, 255))  # BR cyan
+    return img
+
+
+def test_resize_edge_scaling_zero_is_byte_identical_to_uniform() -> None:
+    """edge_scaling (0,0,0,0) must take the legacy uniform-resize path."""
+    from themey.generate.composite import _resize_with_edge_scaling
+
+    img = _nine_patch_source()
+    out = _resize_with_edge_scaling(img, (0, 0, 0, 0), 40, 20, 2)
+    ref = img.resize((40, 20), Image.Resampling.NEAREST)
+    assert out.tobytes() == ref.tobytes()
+
+
+def test_resize_edge_scaling_caps_pixel_exact() -> None:
+    """Caps are NEAREST-upscaled x scale and pinned to the target's edges."""
+    from themey.generate.composite import _resize_with_edge_scaling
+
+    src = _nine_patch_source()
+    out = _resize_with_edge_scaling(src, (3, 3, 3, 3), 60, 40, 2)
+    assert out.size == (60, 40)
+    up = Image.Resampling.NEAREST
+    # 3px caps upscaled x2 = 6px, pinned to each corner of the target.
+    assert (
+        out.crop((0, 0, 6, 6)).tobytes()
+        == src.crop((0, 0, 3, 3)).resize((6, 6), up).tobytes()
+    )
+    assert (
+        out.crop((54, 0, 60, 6)).tobytes()
+        == src.crop((9, 0, 12, 3)).resize((6, 6), up).tobytes()
+    )
+    assert (
+        out.crop((0, 34, 6, 40)).tobytes()
+        == src.crop((0, 9, 3, 12)).resize((6, 6), up).tobytes()
+    )
+    assert (
+        out.crop((54, 34, 60, 40)).tobytes()
+        == src.crop((9, 9, 12, 12)).resize((6, 6), up).tobytes()
+    )
+
+
+def test_resize_edge_scaling_middles_stretch() -> None:
+    """Only the middle slices stretch: edge strips span cap-to-cap."""
+    from themey.generate.composite import _resize_with_edge_scaling
+
+    src = _nine_patch_source()
+    out = _resize_with_edge_scaling(src, (3, 3, 3, 3), 60, 40, 2)
+    # Top edge strip (magenta) spans x 6..54 at y 0..6.
+    assert out.getpixel((30, 2)) == (255, 0, 255, 255)
+    assert out.getpixel((7, 2)) == (255, 0, 255, 255)
+    assert out.getpixel((53, 2)) == (255, 0, 255, 255)
+    # Left edge strip (orange) spans y 6..34.
+    assert out.getpixel((2, 20)) == (255, 128, 0, 255)
+    # Middle (blue) fills the interior.
+    assert out.getpixel((30, 20)) == (0, 0, 255, 255)
+
+
+def test_resize_edge_scaling_oversized_caps_fall_back_uniform() -> None:
+    """Caps that don't fit the image (or the target) fall back to uniform
+    resize and leave a composite: note."""
+    from themey.generate.composite import _resize_with_edge_scaling
+
+    src = _nine_patch_source()
+    notes: list[str] = []
+    out = _resize_with_edge_scaling(
+        src, (8, 8, 0, 0), 40, 20, 2, notes=notes, part_name="BOGUS"
+    )
+    ref = src.resize((40, 20), Image.Resampling.NEAREST)
+    assert out.tobytes() == ref.tobytes()
+    assert any(n.startswith("composite:") and "BOGUS" in n for n in notes)
+
+
+def test_e13_corner_extents_include_cap_reach() -> None:
+    """e13's top-band strips push their unstretchable caps into the corners.
+
+    TITLEBAR (x 40..795, edge_scaling l=5) → topleft reach 45; FIN
+    (x 40..798, edge_scaling r=129) → topright reach 131 — the fin ornament
+    renders full-size, right-pinned, exactly as E16 anchors it.
+    """
+    from themey.generate.composite import corner_extents
+
+    with _theme_ctx("e13") as theme:
+        ext = corner_extents(theme)
+        assert ext["left"] == 45, ext
+        assert ext["right"] == 131, ext
+
+
 def test_no_titlebar_button_prefixes_constant() -> None:
     """Canary: composite module must not export _TITLEBAR_BUTTON_PREFIXES.
 
