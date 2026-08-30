@@ -12,7 +12,7 @@ themey converts E16 `.etheme` archives into installable KDE Plasma 6 Look-and-Fe
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Parser + Aurorae Foundation** - Hand-rolled `.etheme` parser, safe-extract, Aurorae window decoration generator, single-theme install, HTML preview — proven on Aliens.etheme
+- [x] **Phase 1: Parser + Aurorae Foundation** - Hand-rolled `.etheme` parser, safe-extract, Aurorae window decoration generator, single-theme install, HTML preview — proven on Aliens.etheme
 - [ ] **Phase 2: Colors + Wallpaper + Full Report** - Color-scheme and wallpaper generators with full Preserved/Approximated/Skipped report sections and enriched HTML preview
 - [ ] **Phase 3: XCursor Pointer Theme** - XBM+mask → ARGB premultiplied → XCursor conversion with graceful `xcursorgen`-missing fallback
 - [ ] **Phase 4: Look-and-Feel Bundle + Batch + Manifest + Uninstall** - Plasma Global Theme wrapper, `plasma-apply-lookandfeel` activation, batch mode, install manifest, and reversible uninstall
@@ -86,9 +86,18 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Parser + Aurorae Foundation | 7/9 | In Progress|  |
-| 2. Colors + Wallpaper + Full Report | 0/5 | Not started | - |
+| 1. Parser + Aurorae Foundation | 9/9 | Complete | 2026-05-13 |
+| 2. Colors + Wallpaper + Full Report | 0/5 | In Progress (off-plan) | - |
 | 3. XCursor Pointer Theme | 0/TBD | Not started | - |
 | 4. Look-and-Feel Bundle + Batch + Manifest + Uninstall | 0/TBD | Not started | - |
+
+**Phase 2 caveat (2026-08-30):** the work done since 2026-05-13 did not follow
+plans 02-01 … 02-04b. It corrected the Aurorae decoration contract for Plasma
+6.6, added `themey render` / `themey apply` / `scripts/install_theme.sh`, and
+widened parser coverage (`__PADDING`, `__FLAGS`, `__CURSOR`, `desktops.cfg`
+backgrounds — parsed into the IR, not yet emitted). The phase's own deliverables,
+`generate/colors.py` and `generate/wallpaper.py`, do not exist yet. Reread the
+plans against `src/themey/` before executing them: they assume the Phase 1
+scaffolds in `report.py` and `preview.py`, which have since been rewritten.
 </content>
 </invoke>

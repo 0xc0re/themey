@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: "01-09 Task 3 CHECKPOINT:human-verify — visual smoke test on Plasma 6.6.4"
-last_updated: "2026-05-01T23:10:00.000Z"
-last_activity: 2026-05-01
+stopped_at: "Phase 02 — Aurorae fidelity + render/apply tooling landed; .colors + wallpaper emission not started"
+last_updated: "2026-08-30T00:00:00.000Z"
+last_activity: 2026-08-29
 progress:
   total_phases: 4
-  completed_phases: 0
-  total_plans: 13
-  completed_plans: 8
-  percent: 62
+  completed_phases: 1
+  total_plans: 14
+  completed_plans: 9
+  percent: 64
 ---
 
 # Project State
@@ -21,16 +21,36 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-01)
 
 **Core value:** A user runs `themey aliens.etheme` and within seconds is staring at a Plasma desktop visibly themed with that 16-year-old E16 theme — Aurorae frame, matching colors, wallpaper, cursor — all installed and previewable.
-**Current focus:** Phase 01 — parser-aurorae-foundation
+**Current focus:** Phase 02 — colors-wallpaper-full-report
 
 ## Current Position
 
-Phase: 01 (parser-aurorae-foundation) — EXECUTING
-Plan: 9 of 9
-Status: Checkpoint — awaiting human-verify (Task 3)
-Last activity: 2026-05-01
+Phase: 02 (colors-wallpaper-full-report) — EXECUTING
+Plan: none active (unplanned fidelity + tooling work since 2026-05-13)
+Status: Aurorae decoration verified on Plasma 6.6 via `themey render`; the
+  planned Phase 2 deliverables (.colors writer, wallpaper package) are untouched
+Last activity: 2026-08-29
 
-Progress: [██████░░░░] 62%
+Progress: [██████░░░░] 64%
+
+**Shipped since the Phase 1 checkpoint** (all outside the numbered plans):
+
+- Aurorae decoration contract corrected for Plasma 6.6 (both plugins):
+  `hint-*` margins + `hint-stretch-borders`, `decoration-maximized-*` groups,
+  sides/bottom capped at the KWin Oversized ceiling (48), corner art folded into
+  the title band, rc key set matched to Aurorae's exact casing
+- `themey render` — headless nested-KWin screenshot harness (the truth; the
+  mock in `scripts/render_review.py` is only an approximation)
+- `themey apply` — point the live KWin at an installed theme, with the
+  BorderSize bracket chosen from the installed rc
+- CLI grew a subcommand group (`convert` is the default), `--output DIR`,
+  `--no-open`
+- `scripts/install_theme.sh` — convert + install, optional `--apply` / `--render`
+- Parser coverage: `__PADDING`, `__FLAGS`, BORDERPART extras, expanded ACLASS
+  vocabulary, `__CURSOR` blocks, `desktops.cfg` backgrounds (parsed into the IR;
+  cursors and wallpapers are not yet emitted)
+- Test suite at 333 passed / 1 skipped, including the SVG↔rc invariant and
+  perceptual-hash visual snapshots for five real themes
 
 ## Performance Metrics
 
@@ -85,6 +105,10 @@ Recent decisions affecting current work:
 - [01-09]: pipeline.convert stages output under XDG_DATA_HOME/themey/staging for same-filesystem atomic os.replace
 - [01-09]: Typer Annotated-style API used in cli.py to satisfy ruff B008 (no function calls in argument defaults)
 - [01-09]: CLI exits non-zero + logs error on conversion failure (bare Exception catch at top-level is correct; BLE001 not in ruff ruleset)
+- [post-01]: `decoration_svg.strip_thicknesses()` is the single source of truth for SVG strip thickness AND rc Border*/TitleHeight; enforced by tests/test_svg_rc_invariant.py
+- [post-01]: `kwin.py` is a leaf module (no themey imports) so report and render can both use the plugin IDs and BorderSize brackets without an import cycle
+- [post-01]: Sides/bottom capped at 48 — KWin's Oversized bracket ceiling; both Aurorae plugins clamp, so wider art is folded into the title band via wide left/right frame columns
+- [post-01]: `themey render` (nested KWin) is the visual truth; scripts/render_review.py is explicitly an approximation
 
 ### Pending Todos
 
@@ -105,6 +129,11 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-01T23:10:00.000Z
-Stopped at: "01-09 Task 3 CHECKPOINT:human-verify — visual smoke on Plasma 6.6.4 required"
-Resume file: .planning/phases/01-parser-aurorae-foundation/01-09-PLAN.md (Task 3 checkpoint)
+Last session: 2026-08-29
+Stopped at: "Aurorae contract fix + phash snapshot regeneration + install_theme.sh"
+Resume file: .planning/phases/02-colors-wallpaper-full-report/02-01-PLAN.md
+
+Note: the Phase 2 plans (02-01 … 02-04b) were written before the fidelity and
+tooling work above and have not been re-checked against the current code. Reread
+them against `src/themey/` before executing — `report.py` and `preview.py` have
+already moved past the "Phase 1 scaffold" they assume.
