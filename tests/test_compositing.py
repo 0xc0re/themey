@@ -162,6 +162,61 @@ def test_aliens_border_top_grown_for_corner_face(fake_home: Path) -> None:
         )
 
 
+def test_degenerate_rect_pinned_to_min_size() -> None:
+    """A part whose rect collapses to zero extent is inflated to its __MIN pin.
+
+    e13's WIN_BOTTOM declares both y coords at H-6 (height 0); its real height
+    lives only in the __MIN/__MAX pins (6). The resolved bbox must come out
+    6 ref tall, spanning [H-6, H] — otherwise the ``y1 <= y0`` guard drops the
+    part and the bottom border never composites.
+    """
+    from themey.ir import ButtonPart
+
+    part = ButtonPart(
+        iclass_name="WIN_BOTTOM",
+        aclass="ACTION_RESIZE_V",
+        tl_x_pct=0, tl_x_abs=40, br_x_pct=1024, br_x_abs=-6,
+        tl_y_pct=1024, tl_y_abs=-6, br_y_pct=1024, br_y_abs=-6,
+        min_w=20, min_h=6, max_w=99999, max_h=6,
+    )
+    bb = resolve_parts((part,), REFERENCE_W, REFERENCE_H)[0]
+    assert bb == (40, REFERENCE_H - 6, REFERENCE_W - 6, REFERENCE_H), bb
+
+
+def test_min_pin_shifts_back_inside_window() -> None:
+    """Pin inflation is anchored top-left but shifted back inside the window.
+
+    A degenerate part sitting exactly on the bottom edge (y0 == y1 == H) must
+    inflate upward into [H - min_h, H], not spill past the window.
+    """
+    from themey.ir import ButtonPart
+
+    part = ButtonPart(
+        iclass_name="EDGE",
+        aclass=None,
+        tl_x_pct=0, tl_x_abs=0, br_x_pct=1024, br_x_abs=0,
+        tl_y_pct=1024, tl_y_abs=0, br_y_pct=1024, br_y_abs=0,
+        min_w=0, min_h=8,
+    )
+    bb = resolve_parts((part,), REFERENCE_W, REFERENCE_H)[0]
+    assert bb == (0, REFERENCE_H - 8, REFERENCE_W, REFERENCE_H), bb
+
+
+def test_min_pin_noop_when_extent_already_satisfies() -> None:
+    """Parts whose extent already meets the pin are untouched (e13 buttons)."""
+    from themey.ir import ButtonPart
+
+    part = ButtonPart(
+        iclass_name="BUTTON_KILL",
+        aclass="ACTION_KILL",
+        tl_x_pct=0, tl_x_abs=0, br_x_pct=0, br_x_abs=40,
+        tl_y_pct=0, tl_y_abs=0, br_y_pct=0, br_y_abs=38,
+        min_w=40, min_h=38, max_w=40, max_h=38,
+    )
+    bb = resolve_parts((part,), REFERENCE_W, REFERENCE_H)[0]
+    assert bb == (0, 0, 40, 38), bb
+
+
 def test_no_titlebar_button_prefixes_constant() -> None:
     """Canary: composite module must not export _TITLEBAR_BUTTON_PREFIXES.
 
