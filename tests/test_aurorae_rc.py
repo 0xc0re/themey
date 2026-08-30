@@ -542,6 +542,46 @@ def test_e13_title_canonical_placement_when_fills_chrome(
     )
 
 
+def test_e13_title_height_trimmed_to_opaque_rows(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """e13's titlebar image is opaque only in rows 0-30 of 46; rows below are
+    a shaped transparent notch (E16 __CHANGES_SHAPE). TitleHeight must trim
+    to the opaque extent (~31 ref = 62 out) while BorderTop keeps the full
+    zone (92) — the notch stays in the band and shows the wallpaper through
+    the gap, reproducing e13's floating title capsule.
+    """
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("XDG_DATA_HOME", str(fake_home / ".local" / "share"))
+
+    import themey.paths as paths_mod
+
+    aurorae_dir = fake_home / ".local/share/aurorae/themes"
+    previews_dir = fake_home / ".local/share/themey/previews"
+    monkeypatch.setattr(paths_mod, "aurorae_themes", lambda: aurorae_dir)
+    monkeypatch.setattr(paths_mod, "themey_previews", lambda: previews_dir)
+
+    from themey.pipeline import convert
+
+    e13 = Path(__file__).parent / "fixtures" / "e13.etheme"
+    if not e13.exists():
+        import pytest
+
+        pytest.skip("e13.etheme fixture not available")
+    result = convert(e13, scale=2)
+
+    layout = _read_rc(result.installed_dir / "e13rc")["Layout"]
+    border_top = int(layout["TitleEdgeTop"]) + int(layout["TitleHeight"]) + int(
+        layout["TitleEdgeBottom"]
+    )
+    assert int(layout["BorderTop"]) == 92, layout["BorderTop"]
+    assert border_top == 92  # edge-balancing ladder keeps the band tiling
+    assert 56 <= int(layout["TitleHeight"]) <= 64, layout["TitleHeight"]
+    assert int(layout["TitleEdgeBottom"]) >= 24, layout["TitleEdgeBottom"]
+
+
 def test_aurorae_rc_text_shadow_from_tclass_effect(tmp_path: Path) -> None:
     """__DRAWING_EFFECT on TEXT1 drives UseTextShadow (read by Aurorae v1)."""
     from themey.generate.aurorae_rc import write_aurorae_rc
