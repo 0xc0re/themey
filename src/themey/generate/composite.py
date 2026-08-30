@@ -117,6 +117,38 @@ def _typo_corrected_pct_abs(
     return (tl_pct, tl_abs, br_pct, br_abs)
 
 
+def _pin_min_sizes(
+    part: ButtonPart,
+    bbox: tuple[int, int, int, int],
+    win_w: int,
+    win_h: int,
+) -> tuple[int, int, int, int]:
+    """Inflate a bbox to the part's __MIN_WIDTH/__MIN_HEIGHT pins.
+
+    E16 lets a part declare a degenerate rect (both coords on the same edge)
+    and carry its real extent only in the MIN/MAX pins — e13's WIN_BOTTOM has
+    both y coords at H-6 and ``__MIN_HEIGHT 6``. Without pinning, the zero-
+    extent bbox fails every ``x1 <= x0`` / ``y1 <= y0`` guard downstream and
+    the part silently never composites.
+
+    Inflation is anchored top-left and shifted back inside the window when it
+    would spill past the far edge. No ``max_*`` clamping happens here — MAX
+    pins constrain live E16 geometry, not the reference-window snapshot.
+    """
+    x0, y0, x1, y1 = bbox
+    if part.min_w > 0 and (x1 - x0) < part.min_w:
+        x1 = x0 + part.min_w
+        if x1 > win_w:
+            x0 = max(0, x0 - (x1 - win_w))
+            x1 = min(win_w, x0 + part.min_w)
+    if part.min_h > 0 and (y1 - y0) < part.min_h:
+        y1 = y0 + part.min_h
+        if y1 > win_h:
+            y0 = max(0, y0 - (y1 - win_h))
+            y1 = min(win_h, y0 + part.min_h)
+    return (x0, y0, x1, y1)
+
+
 def _part_window_relative_bbox(
     part: ButtonPart, win_w: int, win_h: int
 ) -> tuple[int, int, int, int]:
@@ -131,7 +163,8 @@ def _part_window_relative_bbox(
     tl_y = resolve(tly_p, tly_a, win_h)
     br_x = resolve(brx_p, brx_a, win_w)
     br_y = resolve(bry_p, bry_a, win_h)
-    return _normalize_bbox(tl_x, tl_y, br_x, br_y)
+    bbox = _normalize_bbox(tl_x, tl_y, br_x, br_y)
+    return _pin_min_sizes(part, bbox, win_w, win_h)
 
 
 def resolve_parts(
