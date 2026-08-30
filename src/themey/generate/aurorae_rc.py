@@ -40,6 +40,7 @@ from themey.generate.composite import (
     button_widths_by_code,
     compose_region,
     resolve_parts,
+    title_opaque_rows_ref,
 )
 from themey.generate.decoration_svg import (
     DEFAULT_MAX_BORDER,
@@ -183,6 +184,12 @@ def _layout_values(theme: Theme) -> dict[str, str]:
     # we need the source value before deciding whether to center).
     y_top_ref, y_bot_ref = _title_bar_y_range(theme)
     canonical_title_height_ref = max(1, y_bot_ref - y_top_ref)
+    # Shaped titlebars (e13's transparent notch below row 30) must not count
+    # transparency as title: clamp to the image's structural rows. BorderTop
+    # keeps the full zone — the notch stays in the band and shows wallpaper.
+    opaque_rows = title_opaque_rows_ref(theme)
+    if 0 < opaque_rows < canonical_title_height_ref:
+        canonical_title_height_ref = opaque_rows
     title_height = max(2 * s, canonical_title_height_ref * s)
     # Cap title_height inside the (possibly grown) chrome.
     title_height = min(title_height, max(2 * s, top))

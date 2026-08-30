@@ -1045,6 +1045,36 @@ def _title_bar_height_ref(theme: Theme) -> int:
     return h if h > 0 else theme.border.border_size_top
 
 
+def title_opaque_rows_ref(theme: Theme) -> int:
+    """Structural (opaque) height of the ``__FLAG_TITLE`` part in ref rows.
+
+    e13's titlebar image is 46 rows tall but opaque only in rows 0-30 —
+    rows below are a shaped transparent notch (E16 ``__CHANGES_SHAPE``).
+    Counting the notch as title made TitleHeight 88/92 and the text float
+    over transparency. The rc writer clamps its canonical title height to
+    this value.
+
+    Guarded: a title image whose opaque extent covers >= 90% of its height
+    (every non-shaped titlebar) returns the full bbox height, so ordinary
+    themes are untouched. Returns 0 when there is no measurable title image
+    (callers must treat 0 as "no opinion").
+    """
+    tp = title_part(theme.border.parts)
+    if tp is None:
+        return 0
+    img = _iclass_image(theme.iclasses.get(tp.iclass_name), prefer_active=True)
+    if img is None or img.height == 0:
+        return 0
+    bbox_h_ref = _title_bar_height_ref(theme)
+    s0, s1 = structural_span(img, "y")
+    opaque_px = s1 - s0
+    if opaque_px <= 0:
+        return 0
+    if opaque_px >= 0.9 * img.height:
+        return bbox_h_ref
+    return max(1, round(opaque_px * bbox_h_ref / img.height))
+
+
 def button_size(theme: Theme) -> int:
     """Backwards-compatible: max(ButtonWidth, ButtonHeight) for SVG canvas use."""
     w, h = button_dims(theme)
