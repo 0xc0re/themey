@@ -236,7 +236,10 @@ iconbox: iconify a window and its icon appears there, restore it and the
 icon vanishes. Your existing panels are not touched (beyond the
 fit-content step above). The panel ids are recorded in
 `kdeglobals [Themey] PagerPanel` and `IconboxPanel`; a second apply
-reuses the live panels, and `themey apply --revert` removes them.
+reuses the live panels, and `themey apply --revert` removes them. To give
+the pager tall, readable cells, apply also stacks your virtual desktops
+one per row (desktop switching becomes up/down); the previous grid is
+recorded and put back by `--revert`.
 
 The first time you run a full `themey apply`, it snapshots your current
 global theme, decoration, color scheme (`[Themey] PrevColorScheme`), Plasma
