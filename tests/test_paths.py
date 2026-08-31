@@ -23,6 +23,30 @@ def test_aurorae_themes_xdg_override(monkeypatch):
     assert str(result) == "/tmp/xdg/aurorae/themes"
 
 
+def test_snap_xdg_data_home_ignored(monkeypatch):
+    """A snap-sandbox XDG_DATA_HOME (VS Code terminal) is ignored: KWin only
+    reads the real ~/.local/share, so installing there would be invisible."""
+    monkeypatch.setenv("HOME", "/tmp/abc")
+    monkeypatch.setenv("XDG_DATA_HOME", "/tmp/abc/snap/code/259/.local/share")
+
+    from themey.paths import aurorae_themes
+
+    result = aurorae_themes()
+    assert str(result) == "/tmp/abc/.local/share/aurorae/themes"
+
+
+def test_snap_xdg_data_home_warns(monkeypatch, caplog):
+    """Ignoring a snap XDG_DATA_HOME is logged so the redirect is not silent."""
+    monkeypatch.setenv("HOME", "/tmp/abc")
+    monkeypatch.setenv("XDG_DATA_HOME", "/tmp/abc/snap/code/259/.local/share")
+
+    from themey.paths import aurorae_themes
+
+    with caplog.at_level("WARNING", logger="themey.paths"):
+        aurorae_themes()
+    assert any("snap" in rec.message for rec in caplog.records)
+
+
 def test_fake_home_routes_paths(fake_home, tmp_path):
     from themey.paths import aurorae_themes
 
