@@ -1,0 +1,457 @@
+# serializer version: 1
+# name: test_colors_snapshot[Aliens]
+  '''
+  [ColorEffects:Disabled]
+  Color=56,56,56
+  ColorAmount=0
+  ColorEffect=0
+  ContrastAmount=0.65
+  ContrastEffect=1
+  IntensityAmount=0.1
+  IntensityEffect=2
+  
+  [ColorEffects:Inactive]
+  ChangeSelectionColor=true
+  Color=112,111,110
+  ColorAmount=0.025
+  ColorEffect=2
+  ContrastAmount=0.1
+  ContrastEffect=2
+  Enable=false
+  IntensityAmount=0
+  IntensityEffect=0
+  
+  [Colors:Button]
+  BackgroundAlternate=83,75,83
+  BackgroundNormal=77,68,77
+  DecorationFocus=71,49,69
+  DecorationHover=71,49,69
+  ForegroundActive=255,255,255
+  ForegroundInactive=193,190,157
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=255,255,200
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [Colors:Complementary]
+  BackgroundAlternate=224,223,224
+  BackgroundNormal=231,229,231
+  DecorationFocus=71,49,69
+  DecorationHover=71,49,69
+  ForegroundActive=71,49,69
+  ForegroundInactive=92,92,92
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=0,0,0
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [Colors:Header]
+  BackgroundAlternate=97,88,97
+  BackgroundNormal=90,82,90
+  DecorationFocus=71,49,69
+  DecorationHover=71,49,69
+  ForegroundActive=255,255,255
+  ForegroundInactive=206,203,167
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=255,255,200
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [Colors:Header][Inactive]
+  BackgroundAlternate=92,84,92
+  BackgroundNormal=85,77,85
+  DecorationFocus=71,49,69
+  DecorationHover=71,49,69
+  ForegroundActive=255,255,255
+  ForegroundInactive=204,202,166
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=255,255,200
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [Colors:Selection]
+  BackgroundAlternate=77,56,75
+  BackgroundNormal=71,49,69
+  DecorationFocus=71,49,69
+  DecorationHover=71,49,69
+  ForegroundActive=255,255,255
+  ForegroundInactive=172,162,171
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=255,255,255
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [Colors:Tooltip]
+  BackgroundAlternate=77,68,77
+  BackgroundNormal=70,62,70
+  DecorationFocus=71,49,69
+  DecorationHover=71,49,69
+  ForegroundActive=255,255,255
+  ForegroundInactive=181,178,148
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=255,255,200
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [Colors:View]
+  BackgroundAlternate=70,62,70
+  BackgroundNormal=62,56,62
+  DecorationFocus=71,49,69
+  DecorationHover=71,49,69
+  ForegroundActive=255,255,255
+  ForegroundInactive=168,165,138
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=255,255,200
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [Colors:Window]
+  BackgroundAlternate=88,79,88
+  BackgroundNormal=82,73,82
+  DecorationFocus=71,49,69
+  DecorationHover=71,49,69
+  ForegroundActive=255,255,255
+  ForegroundInactive=194,191,159
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=255,255,200
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [General]
+  ColorScheme=themey_Aliens
+  Name=Aliens (themey)
+  shadeSortColumn=true
+  
+  [KDE]
+  contrast=4
+  
+  [WM]
+  activeBackground=16,10,16
+  activeBlend=16,10,16
+  activeForeground=255,255,200
+  inactiveBackground=16,10,16
+  inactiveBlend=16,10,16
+  inactiveForeground=200,200,150
+  
+  '''
+# ---
+# name: test_colors_snapshot[e13]
+  '''
+  [ColorEffects:Disabled]
+  Color=56,56,56
+  ColorAmount=0
+  ColorEffect=0
+  ContrastAmount=0.65
+  ContrastEffect=1
+  IntensityAmount=0.1
+  IntensityEffect=2
+  
+  [ColorEffects:Inactive]
+  ChangeSelectionColor=true
+  Color=112,111,110
+  ColorAmount=0.025
+  ColorEffect=2
+  ContrastAmount=0.1
+  ContrastEffect=2
+  Enable=false
+  IntensityAmount=0
+  IntensityEffect=0
+  
+  [Colors:Button]
+  BackgroundAlternate=127,127,127
+  BackgroundNormal=134,134,134
+  DecorationFocus=25,178,194
+  DecorationHover=25,178,194
+  ForegroundActive=0,0,0
+  ForegroundInactive=27,27,27
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=0,0,0
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [Colors:Complementary]
+  BackgroundAlternate=36,36,36
+  BackgroundNormal=30,30,30
+  DecorationFocus=25,178,194
+  DecorationHover=25,178,194
+  ForegroundActive=25,178,194
+  ForegroundInactive=154,154,154
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=255,255,255
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [Colors:Header]
+  BackgroundAlternate=125,125,125
+  BackgroundNormal=119,119,119
+  DecorationFocus=25,178,194
+  DecorationHover=25,178,194
+  ForegroundActive=0,0,0
+  ForegroundInactive=6,6,6
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=0,0,0
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [Colors:Header][Inactive]
+  BackgroundAlternate=130,130,130
+  BackgroundNormal=124,124,124
+  DecorationFocus=25,178,194
+  DecorationHover=25,178,194
+  ForegroundActive=0,0,0
+  ForegroundInactive=12,12,12
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=0,0,0
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [Colors:Selection]
+  BackgroundAlternate=24,171,186
+  BackgroundNormal=25,178,194
+  DecorationFocus=25,178,194
+  DecorationHover=25,178,194
+  ForegroundActive=0,0,0
+  ForegroundInactive=9,62,68
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=0,0,0
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [Colors:Tooltip]
+  BackgroundAlternate=133,133,133
+  BackgroundNormal=139,139,139
+  DecorationFocus=25,178,194
+  DecorationHover=25,178,194
+  ForegroundActive=0,0,0
+  ForegroundInactive=35,35,35
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=0,0,0
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [Colors:View]
+  BackgroundAlternate=139,139,139
+  BackgroundNormal=146,146,146
+  DecorationFocus=25,178,194
+  DecorationHover=25,178,194
+  ForegroundActive=0,0,0
+  ForegroundInactive=37,37,37
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=0,0,0
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [Colors:Window]
+  BackgroundAlternate=121,121,121
+  BackgroundNormal=128,128,128
+  DecorationFocus=25,178,194
+  DecorationHover=25,178,194
+  ForegroundActive=0,0,0
+  ForegroundInactive=19,19,19
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=0,0,0
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [General]
+  ColorScheme=themey_e13
+  Name=e13 (themey)
+  shadeSortColumn=true
+  
+  [KDE]
+  contrast=4
+  
+  [WM]
+  activeBackground=128,129,126
+  activeBlend=128,129,126
+  activeForeground=0,0,0
+  inactiveBackground=19,30,33
+  inactiveBlend=19,30,33
+  inactiveForeground=255,255,255
+  
+  '''
+# ---
+# name: test_synthetic_colors_snapshot
+  '''
+  [ColorEffects:Disabled]
+  Color=56,56,56
+  ColorAmount=0
+  ColorEffect=0
+  ContrastAmount=0.65
+  ContrastEffect=1
+  IntensityAmount=0.1
+  IntensityEffect=2
+  
+  [ColorEffects:Inactive]
+  ChangeSelectionColor=true
+  Color=112,111,110
+  ColorAmount=0.025
+  ColorEffect=2
+  ContrastAmount=0.1
+  ContrastEffect=2
+  Enable=false
+  IntensityAmount=0
+  IntensityEffect=0
+  
+  [Colors:Button]
+  BackgroundAlternate=127,127,127
+  BackgroundNormal=134,134,134
+  DecorationFocus=61,174,233
+  DecorationHover=61,174,233
+  ForegroundActive=0,0,0
+  ForegroundInactive=27,27,27
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=0,0,0
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [Colors:Complementary]
+  BackgroundAlternate=36,36,36
+  BackgroundNormal=30,30,30
+  DecorationFocus=61,174,233
+  DecorationHover=61,174,233
+  ForegroundActive=61,174,233
+  ForegroundInactive=154,154,154
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=255,255,255
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [Colors:Header]
+  BackgroundAlternate=125,125,125
+  BackgroundNormal=119,119,119
+  DecorationFocus=61,174,233
+  DecorationHover=61,174,233
+  ForegroundActive=0,0,0
+  ForegroundInactive=6,6,6
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=0,0,0
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [Colors:Header][Inactive]
+  BackgroundAlternate=130,130,130
+  BackgroundNormal=124,124,124
+  DecorationFocus=61,174,233
+  DecorationHover=61,174,233
+  ForegroundActive=0,0,0
+  ForegroundInactive=12,12,12
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=0,0,0
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [Colors:Selection]
+  BackgroundAlternate=58,167,223
+  BackgroundNormal=61,174,233
+  DecorationFocus=61,174,233
+  DecorationHover=61,174,233
+  ForegroundActive=0,0,0
+  ForegroundInactive=21,61,82
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=0,0,0
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [Colors:Tooltip]
+  BackgroundAlternate=133,133,133
+  BackgroundNormal=139,139,139
+  DecorationFocus=61,174,233
+  DecorationHover=61,174,233
+  ForegroundActive=0,0,0
+  ForegroundInactive=35,35,35
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=0,0,0
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [Colors:View]
+  BackgroundAlternate=139,139,139
+  BackgroundNormal=146,146,146
+  DecorationFocus=61,174,233
+  DecorationHover=61,174,233
+  ForegroundActive=0,0,0
+  ForegroundInactive=37,37,37
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=0,0,0
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [Colors:Window]
+  BackgroundAlternate=121,121,121
+  BackgroundNormal=128,128,128
+  DecorationFocus=61,174,233
+  DecorationHover=61,174,233
+  ForegroundActive=0,0,0
+  ForegroundInactive=19,19,19
+  ForegroundLink=41,128,185
+  ForegroundNegative=218,68,83
+  ForegroundNeutral=246,116,0
+  ForegroundNormal=0,0,0
+  ForegroundPositive=39,174,96
+  ForegroundVisited=155,89,182
+  
+  [General]
+  ColorScheme=themey_Synthetic
+  Name=Synthetic (themey)
+  shadeSortColumn=true
+  
+  [KDE]
+  contrast=4
+  
+  [WM]
+  activeBackground=64,64,64
+  activeBlend=64,64,64
+  activeForeground=255,255,255
+  inactiveBackground=128,128,128
+  inactiveBlend=128,128,128
+  inactiveForeground=0,0,0
+  
+  '''
+# ---
