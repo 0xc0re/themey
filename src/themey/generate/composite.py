@@ -36,6 +36,7 @@ Output PNGs are upscaled by ``theme.scale`` using NEAREST resampling.
 from __future__ import annotations
 
 import io
+import logging
 from pathlib import Path
 
 from PIL import Image
@@ -50,6 +51,8 @@ from themey.analyze.coords import resolve
 from themey.images.ninepatch import slice_9patch
 from themey.images.opaque import structural_span
 from themey.ir import ButtonPart, IClassSpec, Theme
+
+log = logging.getLogger(__name__)
 
 REFERENCE_W: int = 800
 REFERENCE_H: int = 600
@@ -148,6 +151,13 @@ def _pin_min_sizes(
         if y1 > win_h:
             y0 = max(0, y0 - (y1 - win_h))
             y1 = min(win_h, y0 + part.min_h)
+    if (x0, y0, x1, y1) != bbox:
+        # Fidelity GAIN (a part that previously never rendered), so DEBUG
+        # only — report.txt carries losses, not repairs.
+        log.debug(
+            "min-size pin inflated %s bbox %s -> %s",
+            part.iclass_name, bbox, (x0, y0, x1, y1),
+        )
     return (x0, y0, x1, y1)
 
 
@@ -439,7 +449,15 @@ def required_border_extents(theme: Theme) -> dict[str, int]:
         span = _zone_art_span(theme, side, declared)
         if span is None:
             continue
-        ext[side] = max(2, min(declared, span[1] - span[0]))
+        trimmed = max(2, min(declared, span[1] - span[0]))
+        if trimmed < declared:
+            note = (
+                f"composite: {side} zone ({declared} ref px) hosts a button "
+                f"stack; border trimmed to its {trimmed}-ref-px opaque art"
+            )
+            if note not in theme.notes:
+                theme.notes.append(note)
+        ext[side] = trimmed
     return ext
 
 
@@ -1002,12 +1020,41 @@ def button_geometry(theme: Theme) -> dict[str, tuple[int, int]]:
     title_ref = _fitted_title_height_ref(theme)
     cap_h = max(2 * s, (title_ref - 1) * s) if title_ref > 0 else 0
     fitted: dict[str, tuple[int, int]] = {}
+    scaled_codes: list[str] = []
     for code, (w_ref, h_ref) in raw.items():
         w, h = w_ref * s, h_ref * s
         if cap_h and h > cap_h:
+            if code in BUTTON_CODE_TO_RC_SUFFIX:
+                scaled_codes.append(
+                    f"{BUTTON_CODE_TO_RC_SUFFIX[code]} x{cap_h / h:.2f}"
+                )
             w = max(1, (w * cap_h) // h)
             h = cap_h
         fitted[code] = (w, h)
+    if scaled_codes:
+        note = (
+            "composite: button art scaled down to fit the title band: "
+            + ", ".join(sorted(scaled_codes))
+        )
+        if note not in theme.notes:
+            theme.notes.append(note)
+
+    # Side-stack buttons (below the top band) migrate to the Aurorae title
+    # row — E16 could stack them down a border; Aurorae cannot.
+    moved = sum(
+        1
+        for idx, part in enumerate(theme.border.parts)
+        if is_interactive(part)
+        and (bb := bboxes.get(idx)) is not None
+        and bb[2] > bb[0]
+        and bb[3] > bb[1]
+        and bb[3] > theme.border.border_size_top
+        and _in_decoration_chrome(bb, theme, zones)
+    )
+    if moved:
+        note = f"composite: {moved} side-stack button(s) moved to the titlebar"
+        if note not in theme.notes:
+            theme.notes.append(note)
 
     shared = (
         max(w for w, _ in fitted.values()),
