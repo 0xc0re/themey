@@ -163,8 +163,15 @@ LnF apply already wrote deco defaults — those land in the
 `~/.config/kdedefaults/` layer, and only an explicit user-layer write is
 guaranteed to win), then `_set_panels_fit` (every panel's `lengthMode` to
 `fit` — E16's iconbox/dragbar are content-sized and a full-width bar reads
-as Plasma, not E16), then the tiled-wallpaper fix-up, and one `qdbus`
-reconfigure last. The panel step comes BEFORE the wallpaper one on
+as Plasma, not E16), then `_ensure_iconbox` (a dedicated bottom-left
+content-sized panel with an icons-only task manager showing only MINIMIZED
+windows — E16's iconbox; created via plasmashell scripting, `[Themey]
+IconboxPanel` marker holds the containment id — an artifact marker, not a
+`Prev*` baseline: overwritten when the recorded panel is gone, skipped
+when alive, deleted when revert removes the panel; placed after the fit
+step so the new panel never pollutes `PrevPanelLengthModes`), then the
+tiled-wallpaper fix-up, and one `qdbus`
+reconfigure last. The panel steps come BEFORE the wallpaper one on
 purpose: the wallpaper step is the likeliest to raise, and a failed apply
 should still have delivered the panel feel.
 
@@ -186,7 +193,9 @@ old fill until next login (also verified live 2026-08-31).
 the markers back, reapplies the recorded Look-and-Feel package (no
 Breeze special-case — a real baseline is typically a third-party theme,
 e.g. `com.github.vinceliuice.MacVentura-Dark`), restores the deco
-triple, button layout and panel length modes, then clears the markers it
+triple, button layout and panel length modes, removes the themey-created
+iconbox panel (before the panel-mode restore, so that script iterates only
+surviving panels), then clears the markers it
 actually restored; a
 failure to reapply the recorded package does NOT abort the rest of the
 restore, and `PrevLookAndFeelPackage` is deliberately kept in that one case

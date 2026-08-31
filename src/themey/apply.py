@@ -48,6 +48,16 @@ not Breeze), restores the deco triple and the button layout, then deletes
 both markers. No markers present means no prior full apply on this
 machine: a friendly no-op, not an error.
 
+:func:`apply_full` also creates a dedicated E16 iconbox panel — a small
+bottom-left, content-sized panel whose icons-only task manager shows only
+MINIMIZED windows, E16's iconbox behavior — via plasmashell desktop
+scripting (:func:`_ensure_iconbox`). Its ``[Themey] IconboxPanel`` marker
+is the one marker that is NOT a ``Prev*`` baseline: it records a
+themey-CREATED artifact (the panel's containment id), so it is overwritten
+when the recorded panel no longer exists (recreate), left alone when it
+does (idempotent second apply), and deleted when :func:`revert` removes
+the panel. Existing panels are never touched beyond the fit-content step.
+
 Legacy revert path: ``themey apply Breeze`` (which selects
 ``org.kde.breeze``, restores the recorded button layout) or System
 Settings → Window Decorations. That path is untouched by the above.
@@ -222,6 +232,16 @@ _PREV_COLORS_KEY = "PrevColorScheme"
 _PREV_PLASMA_KEY = "PrevPlasmaTheme"
 _PREV_PANELS_KEY = "PrevPanelLengthModes"
 
+# The iconbox marker is NOT a Prev* baseline: it records a themey-CREATED
+# artifact (the dedicated iconbox panel's containment id), so it is
+# overwritten whenever the recorded panel no longer exists and deleted when
+# revert removes the panel.
+_ICONBOX_KEY = "IconboxPanel"
+_ICONBOX_WIDGET = "org.kde.plasma.icontasks"
+_ICONBOX_LOCATION = "bottom"
+_ICONBOX_ALIGNMENT = "left"
+_ICONBOX_HEIGHT = 44
+
 
 def _record_prev_lookandfeel(kw: str, kr: str) -> None:
     """Snapshot kdeglobals ``[KDE] LookAndFeelPackage`` once, before the
@@ -370,6 +390,62 @@ def _restore_panel_length_modes(kw: str, marker: str) -> None:
         f"for (const p of panels()) {{ {assignments} }}",
         "plasmashell panel length-mode restore script",
     )
+
+
+def _create_iconbox_panel() -> str:
+    """Create the dedicated E16 iconbox panel; returns its containment id.
+
+    A small bottom-left, content-sized panel holding an icons-only task
+    manager that shows ONLY minimized windows — E16's iconbox: icons appear
+    on iconify, vanish on restore. ``launchers`` is cleared because
+    icontasks ships default pinned launchers. ``qdbus`` exits 0 even when
+    the script throws, so the printed panel id is the real success signal.
+    ``p.floating`` is wrapped in try/catch: an unscriptable property
+    assignment would otherwise kill the whole script.
+    """
+    reply = _evaluate_plasma_script(
+        "var p = new Panel;"
+        f" p.location = '{_ICONBOX_LOCATION}';"
+        f" p.alignment = '{_ICONBOX_ALIGNMENT}';"
+        f" p.height = {_ICONBOX_HEIGHT};"
+        " p.hiding = 'none';"
+        " p.lengthMode = 'fit';"
+        " try { p.floating = false; } catch (e) {}"
+        f" var w = p.addWidget('{_ICONBOX_WIDGET}');"
+        " w.currentConfigGroup = ['General'];"
+        " w.writeConfig('showOnlyMinimized', true);"
+        " w.writeConfig('launchers', '');"
+        " w.reloadConfig();"
+        " print(p.id);",
+        "plasmashell iconbox creation script",
+    )
+    if not reply.isdigit():
+        raise ApplyError(
+            "plasmashell iconbox creation script did not print a panel id "
+            f"(got {reply!r}) — the iconbox panel was not created"
+        )
+    return reply
+
+
+def _ensure_iconbox(kw: str, kr: str) -> None:
+    """Create the iconbox panel unless the recorded one is still alive.
+
+    The marker is validated ``isdigit()`` before it is ever interpolated
+    into a plasmashell script — kdeglobals is user-editable, and a tampered
+    marker must not become script injection. A non-digit or dead-panel
+    marker is simply overwritten by the fresh panel's id, written only
+    AFTER a successful create so a failed create leaves no stale marker.
+    """
+    marker = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _ICONBOX_KEY)
+    if marker is not None and marker.isdigit():
+        alive = _evaluate_plasma_script(
+            f"print(panelById({marker}) ? 'exists' : 'missing');",
+            "plasmashell iconbox existence check",
+        )
+        if alive == "exists":
+            return
+    panel_id = _create_iconbox_panel()
+    _cfg_write(kw, _KDEGLOBALS, _THEMEY_GROUP, _ICONBOX_KEY, panel_id)
 
 
 def _record_prev_deco(kw: str, kr: str) -> None:
@@ -612,7 +688,10 @@ def apply_full(
     content-sized, and a full-width bar reads as Plasma, not E16; previous
     modes recorded once in ``PrevPanelLengthModes``): the wallpaper step
     is the likeliest to raise, and a failed apply should still have
-    delivered the panel feel.
+    delivered the panel feel. The dedicated iconbox panel is created right
+    after the fit step (:func:`_ensure_iconbox` — after, so it never
+    pollutes the ``PrevPanelLengthModes`` baseline; before the wallpaper
+    fix-up for the same survive-a-wallpaper-failure reason).
 
     ``name == "Breeze"`` (case-insensitive) is the one exception: Breeze
     has no Look-and-Feel bundle to verify or baseline to record — it is
@@ -696,6 +775,11 @@ def apply_full(
     # raises), and the E16 panel feel must not be lost to it.
     _set_panels_fit(kw, kr)
 
+    # Iconbox AFTER the fit step (so the created panel never pollutes the
+    # PrevPanelLengthModes baseline snapshotted there) and, like it,
+    # before the wallpaper fix-up.
+    _ensure_iconbox(kw, kr)
+
     wallpaper_id = _read_default_wallpaper_id(lnf_dir)
     if wallpaper_id is not None:
         wallpaper_dir = paths.wallpapers() / wallpaper_id
@@ -720,7 +804,9 @@ def revert() -> bool:
     is typically a third-party theme, e.g.
     ``com.github.vinceliuice.MacVentura-Dark``, not Breeze), restores the
     deco triple (deleting any key that was ``@unset`` before), restores
-    the button layout, then deletes the marker(s) for whatever it actually
+    the button layout, removes the themey-created iconbox panel (before
+    the panel-mode restore, so that script iterates only surviving
+    panels), then deletes the marker(s) for whatever it actually
     restored.
 
     Returns False (no error, no side effects beyond the ``which()``
@@ -751,12 +837,14 @@ def revert() -> bool:
     prev_colors = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_COLORS_KEY)
     prev_plasma = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PLASMA_KEY)
     prev_panels = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PANELS_KEY)
+    prev_iconbox = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _ICONBOX_KEY)
     if (
         prev_deco is None
         and prev_lnf is None
         and prev_colors is None
         and prev_plasma is None
         and prev_panels is None
+        and prev_iconbox is None
     ):
         return False
 
@@ -843,6 +931,31 @@ def revert() -> bool:
                     prev_plasma, exc,
                 )
 
+    # Iconbox removal BEFORE the panel-mode restore, so the mode-restore
+    # script iterates only surviving panels. A missing panel makes the
+    # script a no-op — still success, marker deleted. A non-digit
+    # (tampered) marker is never interpolated: just dropped.
+    iconbox_error: ApplyError | None = None
+    if prev_iconbox is not None:
+        if prev_iconbox.isdigit():
+            try:
+                _evaluate_plasma_script(
+                    f"var p = panelById({prev_iconbox});"
+                    " if (p) { p.remove(); }",
+                    "plasmashell iconbox removal script",
+                )
+                _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, _ICONBOX_KEY)
+            except ApplyError as exc:
+                iconbox_error = exc
+                log.warning(
+                    "could not remove the themey iconbox panel (%s) — "
+                    "keeping the marker so a later `themey apply --revert` "
+                    "can retry it",
+                    exc,
+                )
+        else:
+            _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, _ICONBOX_KEY)
+
     panels_error: ApplyError | None = None
     if prev_panels is not None:
         try:
@@ -859,7 +972,7 @@ def revert() -> bool:
 
     _reconfigure()
 
-    errors = (lnf_error, colors_error, plasma_error, panels_error)
+    errors = (lnf_error, colors_error, plasma_error, iconbox_error, panels_error)
     if any(e is not None for e in errors):
         failed = " and ".join(str(e) for e in errors if e is not None)
         raise ApplyError(
