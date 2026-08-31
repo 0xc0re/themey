@@ -1926,7 +1926,7 @@
         "brXP": 0,
         "brYA": 104,
         "brYP": 0,
-        "button": "shade",
+        "button": "maximizeRestore",
         "hideWhenMaximized": true,
         "id": "BUTTON_SHADE",
         "images": {
