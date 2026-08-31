@@ -77,11 +77,10 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from PIL import Image, ImageEnhance
+from PIL import Image
 
 from themey.analyze.colors import (
     MIN_CONTRAST,
-    _at_lightness,
     _dimmed,
     _legible,
     contrast_ratio,
@@ -133,19 +132,6 @@ PANEL_MARGIN_REF = 2
 #: FrameSvg reads border thickness from the edge cells' size, and a 4 px
 #: flat border is invisible against the identical-color center).
 _PANEL_EDGE, _PANEL_CENTER = 4, 24
-
-#: Pager thumbnail width — crisp at real pager-cell sizes, and three
-#: embedded copies of a 256-px photo PNG stay in the low hundreds of KB.
-#: The single knob if file size ever matters.
-PAGER_THUMB_WIDTH = 256
-
-#: Pillow Brightness factors per pager state: normal desks dimmed, active
-#: full, hover slightly lifted (mirrors E16's pager where only the current
-#: desk reads at full brightness).
-_PAGER_BRIGHTNESS: dict[str, float] = {"normal-": 0.6, "active-": 1.0, "hover-": 1.15}
-
-#: Fallback pager frame stroke, ref px (scaled via scale_px, floor 1).
-PAGER_FRAME_REF = 1
 
 #: Relative SVG paths (also the ``shipped`` vocabulary and the mirror set).
 PANEL_SVG = "widgets/panel-background.svg"
@@ -815,139 +801,38 @@ def build_arrows(theme: Theme) -> ET.Element | None:
     return canvas.finish()
 
 
-def _pager_set(
-    theme: Theme,
-    canvas: _Canvas,
-    prefix: str,
-    thumb: Image.Image,
-    frame_spec: IClassSpec | None,
-    fallback: RGB,
-) -> str:
-    """One pager 9-part set: a frame around the wallpaper thumbnail.
+def build_pager(theme: Theme) -> ET.Element | None:
+    """``widgets/pager.svg`` from the E16 pager iclasses, art only.
 
-    The frame comes from *frame_spec*'s art when it has one with non-zero
-    caps (the eight border cells are the art's slices at natural size —
-    FrameSvg only reads per-id bounding boxes, so art-sized edges around a
-    thumb-sized center are legal); a missing spec, missing art, or a
-    ``(0,0,0,0)`` edge (PAGER_SEL is commonly stretched whole) falls back
-    to eight 1-ref-px *fallback*-colored rect strokes. The center cell is
-    always the thumbnail ``<image>``. Returns the human-readable frame
-    source for the caller's note.
+    ``active-``/``hover-`` cells wear ``PAGER_SEL`` (E16's selected-desk
+    highlight; hover reuses its state chain — E16 had no hover concept),
+    ``normal-`` cells ``PAGER_BACKGROUND`` when it has art. Standard
+    9-part sets: the art's own middle stretches over the cell interior,
+    so a transparent middle stays transparent. Deliberately NO baked cell
+    content: an earlier build embedded wallpaper miniatures, but a static
+    mini cannot track wallpaper changes (chris, 2026-08-31) — better no
+    background than a stale one. Window rects come from Kirigami.Theme
+    via the bundled colors file. Skipped without ``PAGER_SEL`` art —
+    Breeze's pager, re-tinted by this package's colors, beats bare cells.
     """
-    path = _state_image(frame_spec, "normal")
-    if path is not None and frame_spec is not None:
-        img = _load_scaled(path, theme.scale)
-        src_w, src_h = _source_size(path)
-        edge = frame_spec.edge_scaling
-        fitted = _fit_caps(edge, src_w, src_h)
-        if fitted is not None:
-            edge = fitted
-        left, right, top, bottom = _scaled_caps(edge, src_w, src_h, theme.scale)
-        if (left, right, top, bottom) != (0, 0, 0, 0):
-            canvas.stretch_borders = True
-            regions = slice_9patch(img, left, right, top, bottom)
-            by_name = {
-                "topleft": regions.topleft, "top": regions.top,
-                "topright": regions.topright, "left": regions.left,
-                "right": regions.right, "bottomleft": regions.bottomleft,
-                "bottom": regions.bottom, "bottomright": regions.bottomright,
-            }
-            art_widths = (left, img.width - left - right, right)
-            art_heights = (top, img.height - top - bottom, bottom)
-            xs = (0, left, left + thumb.width)
-            ys = (0, top, top + thumb.height)
-            for row in range(3):
-                for col in range(3):
-                    if row == 1 and col == 1:
-                        continue
-                    if art_widths[col] <= 0 or art_heights[row] <= 0:
-                        continue
-                    name = _GRID[row][col]
-                    g = ET.SubElement(
-                        canvas.root, f"{{{SVG_NS}}}g", {"id": f"{prefix}{name}"}
-                    )
-                    _embed_image(g, by_name[name], xs[col], canvas.y + ys[row])
-            g = ET.SubElement(
-                canvas.root, f"{{{SVG_NS}}}g", {"id": f"{prefix}center"}
-            )
-            _embed_image(g, thumb, left, canvas.y + top)
-            canvas.advance(left + thumb.width + right, top + thumb.height + bottom)
-            return f"iclass {frame_spec.name} art"
-
-    stroke = max(1, scale_px(PAGER_FRAME_REF, theme.scale))
-    xs = (0, stroke, stroke + thumb.width)
-    ys = (0, stroke, stroke + thumb.height)
-    widths = (stroke, thumb.width, stroke)
-    heights = (stroke, thumb.height, stroke)
-    for row in range(3):
-        for col in range(3):
-            if row == 1 and col == 1:
-                continue
-            ET.SubElement(
-                canvas.root,
-                f"{{{SVG_NS}}}rect",
-                {
-                    "id": f"{prefix}{_GRID[row][col]}",
-                    "x": str(xs[col]),
-                    "y": str(canvas.y + ys[row]),
-                    "width": str(widths[col]),
-                    "height": str(heights[row]),
-                    "style": f"fill:{_hex(fallback)}",
-                },
-            )
-    g = ET.SubElement(canvas.root, f"{{{SVG_NS}}}g", {"id": f"{prefix}center"})
-    _embed_image(g, thumb, stroke, canvas.y + stroke)
-    canvas.advance(2 * stroke + thumb.width, 2 * stroke + thumb.height)
-    return "a scheme-color stroke"
-
-
-def build_pager(theme: Theme, wallpaper_image: Path | None) -> ET.Element | None:
-    """``widgets/pager.svg`` — each desktop cell a wallpaper miniature.
-
-    Real E16 pagers showed the live desk; a static miniature of the theme's
-    default wallpaper is the closest Plasma equivalent. Skipped entirely
-    when the conversion ships no wallpaper — Breeze's pager (re-tinted by
-    this package's ``colors``) beats empty frames. The window rects inside
-    cells come from Kirigami.Theme, which the bundled colors file already
-    governs — no SVG work needed there. No ``hint-tile-center``, no margin
-    hints (cells must stretch, and the applet spaces cells itself).
-    """
-    if wallpaper_image is None:
+    sel = _iclass_with_art(theme, "PAGER_SEL")
+    if sel is None:
         theme.notes.append(
-            "plasmastyle: no wallpaper to miniature; widgets/pager left to "
-            "the Breeze fallback"
+            "plasmastyle: no PAGER_SEL art; widgets/pager left to the "
+            "Breeze fallback"
         )
         return None
-    with Image.open(wallpaper_image) as im:
-        thumb = im.convert("RGB")
-    if thumb.width > PAGER_THUMB_WIDTH:
-        # LANCZOS is the sanctioned wallpaper carve-out (photographic
-        # sources); a smaller source (likely tiled pixel art) is never
-        # upscaled — it embeds at native size.
-        thumb = thumb.resize(
-            (
-                PAGER_THUMB_WIDTH,
-                max(1, round(thumb.height * PAGER_THUMB_WIDTH / thumb.width)),
-            ),
-            Image.Resampling.LANCZOS,
-        )
-    scheme = theme.scheme if theme.scheme is not None else default_scheme()
-    active_art = theme.iclasses.get("PAGER_SEL")
-    normal_art = theme.iclasses.get("PAGER_BACKGROUND")
-    active_fallback = scheme.selection.background_normal
-    normal_fallback = _at_lightness(scheme.window.background_normal, 0.12)
     canvas = _Canvas()
-    descs: dict[str, str] = {}
-    for prefix, factor in _PAGER_BRIGHTNESS.items():
-        cell = ImageEnhance.Brightness(thumb).enhance(factor)
-        spec = normal_art if prefix == "normal-" else active_art
-        fallback = normal_fallback if prefix == "normal-" else active_fallback
-        descs[prefix] = _pager_set(theme, canvas, prefix, cell, spec, fallback)
+    bg = _iclass_with_art(theme, "PAGER_BACKGROUND")
+    if bg is not None:
+        _emit_set(theme, canvas, "normal-", bg, "normal")
+    _emit_set(theme, canvas, "active-", sel, "normal")
+    _emit_set(theme, canvas, "hover-", sel, "hover")
     theme.notes.append(
-        "plasmastyle: pager desktops miniature the default wallpaper "
-        f"{wallpaper_image.name} (normal dimmed, active full brightness); "
-        f"active frame from {descs['active-']}; normal frame from "
-        f"{descs['normal-']}"
+        f"plasmastyle: pager cells from iclass {sel.name}"
+        + (f" (normal desks from {bg.name})" if bg is not None else "")
+        + "; cells carry no desktop preview — Plasma's pager cannot show "
+        "live desktops, and a baked wallpaper mini would go stale"
     )
     return canvas.finish()
 
@@ -961,6 +846,7 @@ _BUILDERS: tuple[tuple[str, Callable[[Theme], ET.Element | None]], ...] = (
     (VIEWITEM_SVG, build_viewitem),
     (SCROLLBAR_SVG, build_scrollbar),
     (ARROWS_SVG, build_arrows),
+    (PAGER_SVG, build_pager),
 )
 
 
@@ -1160,9 +1046,7 @@ def _write_metadata(theme: Theme, out_dir: Path) -> None:
     )
 
 
-def write(
-    theme: Theme, out_dir: Path, *, default_wallpaper_image: Path | None = None
-) -> PlasmaStyle:
+def write(theme: Theme, out_dir: Path) -> PlasmaStyle:
     """Write the Plasma Style package for *theme* under *out_dir*.
 
     ``out_dir``'s basename MUST be ``slug.plugin_id(theme.name)`` — the
@@ -1170,9 +1054,7 @@ def write(
     A single SVG whose source art cannot be read skips that one file with
     a ``plasmastyle:`` note; an EMPTY SVG set is legitimate (colors-only
     package, like breeze-dark). Any other failure removes ``out_dir`` and
-    raises :class:`PlasmaStyleError`. *default_wallpaper_image* is the
-    already-deployed default wallpaper's image file — the pager miniature
-    source (pager skipped when None).
+    raises :class:`PlasmaStyleError`.
     """
     pkg_id = plugin_id(theme.name)
     if out_dir.name != pkg_id:
@@ -1185,14 +1067,8 @@ def write(
         _write_metadata(theme, out_dir)
         write_desktop(out_dir / "plasmarc", _PACKAGE_PLASMARC)
 
-        # Pager rides the builder loop so it inherits the skip-on-bad-image
-        # handling and the solid/opaque mirroring (its content is opaque).
-        builders = (
-            *_BUILDERS,
-            (PAGER_SVG, lambda t: build_pager(t, default_wallpaper_image)),
-        )
         shipped: list[str] = []
-        for rel, builder in builders:
+        for rel, builder in _BUILDERS:
             try:
                 svg = builder(theme)
             except (OSError, ValueError) as exc:

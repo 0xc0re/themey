@@ -517,19 +517,22 @@ _PAGER_CELLS = (
 )
 
 
-def _wallpaper(tmp_path: Path, size=(128, 96)) -> Path:
-    return _png(tmp_path, "wall.png", size=size, color=(20, 80, 140, 255))
-
-
-def test_pager_skipped_without_wallpaper(tmp_path: Path) -> None:
+def test_pager_skipped_without_pager_sel_art(tmp_path: Path) -> None:
     theme = _theme(tmp_path, {})
-    assert plasmastyle.build_pager(theme, None) is None
-    assert any("no wallpaper to miniature" in n for n in theme.notes)
+    assert plasmastyle.build_pager(theme) is None
+    assert any("no PAGER_SEL art" in n for n in theme.notes)
 
 
-def test_pager_ids_three_state_sets(tmp_path: Path) -> None:
-    theme = _theme(tmp_path, {})
-    svg = plasmastyle.build_pager(theme, _wallpaper(tmp_path))
+def test_pager_three_state_sets_from_art(tmp_path: Path) -> None:
+    sel = _png(tmp_path, "sel.png", size=(12, 12))
+    bg = _png(tmp_path, "pbg.png", size=(12, 12))
+    theme = _theme(tmp_path, {
+        "PAGER_SEL": _iclass("PAGER_SEL", edge=(2, 2, 2, 2), normal=sel),
+        "PAGER_BACKGROUND": _iclass(
+            "PAGER_BACKGROUND", edge=(2, 2, 2, 2), normal=bg
+        ),
+    })
+    svg = plasmastyle.build_pager(theme)
     assert svg is not None
     ids = _ids(svg)
     for prefix in ("normal-", "active-", "hover-"):
@@ -539,47 +542,47 @@ def test_pager_ids_three_state_sets(tmp_path: Path) -> None:
     assert not any("margin" in i for i in ids)
 
 
-def test_pager_centers_embed_distinct_brightness_thumbs(tmp_path: Path) -> None:
-    theme = _theme(tmp_path, {})
-    svg = plasmastyle.build_pager(theme, _wallpaper(tmp_path))
-    assert svg is not None
-    uris = {}
-    for prefix in ("normal-", "active-", "hover-"):
-        g = next(e for e in svg.iter() if e.get("id") == f"{prefix}center")
-        uris[prefix] = next(iter(g)).get(XLINK)
-    assert uris["normal-"] != uris["active-"]
-    assert uris["hover-"] != uris["active-"]
-
-
-def test_pager_thumb_downscaled_not_upscaled(tmp_path: Path) -> None:
-    big = _png(tmp_path, "big.png", size=(1024, 512))
-    theme = _theme(tmp_path, {})
-    svg = plasmastyle.build_pager(theme, big)
-    assert svg is not None
-    g = next(e for e in svg.iter() if e.get("id") == "active-center")
-    assert next(iter(g)).get("width") == "256"
-
-    small = _png(tmp_path, "small.png", size=(64, 48))
-    theme = _theme(tmp_path, {})
-    svg = plasmastyle.build_pager(theme, small)
-    assert svg is not None
-    g = next(e for e in svg.iter() if e.get("id") == "active-center")
-    assert next(iter(g)).get("width") == "64"
-
-
-def test_pager_active_frame_from_pager_sel_art(tmp_path: Path) -> None:
+def test_pager_without_background_art_omits_normal_set(tmp_path: Path) -> None:
+    """No PAGER_BACKGROUND art -> no normal- set: unselected desks stay
+    chrome-free (the panel tint shows through), which IS the no-stale-
+    background design."""
     sel = _png(tmp_path, "sel.png", size=(12, 12))
     theme = _theme(tmp_path, {
         "PAGER_SEL": _iclass("PAGER_SEL", edge=(2, 2, 2, 2), normal=sel),
     })
-    svg = plasmastyle.build_pager(theme, _wallpaper(tmp_path))
+    svg = plasmastyle.build_pager(theme)
     assert svg is not None
-    tl = next(e for e in svg.iter() if e.get("id") == "active-topleft")
-    assert next(iter(tl)).tag.endswith("image")
-    # No PAGER_BACKGROUND art → the normal frame is a rect stroke.
-    ntl = next(e for e in svg.iter() if e.get("id") == "normal-topleft")
-    assert ntl.tag.endswith("rect")
-    assert any("iclass PAGER_SEL art" in n for n in theme.notes)
+    ids = _ids(svg)
+    assert {"active-center", "hover-center"} <= ids
+    assert not any(i.startswith("normal-") for i in ids)
+
+
+def test_pager_hover_uses_hilited_art_when_present(tmp_path: Path) -> None:
+    sel = _png(tmp_path, "sel.png", size=(12, 12))
+    hi = _png(tmp_path, "hi.png", size=(12, 12), color=(90, 200, 90, 255))
+    theme = _theme(tmp_path, {
+        "PAGER_SEL": _iclass("PAGER_SEL", edge=(0, 0, 0, 0), normal=sel, hilited=hi),
+    })
+    svg = plasmastyle.build_pager(theme)
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    active = next(iter(by_id["active-center"])).get(XLINK)
+    hover = next(iter(by_id["hover-center"])).get(XLINK)
+    assert active != hover
+
+
+def test_pager_zero_edge_sel_is_whole_stretch_center(tmp_path: Path) -> None:
+    """PAGER_SEL with edge 0 0 0 0 stretches whole over the cell — E16
+    no-slice semantics, same as every other surface."""
+    sel = _png(tmp_path, "sel.png", size=(12, 12))
+    theme = _theme(tmp_path, {
+        "PAGER_SEL": _iclass("PAGER_SEL", edge=(0, 0, 0, 0), normal=sel),
+    })
+    svg = plasmastyle.build_pager(theme)
+    assert svg is not None
+    ids = _ids(svg)
+    assert "active-center" in ids
+    assert "active-topleft" not in ids
 
 
 def test_stretch_borders_hint_in_art_framed_files(tmp_path: Path) -> None:
@@ -591,7 +594,7 @@ def test_stretch_borders_hint_in_art_framed_files(tmp_path: Path) -> None:
     theme = _theme(tmp_path, {
         "PAGER_SEL": _iclass("PAGER_SEL", edge=(2, 2, 2, 2), normal=sel),
     })
-    svg = plasmastyle.build_pager(theme, _wallpaper(tmp_path))
+    svg = plasmastyle.build_pager(theme)
     assert svg is not None
     assert "hint-stretch-borders" in _ids(svg)
 
@@ -603,28 +606,19 @@ def test_stretch_borders_hint_in_art_framed_files(tmp_path: Path) -> None:
 
 
 def test_stretch_borders_hint_absent_without_art_frames(tmp_path: Path) -> None:
-    """The flat panel tint and rect-stroke pager frames are stretch/tile
-    invariant — no hint needed, keep the files minimal."""
+    """The flat panel tint has no art borders, and a whole-stretch pager
+    set has no border cells - no hint, keep the files minimal."""
     theme = _theme(tmp_path, {})
     assert "hint-stretch-borders" not in _ids(
         plasmastyle.build_panel_background(theme)
     )
-    svg = plasmastyle.build_pager(theme, _wallpaper(tmp_path))
-    assert svg is not None
-    assert "hint-stretch-borders" not in _ids(svg)
-
-
-def test_pager_frame_color_fallback_on_zero_edge(tmp_path: Path) -> None:
-    """PAGER_SEL stretched whole (edge 0 0 0 0) → color-stroke frames."""
     sel = _png(tmp_path, "sel.png", size=(12, 12))
     theme = _theme(tmp_path, {
         "PAGER_SEL": _iclass("PAGER_SEL", edge=(0, 0, 0, 0), normal=sel),
     })
-    svg = plasmastyle.build_pager(theme, _wallpaper(tmp_path))
+    svg = plasmastyle.build_pager(theme)
     assert svg is not None
-    tl = next(e for e in svg.iter() if e.get("id") == "active-topleft")
-    assert tl.tag.endswith("rect")
-    assert any("a scheme-color stroke" in n for n in theme.notes)
+    assert "hint-stretch-borders" not in _ids(svg)
 
 
 # ------------------------------------------------------------------ #

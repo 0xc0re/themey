@@ -279,14 +279,8 @@ def convert(
             style_out = output_dir / "desktoptheme" / pkg_id
             if style_out.exists():
                 shutil.rmtree(style_out)
-            # Picked here (wallpapers are already written above) so the
-            # style's pager can miniature it; the bundle below reuses it.
-            default_wp = pick_default_wallpaper(wallpaper_packages)
             try:
-                style = write_plasma_style(
-                    theme, style_out,
-                    default_wallpaper_image=_default_wallpaper_image(default_wp),
-                )
+                style = write_plasma_style(theme, style_out)
             except PlasmaStyleError as exc:
                 theme.notes.append(f"plasmastyle: skipped: {exc}")
             else:
@@ -301,6 +295,7 @@ def convert(
             # directly: its Id is deliberately the same string as pkg_id
             # (the QML package's own dirname), which would otherwise
             # collide with `qml_installed` in this flat --output tree.
+            default_wp = pick_default_wallpaper(wallpaper_packages)
             deco_library, deco_theme = lookandfeel.deco_defaults(
                 theme_name, want_qml=want_qml, pkg_id=pkg_id
             )
@@ -396,18 +391,8 @@ def convert(
                 # Staged under "desktoptheme/" for the same pkg_id
                 # collision reason as "look-and-feel/" below.
                 stage_style_dir = stage / "desktoptheme" / pkg_id
-                # Picked here (wallpapers are already installed above, and
-                # wallpaper_packages entries rebased to their final dirs)
-                # so the style's pager can miniature it; the bundle below
-                # reuses it.
-                default_wp = pick_default_wallpaper(wallpaper_packages)
                 try:
-                    style = write_plasma_style(
-                        theme, stage_style_dir,
-                        default_wallpaper_image=_default_wallpaper_image(
-                            default_wp
-                        ),
-                    )
+                    style = write_plasma_style(theme, stage_style_dir)
                 except PlasmaStyleError as exc:
                     theme.notes.append(f"plasmastyle: skipped: {exc}")
                 else:
@@ -423,6 +408,7 @@ def convert(
                 # branch's comment for why "look-and-feel/" namespaces the
                 # staging path — same pkg_id collision, this time against
                 # stage_pkg_dir).
+                default_wp = pick_default_wallpaper(wallpaper_packages)
                 deco_library, deco_theme = lookandfeel.deco_defaults(
                     theme_name, want_qml=want_qml, pkg_id=pkg_id
                 )
