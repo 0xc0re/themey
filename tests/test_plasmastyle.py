@@ -345,15 +345,51 @@ def test_margin_hints_scale_with_theme_scale(tmp_path: Path, scale: float) -> No
     png = _png(tmp_path, "tt.png", size=(64, 64))
     theme = _theme(tmp_path, {
         "TT_MAIN": _iclass(
-            "TT_MAIN", edge=(20, 20, 22, 25), padding=(20, 20, 22, 25), normal=png
+            "TT_MAIN", edge=(6, 6, 7, 8), padding=(6, 6, 7, 8), normal=png
         ),
     }, scale=scale)
     svg = plasmastyle.build_tooltip(theme)
     assert svg is not None
     by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
-    assert by_id["hint-left-margin"].get("width") == str(scale_px(20, scale))
-    assert by_id["hint-top-margin"].get("height") == str(scale_px(22, scale))
-    assert by_id["hint-bottom-margin"].get("height") == str(scale_px(25, scale))
+    assert by_id["hint-left-margin"].get("width") == str(scale_px(6, scale))
+    assert by_id["hint-top-margin"].get("height") == str(scale_px(7, scale))
+    assert by_id["hint-bottom-margin"].get("height") == str(scale_px(8, scale))
+
+
+def test_oversized_chrome_renders_at_source_scale(tmp_path: Path) -> None:
+    """HandOfGod's tooltip cloud: 249x126 art with 20-25 ref-px caps. E16
+    rendered it at 1x; upscaling by theme.scale doubles chrome that already
+    dominates the surface. Caps summing past SURFACE_MAX_REF_CHROME on
+    either axis pin the art (and its margins) to source scale."""
+    png = _png(tmp_path, "cloud.png", size=(249, 126))
+    theme = _theme(tmp_path, {
+        "TT_MAIN": _iclass(
+            "TT_MAIN", edge=(20, 20, 22, 25), padding=(20, 20, 22, 25), normal=png
+        ),
+    }, scale=2)
+    svg = plasmastyle.build_tooltip(theme)
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    # Caps and margins at 1x, not 2x.
+    assert next(iter(by_id["topleft"])).get("width") == "20"
+    assert next(iter(by_id["topleft"])).get("height") == "22"
+    assert by_id["hint-left-margin"].get("width") == "20"
+    assert by_id["hint-bottom-margin"].get("height") == "25"
+    assert any("kept at source scale" in n for n in theme.notes)
+
+
+def test_small_chrome_still_upscales(tmp_path: Path) -> None:
+    """Pixel-art chrome (a few ref px of caps) keeps the theme scale — the
+    clamp only fires on art whose chrome already dominates at 1x."""
+    png = _png(tmp_path, "tt.png", size=(24, 24))
+    theme = _theme(tmp_path, {
+        "TT_MAIN": _iclass("TT_MAIN", edge=(4, 4, 4, 4), normal=png),
+    }, scale=2)
+    svg = plasmastyle.build_tooltip(theme)
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    assert next(iter(by_id["topleft"])).get("width") == "8"
+    assert not any("kept at source scale" in n for n in theme.notes)
 
 
 def test_caps_and_middle_sum_exactly_at_fractional_scale(tmp_path: Path) -> None:

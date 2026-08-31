@@ -358,9 +358,18 @@ def write_theme(theme: Theme, out_dir: Path) -> CursorTheme | None:
             skipped.append(spec.name)
             continue
         if spec.xbm_path is None or not spec.xbm_path.is_file():
-            theme.notes.append(
-                f"cursors: {spec.name} has no readable __XBM_FILE; skipped."
-            )
+            if spec.native_id is not None:
+                # Obsidian-style: a recolored X11 cursor-font glyph, no XBM
+                # art to convert (and no cursor-font rasterizer to do it).
+                theme.notes.append(
+                    f"cursors: {spec.name} recolors the X11 native cursor "
+                    f"{spec.native_id} (no XBM art); native cursor "
+                    "recoloring is not converted, the system shape is used."
+                )
+            else:
+                theme.notes.append(
+                    f"cursors: {spec.name} has no readable __XBM_FILE; skipped."
+                )
             continue
         if shape in chosen:
             theme.notes.append(
