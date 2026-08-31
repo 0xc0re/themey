@@ -1,0 +1,82 @@
+"""CLI wiring for ``themey apply`` — routing to apply()/apply_full()/revert().
+
+The full apply()/apply_full()/revert() behavior is exercised in
+test_apply.py and test_apply_full.py; these tests only check that the CLI
+passes flags through to the right function and prints the right message,
+via monkeypatched targets so no real kwriteconfig/plasma-apply-* tools are
+needed.
+"""
+from __future__ import annotations
+
+from typer.testing import CliRunner
+
+from themey import apply as apply_mod
+from themey.cli import app
+
+
+def test_apply_default_routes_to_apply_full(monkeypatch) -> None:
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        apply_mod, "apply_full", lambda name, **kw: calls.append((name, kw))
+    )
+    result = CliRunner().invoke(app, ["apply", "e13"])
+    assert result.exit_code == 0, result.output
+    assert calls == [("e13", {"legacy_plugin": False, "border_size": None, "keep_buttons": False})]
+    assert "revert: themey apply --revert" in result.output
+
+
+def test_apply_deco_only_routes_to_apply(monkeypatch) -> None:
+    calls: list[tuple] = []
+    monkeypatch.setattr(apply_mod, "apply", lambda name, **kw: calls.append((name, kw)))
+    result = CliRunner().invoke(app, ["apply", "e13", "--deco-only"])
+    assert result.exit_code == 0, result.output
+    assert len(calls) == 1
+    assert calls[0][0] == "e13"
+    assert "revert: themey apply --revert" in result.output
+
+
+def test_apply_revert_routes_to_revert_and_name_optional(monkeypatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(apply_mod, "revert", lambda: calls.append("called") or True)
+    result = CliRunner().invoke(app, ["apply", "--revert"])
+    assert result.exit_code == 0, result.output
+    assert calls == ["called"]
+
+
+def test_apply_revert_with_name_also_works(monkeypatch) -> None:
+    """--revert plus a (now-irrelevant) name argument is still accepted."""
+    calls: list[str] = []
+    monkeypatch.setattr(apply_mod, "revert", lambda: calls.append("called") or True)
+    result = CliRunner().invoke(app, ["apply", "e13", "--revert"])
+    assert result.exit_code == 0, result.output
+    assert calls == ["called"]
+
+
+def test_apply_revert_nothing_to_revert_message(monkeypatch) -> None:
+    monkeypatch.setattr(apply_mod, "revert", lambda: False)
+    result = CliRunner().invoke(app, ["apply", "--revert"])
+    assert result.exit_code == 0, result.output
+    assert "nothing to revert" in result.output.lower()
+
+
+def test_apply_without_name_or_revert_errors(monkeypatch) -> None:
+    result = CliRunner().invoke(app, ["apply"])
+    assert result.exit_code != 0
+
+
+def test_apply_full_apply_error_exits_nonzero(monkeypatch) -> None:
+    def boom(name, **kw):
+        raise apply_mod.ApplyError("not installed")
+
+    monkeypatch.setattr(apply_mod, "apply_full", boom)
+    result = CliRunner().invoke(app, ["apply", "e13"])
+    assert result.exit_code != 0
+
+
+def test_apply_revert_error_exits_nonzero(monkeypatch) -> None:
+    def boom():
+        raise apply_mod.ApplyError("no kreadconfig6")
+
+    monkeypatch.setattr(apply_mod, "revert", boom)
+    result = CliRunner().invoke(app, ["apply", "--revert"])
+    assert result.exit_code != 0

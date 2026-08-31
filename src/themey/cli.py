@@ -251,7 +251,12 @@ def render_cmd(
 
 @app.command("apply")
 def apply_cmd(
-    name: Annotated[str, typer.Argument(help="Installed theme name (see themey convert)")],
+    name: Annotated[
+        str | None,
+        typer.Argument(
+            help="Installed theme name (see themey convert); omit only with --revert"
+        ),
+    ] = None,
     legacy_plugin: Annotated[
         bool,
         typer.Option(
@@ -277,25 +282,67 @@ def apply_cmd(
         str,
         typer.Option(
             "--backend",
-            help="'qml' (QML decoration package, default) or 'svg' (Aurorae SVG theme)",
+            help="'qml' (QML decoration package, default) or 'svg' (Aurorae SVG theme) "
+            "— only meaningful with --deco-only",
         ),
     ] = "qml",
+    deco_only: Annotated[
+        bool,
+        typer.Option(
+            "--deco-only",
+            help="Apply only the window decoration (today's kwinrc-only behavior) "
+            "instead of the full Look-and-Feel bundle",
+        ),
+    ] = False,
+    revert: Annotated[
+        bool,
+        typer.Option(
+            "--revert",
+            help="Restore the global theme + decoration that were active before "
+            "the last full `themey apply` (NAME is not needed)",
+        ),
+    ] = False,
 ) -> None:
-    """Point the live KWin session at an installed theme (writes kwinrc, reconfigures)."""
+    """Point the live KWin session at an installed theme's full Look-and-Feel
+    bundle (or, with --deco-only, just its decoration), and reconfigure."""
     from . import apply
 
+    if revert:
+        try:
+            reverted = apply.revert()
+        except apply.ApplyError as exc:
+            logging.getLogger(__name__).error("revert failed: %s", exc)
+            raise typer.Exit(code=1) from exc
+        if reverted:
+            typer.echo("Reverted to the previous global theme and decoration.")
+        else:
+            typer.echo("Nothing to revert (no prior `themey apply` on this machine).")
+        return
+
+    if name is None:
+        typer.echo("Error: NAME is required unless --revert is given.", err=True)
+        raise typer.Exit(code=1)
+
     try:
-        apply.apply(
-            name,
-            legacy_plugin=legacy_plugin,
-            border_size=border_size,
-            keep_buttons=keep_buttons,
-            backend=backend,
-        )
+        if deco_only:
+            apply.apply(
+                name,
+                legacy_plugin=legacy_plugin,
+                border_size=border_size,
+                keep_buttons=keep_buttons,
+                backend=backend,
+            )
+        else:
+            apply.apply_full(
+                name,
+                legacy_plugin=legacy_plugin,
+                border_size=border_size,
+                keep_buttons=keep_buttons,
+            )
     except apply.ApplyError as exc:
         logging.getLogger(__name__).error("apply failed: %s", exc)
         raise typer.Exit(code=1) from exc
-    typer.echo(f"Applied {name} (revert: themey apply Breeze or System Settings)")
+    typer.echo(f"Applied {name} (revert: themey apply --revert)")
 
 
 if __name__ == "__main__":
