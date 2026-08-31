@@ -15,15 +15,26 @@ from __future__ import annotations
 from pathlib import Path
 
 from .generate.decoration_svg import strip_thicknesses
-from .ir import Theme
+from .ir import Theme, WallpaperSpec
 from .kwin import recommended_border_size
 
 
-def write(theme: Theme, out_path: Path, backend: str = "svg") -> Path:
+def write(
+    theme: Theme,
+    out_path: Path,
+    backend: str = "svg",
+    wallpaper_specs: tuple[WallpaperSpec, ...] | None = None,
+) -> Path:
     """Write report.txt for *theme* to *out_path*.
 
     ``backend`` ("svg" | "qml" | "both") selects which Apply guidance is
-    emitted. Returns *out_path* so callers can chain.
+    emitted. ``wallpaper_specs`` is the set of wallpapers *actually
+    installed* — pipeline.py passes the subset of ``theme.wallpaper_specs``
+    that survived ``write_package`` (some may fail: oversized, corrupt,
+    unopenable) so the status line below never overstates what's on disk.
+    Defaults to ``theme.wallpaper_specs`` itself for callers that report
+    straight from analysis (no install step ran, so there's nothing to
+    have failed). Returns *out_path* so callers can chain.
     """
     want_qml = backend in ("qml", "both")
     want_svg = backend in ("svg", "both")
@@ -65,6 +76,39 @@ def write(theme: Theme, out_path: Path, backend: str = "svg") -> Path:
         f"'{theme.display_name} (themey)' — pick it under System "
         "Settings -> Colors. Sources are listed below."
     )
+    if theme.wallpaper_specs:
+        found = theme.wallpaper_specs
+        installed = wallpaper_specs if wallpaper_specs is not None else found
+        if installed:
+            tiled = sum(1 for w in installed if w.fill_mode == "tiled")
+            scaled = len(installed) - tiled
+            if len(installed) == len(found):
+                lines.append(
+                    f"- Wallpaper: {len(installed)} background image(s) "
+                    f"installed as Plasma wallpaper packages ({tiled} "
+                    f"tiled, {scaled} scaled) — pick one under System "
+                    "Settings -> Wallpaper."
+                )
+            else:
+                failed = len(found) - len(installed)
+                lines.append(
+                    f"- Wallpaper: {len(installed)} of {len(found)} "
+                    "background image(s) installed as Plasma wallpaper "
+                    f"packages ({tiled} tiled, {scaled} scaled); {failed} "
+                    "failed to convert — see wallpaper: notes below. Pick "
+                    "one under System Settings -> Wallpaper."
+                )
+        else:
+            lines.append(
+                f"- Wallpaper: {len(found)} background image(s) found in "
+                "desktops.cfg but none could be converted — see "
+                "wallpaper: notes below."
+            )
+    else:
+        lines.append(
+            "- Wallpaper: no background images found in desktops.cfg; "
+            "the desktop wallpaper is left alone."
+        )
     lines.append("")
 
     # ------------------------------------------------------------------ #
@@ -92,7 +136,9 @@ def write(theme: Theme, out_path: Path, backend: str = "svg") -> Path:
     # Surface layout-decision notes (aurorae_rc:, colors:, composite:,
     # qmldeco:) BEFORE the truncated-state-drop bucket so they don't get
     # buried past line 20.
-    _layout_prefixes = ("aurorae_rc:", "colors:", "composite:", "qmldeco:")
+    _layout_prefixes = (
+        "aurorae_rc:", "colors:", "composite:", "qmldeco:", "wallpaper:",
+    )
     layout_notes = [n for n in theme.notes if n.startswith(_layout_prefixes)]
     state_notes = [n for n in theme.notes if not n.startswith(_layout_prefixes)]
     for note in layout_notes:
@@ -131,15 +177,6 @@ def write(theme: Theme, out_path: Path, backend: str = "svg") -> Path:
         "stay Breeze stock: tinting them to the theme would make them "
         "misreport meaning."
     )
-    if theme.wallpapers:
-        lines.append(
-            f"- Wallpaper: {len(theme.wallpapers)} background image(s) "
-            "found in desktops.cfg; install deferred to Phase 2."
-        )
-    else:
-        lines.append(
-            "- Wallpaper: deferred to later phase (WALLPAPER-01 / Phase 2)."
-        )
     if theme.cursors:
         lines.append(
             f"- XCursor pointer theme: {len(theme.cursors)} __CURSOR "

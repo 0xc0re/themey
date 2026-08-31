@@ -42,7 +42,7 @@ from .fonts import parse_fonts
 from .iclasses import build_iclasses
 from .states import collapse_image_states
 from .tclasses import build_tclasses
-from .wallpaper import extract_wallpapers
+from .wallpaper import extract_wallpaper_specs
 
 
 def _collect_blocks(nodes: list[AstNode], keyword: str) -> list[Block]:
@@ -270,13 +270,11 @@ def build_theme(
 
     # ------------------------------------------------------------------
     # 5c. Wallpapers — scan desktops.cfg's macro syntax for image paths.
+    # report.py's Preserved section reports the real installed count
+    # (pipeline.py threads it back in); no separate note needed here.
     # ------------------------------------------------------------------
-    wallpapers = extract_wallpapers(asset_root)
-    if wallpapers:
-        notes.append(
-            f"found {len(wallpapers)} wallpaper image(s) "
-            "(wallpaper install deferred to Phase 2)"
-        )
+    wallpaper_specs = extract_wallpaper_specs(asset_root, notes)
+    wallpapers = tuple(spec.path for spec in wallpaper_specs)
 
     # ------------------------------------------------------------------
     # 6. Colors — sample the whole KDE scheme from the border art, then
@@ -303,6 +301,7 @@ def build_theme(
         scheme=scheme,
         cursors=cursors,
         wallpapers=wallpapers,
+        wallpaper_specs=wallpaper_specs,
         notes=notes,
         skipped_borders=tuple(skipped),
         fonts=fonts,
