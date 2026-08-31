@@ -29,7 +29,9 @@ RUNTIME_DIR = (
 )
 
 
-def _build_package(name: str, tmp_path: Path) -> tuple[Path, list[str]]:
+def _build_package(
+    name: str, tmp_path: Path, *, shade_button: str | None = None
+) -> tuple[Path, list[str]]:
     from themey.analyze.build_theme import build_theme
     from themey.etheme.archive import extract
     from themey.etheme.parse import parse_tree
@@ -42,7 +44,8 @@ def _build_package(name: str, tmp_path: Path) -> tuple[Path, list[str]]:
             raw.asset_root, parse_tree(raw.asset_root), name=name,
             display_name=name, scale=2,
         )
-        qmldeco.write(theme, pkg)
+        kwargs = {} if shade_button is None else {"shade_button": shade_button}
+        qmldeco.write(theme, pkg, **kwargs)
     return pkg, list(theme.notes)
 
 
@@ -123,7 +126,9 @@ def test_e13_package_specifics(tmp_path):
     by_id = {p["id"]: p for p in data["parts"]}
     assert by_id["BUTTON_KILL"]["button"] == "close"
     assert by_id["BUTTON_ICONIFY"]["button"] == "minimize"
-    assert by_id["BUTTON_SHADE"]["button"] == "shade"
+    # Default --shade-button is "maximize": Plasma 6 removed window shading,
+    # so e13's dead shade slot becomes the missing maximize/restore button.
+    assert by_id["BUTTON_SHADE"]["button"] == "maximizeRestore"
     assert by_id["BUTTON_STICK"]["button"] == "onAllDesktops"
     assert by_id["FIN"]["button"] is None          # ACTION_MOVE → chrome
     assert by_id["WIN_SIDE_RIGHT"]["button"] is None  # ACTION_RESIZE_H → chrome
@@ -149,11 +154,81 @@ def test_e13_package_specifics(tmp_path):
 
     # KWin removed window shading in Plasma 6 (verified against libkwin
     # 6.6.6 symbols, 2026-08-30) — the report must say so, once per shade
-    # button, and describe the absorb behavior.
+    # button, and describe the remap (default --shade-button=maximize).
     shade_notes = [n for n in notes if n.startswith("qmldeco: shade")]
     assert len(shade_notes) == 1
     assert "Plasma 6" in shade_notes[0]
-    assert "absorbs clicks" in shade_notes[0]
+    assert "remapped to maximize" in shade_notes[0]
+    assert "--shade-button" in shade_notes[0]
+
+
+# ---------------------------------------------------------------------------
+# --shade-button remap (Phase F / Task 6)
+
+@pytest.mark.parametrize(
+    "shade_button,expected_kind",
+    [
+        ("maximize", "maximizeRestore"),
+        ("keepAbove", "keepAbove"),
+        ("keepBelow", "keepBelow"),
+        ("menu", "menu"),
+        ("none", "shade"),
+    ],
+)
+def test_shade_button_remap_kinds(tmp_path, shade_button, expected_kind):
+    if not (FIXTURES / "e13.etheme").exists():
+        pytest.skip("e13.etheme not available")
+    pkg, notes = _build_package("e13", tmp_path, shade_button=shade_button)
+    data = _theme_js_data(pkg)
+    by_id = {p["id"]: p for p in data["parts"]}
+    assert by_id["BUTTON_SHADE"]["button"] == expected_kind
+
+    shade_notes = [n for n in notes if n.startswith("qmldeco: shade button")]
+    assert len(shade_notes) == 1
+    if shade_button == "none":
+        # Today's behavior preserved exactly: the button is inert.
+        assert "absorbs clicks" in shade_notes[0]
+        assert "remapped" not in shade_notes[0]
+    else:
+        assert f"remapped to {shade_button}" in shade_notes[0]
+        assert "Plasma 6" in shade_notes[0]
+        assert "--shade-button" in shade_notes[0]
+
+
+def test_shade_button_hide_nulls_button_and_images_keeps_indices_stable(tmp_path):
+    if not (FIXTURES / "e13.etheme").exists():
+        pytest.skip("e13.etheme not available")
+    default_pkg, _default_notes = _build_package("e13", tmp_path / "default")
+    hide_pkg, hide_notes = _build_package(
+        "e13", tmp_path / "hide", shade_button="hide"
+    )
+
+    default_data = _theme_js_data(default_pkg)
+    hide_data = _theme_js_data(hide_pkg)
+
+    # Part indices/order MUST stay stable — origin chains reference parts
+    # by index — so hiding the shade button must not remove or reorder it.
+    default_ids = [p["id"] for p in default_data["parts"]]
+    hide_ids = [p["id"] for p in hide_data["parts"]]
+    assert default_ids == hide_ids
+
+    for d_part, h_part in zip(default_data["parts"], hide_data["parts"], strict=True):
+        assert d_part["tlOrigin"] == h_part["tlOrigin"]
+        assert d_part["brOrigin"] == h_part["brOrigin"]
+
+    by_id = {p["id"]: p for p in hide_data["parts"]}
+    assert by_id["BUTTON_SHADE"]["button"] is None
+    assert by_id["BUTTON_SHADE"]["images"] is None
+
+    hide_shade_notes = [n for n in hide_notes if n.startswith("qmldeco: shade button")]
+    assert len(hide_shade_notes) == 1
+    assert "hidden" in hide_shade_notes[0]
+    assert "--shade-button" in hide_shade_notes[0]
+    # Hiding must not also emit a "no usable image" note for this part —
+    # the blank art is deliberate, not a fidelity gap.
+    assert not any(
+        "BUTTON_SHADE" in n and "no usable image" in n for n in hide_notes
+    )
 
 
 def test_toggled_falls_back_to_clicked_without_sticky_art(tmp_path):

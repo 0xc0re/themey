@@ -164,3 +164,21 @@ def test_cli_upscale_quality_rejected_for_svg_backend(tmp_path, monkeypatch):
          str(tmp_path / "o"), "--no-open", str(FIXTURES / "Aliens.etheme")],
     )
     assert result.exit_code != 0
+
+
+def test_cli_shade_button_hide_accepted(tmp_path, monkeypatch):
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    result = CliRunner().invoke(
+        app,
+        ["--shade-button", "hide", "--output", str(tmp_path / "o"), "--no-open",
+         str(FIXTURES / "Aliens.etheme")],
+    )
+    assert result.exit_code == 0, result.output
+
+
+def test_cli_shade_button_invalid_rejected():
+    result = CliRunner().invoke(
+        app, ["--shade-button", "bogus", str(FIXTURES / "Aliens.etheme")]
+    )
+    assert result.exit_code != 0

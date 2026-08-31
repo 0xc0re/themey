@@ -76,6 +76,23 @@ _SLOT_CHAINS: dict[str, tuple[str, ...]] = {
 _BUTTON_SLOTS = tuple(_SLOT_CHAINS)
 _CHROME_SLOTS = ("normal", "normalActive")
 
+# --shade-button values (Phase F): KWin removed window shading in Plasma 6,
+# so a "shade" part's dead slot is remapped to another action by default.
+# "maximize" (default) / keepAbove / keepBelow / menu swap the QML button
+# kind directly — the runtime (ThemeyButton.qml) already drives tooltip,
+# enabled-gating and toggled art off `kind` for all of these, so no runtime
+# change is needed. "hide" nulls the part's button+images (invisible
+# chrome; the part index is kept — origin chains reference parts by
+# index). "none" preserves today's inert disabled-shade-button behavior.
+SHADE_BUTTON_MODES = ("maximize", "keepAbove", "keepBelow", "menu", "hide", "none")
+
+_SHADE_KIND_REMAP: dict[str, str] = {
+    "maximize": "maximizeRestore",
+    "keepAbove": "keepAbove",
+    "keepBelow": "keepBelow",
+    "menu": "menu",
+}
+
 
 def safe_name(iclass_name: str) -> str:
     """Filesystem-safe lowercase image basename stem for an iclass."""
@@ -200,13 +217,24 @@ def _font_index(
 
 def build_theme_data(
     theme: Theme,
+    *,
+    shade_button: str = "maximize",
 ) -> tuple[dict, dict[str, Path], list[Path]]:
     """Build the theme.js data dict + image manifest + font source list.
 
     Appends ``qmldeco:`` fidelity notes to ``theme.notes``. Must run inside
     the ``with extract(...)`` block — it reads part images and TTFs from
     ``theme.asset_root``.
+
+    ``shade_button`` (one of ``SHADE_BUTTON_MODES``) remaps E16's shade
+    part, which Plasma 6 can no longer act on (KWin removed window
+    shading): see the module-level comment above ``SHADE_BUTTON_MODES``.
     """
+    if shade_button not in SHADE_BUTTON_MODES:
+        raise ValueError(
+            f"shade_button must be one of {SHADE_BUTTON_MODES} "
+            f"(got {shade_button!r})"
+        )
     scale = theme.scale
     manifest: dict[str, Path] = {}
     fonts_model: list[dict] = []
@@ -214,21 +242,52 @@ def build_theme_data(
     parts: list[dict] = []
 
     for i, part in enumerate(theme.border.parts):
-        kind = button_kind(part)
+        orig_kind = button_kind(part)
+        kind = orig_kind
+        hidden_shade = False
+        if orig_kind == "shade":
+            if shade_button == "hide":
+                kind = None
+                hidden_shade = True
+            elif shade_button != "none":
+                kind = _SHADE_KIND_REMAP[shade_button]
+            # "none": kind stays "shade" — today's behavior, unchanged.
+
         ic = theme.iclasses.get(part.iclass_name)
-        slots = _BUTTON_SLOTS if kind is not None else _CHROME_SLOTS
-        images = _resolve_images(ic, slots, manifest)
-        if images is None:
-            theme.notes.append(
-                f"qmldeco: part '{part.iclass_name}' has no usable image "
-                "— rendered as empty space"
-            )
-        if kind == "shade":
-            theme.notes.append(
-                f"qmldeco: shade button '{part.iclass_name}' generated, but "
-                "KWin removed window shading in Plasma 6 — the button is "
-                "disabled and absorbs clicks (E16 art still renders)"
-            )
+        if hidden_shade:
+            # Invisible chrome: no art resolved/exported for a button
+            # nobody can click. The part index — and its origin chain —
+            # stay exactly where they were.
+            images = None
+        else:
+            slots = _BUTTON_SLOTS if kind is not None else _CHROME_SLOTS
+            images = _resolve_images(ic, slots, manifest)
+            if images is None:
+                theme.notes.append(
+                    f"qmldeco: part '{part.iclass_name}' has no usable image "
+                    "— rendered as empty space"
+                )
+
+        if orig_kind == "shade":
+            if shade_button == "none":
+                theme.notes.append(
+                    f"qmldeco: shade button '{part.iclass_name}' generated, "
+                    "but KWin removed window shading in Plasma 6 — the "
+                    "button is disabled and absorbs clicks (E16 art still "
+                    "renders)"
+                )
+            elif shade_button == "hide":
+                theme.notes.append(
+                    f"qmldeco: shade button '{part.iclass_name}' hidden — "
+                    "Plasma 6 removed window shading; --shade-button to "
+                    "override"
+                )
+            else:
+                theme.notes.append(
+                    f"qmldeco: shade button '{part.iclass_name}' remapped "
+                    f"to {shade_button} — Plasma 6 removed shading; "
+                    "--shade-button to override"
+                )
 
         tl_origin, br_origin = part.tl_origin, part.br_origin
         for label, origin in (("topleft", tl_origin), ("bottomright", br_origin)):
