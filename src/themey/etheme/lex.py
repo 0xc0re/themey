@@ -15,12 +15,17 @@ Recognized tokens:
   NEWLINE     — significant line-break token; the parser uses it to terminate
                 top-level key-value lines.  Only emitted between non-whitespace
                 tokens (consecutive blank lines collapse to one NEWLINE).
+                ';' also emits NEWLINE: E16 treats it as a statement separator
+                (cpp macro bodies join several statements on one physical line
+                with ';' — see BlueIce's BP_START in borders/definitions.cfg).
   EOF         — sentinel at end of input.
 
 Skipped:
   /* ... */  (multi-line C-style comments)  — newlines inside counted
   # ... \\n  (single-line hash comments)    — EXCEPT '#include' which starts
-              an INCLUDE token, not a comment.
+              an INCLUDE token, not a comment.  A hash line ending in a
+              backslash continues onto the next line (multi-line #define
+              bodies must not leak tokens).
 
 Design notes:
   • Hand-rolled state machine; uses stdlib re only for the master token regex.
@@ -103,6 +108,14 @@ def tokenize(text: str) -> list[Token]:
             continue
 
         # ------------------------------------------------------------------ #
+        # ';' — statement separator, same effect as a newline (E16 config.c)
+        # ------------------------------------------------------------------ #
+        if ch == ";":
+            _append(TokenKind.NEWLINE, None, line)
+            pos += 1
+            continue
+
+        # ------------------------------------------------------------------ #
         # Horizontal whitespace
         # ------------------------------------------------------------------ #
         m = _RE_WHITESPACE.match(text, pos)
@@ -149,10 +162,18 @@ def tokenize(text: str) -> list[Token]:
                         _append(TokenKind.QUOTED_PATH, m2.group(1), line)
                         pos = m2.end()
                 continue
-            # Otherwise it's a line comment — skip to end of line
-            while pos < n and text[pos] != "\n":
-                pos += 1
-            # Do NOT consume the newline itself — let the main loop handle it
+            # Otherwise it's a line comment — skip to end of line.  A trailing
+            # backslash continues the comment onto the next line (cpp-style
+            # multi-line #define bodies).
+            while True:
+                start = pos
+                while pos < n and text[pos] != "\n":
+                    pos += 1
+                if pos >= n or not text[start:pos].rstrip().endswith("\\"):
+                    break
+                pos += 1  # consume the newline, keep skipping the next line
+                line += 1
+            # Do NOT consume the final newline itself — main loop handles it
             continue
 
         # ------------------------------------------------------------------ #

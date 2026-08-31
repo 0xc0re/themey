@@ -72,8 +72,9 @@ def build_oversize_count() -> Path:
     out = OUT / "oversize_count.tar.gz"
     with tarfile.open(out, "w:gz") as tar:
         _add_member(tar, "borders.cfg", b"# valid marker\n")
-        # 600 tiny members (cap is 500)
-        for i in range(600):
+        # 4100 tiny members (cap is MAX_ENTRIES=4000; raised from 500 for
+        # legitimate large themes like Ganymede at 1051 entries)
+        for i in range(4100):
             _add_member(tar, f"f{i}.txt", b"x")
     return out
 

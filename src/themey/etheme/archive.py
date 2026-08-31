@@ -17,7 +17,9 @@ from pathlib import Path
 # Caps verified in production by ~/src/wilbs/src/lib/themes/e16/parse-e16-archive.ts
 MAX_TOTAL_BYTES: int = 32 * 1024 * 1024  # 32 MB total extracted
 MAX_FILE_BYTES: int = 8 * 1024 * 1024  # 8 MB per file
-MAX_ENTRIES: int = 500  # entry-count cap
+# Legitimate themes reach four digits (Ganymede: 1051 entries); the size caps
+# above are the real zip-bomb defense, this only bounds member iteration.
+MAX_ENTRIES: int = 4000  # entry-count cap
 
 # Marker filenames that identify the theme root (shortest-path wins).
 ROOT_MARKERS: frozenset[str] = frozenset({"borders.cfg", "init.cfg"})

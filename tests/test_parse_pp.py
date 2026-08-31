@@ -248,6 +248,31 @@ def test_include_escaping_root_is_dropped(tmp_path: Path) -> None:
     assert _blocks(nodes, "__BORDER") == []
 
 
+def test_repeated_include_splices_again(tmp_path: Path) -> None:
+    """cpp splices a file on every include — Warp's pager_bottom.cfg and
+    transient.cfg both re-include borders/edges.cfg, whose chain carries
+    each border's closing __END. A permanent dedup would break the second
+    border's structure."""
+    (tmp_path / "borders.cfg").write_text(
+        '#include "one.cfg"\n#include "two.cfg"\n'
+    )
+    (tmp_path / "one.cfg").write_text(
+        '__BORDER __BGN\n__NAME ONE\n#include "tail.cfg"\n'
+    )
+    (tmp_path / "two.cfg").write_text(
+        '__BORDER __BGN\n__NAME TWO\n#include "tail.cfg"\n'
+    )
+    (tmp_path / "tail.cfg").write_text(
+        "__BORDER_PART __BGN\n__ICLASS ST\n__END\n__END\n"
+    )
+    nodes = parse_tree(tmp_path, ["borders.cfg"])
+    borders = _blocks(nodes, "__BORDER")
+    assert len(borders) == 2
+    for border in borders:
+        parts = _blocks(list(border.children), "__BORDER_PART")
+        assert len(parts) == 1  # both borders got their spliced part + __END
+
+
 def test_include_cycle_terminates(tmp_path: Path) -> None:
     """T-03-02: mutually-including files terminate instead of looping."""
     (tmp_path / "borders.cfg").write_text('#include "a.cfg"\n')
