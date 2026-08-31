@@ -148,7 +148,20 @@ def apply(
     legacy_plugin: bool = False,
     border_size: str | None = None,
     keep_buttons: bool = False,
+    backend: str = "svg",
 ) -> None:
+    """Point the live KWin at an installed theme.
+
+    ``backend="qml"`` selects the QML decoration package
+    ``themey_<slug>`` under ``kwin/decorations/``: it writes
+    ``library=org.kde.kwin.aurorae`` + the raw package id as ``theme=``,
+    and deliberately touches NEITHER ButtonsOnLeft/Right NOR BorderSize —
+    the QML theme draws its own buttons and sets its own (unclamped)
+    borders. The snapshot/restore machinery stays in place for SVG applies
+    and the ``apply Breeze`` revert.
+    """
+    if backend not in ("svg", "qml"):
+        raise ApplyError(f"backend must be 'svg' or 'qml' (got {backend!r})")
     kw = _which("kwriteconfig6", "kwriteconfig5")
     kr = _which("kreadconfig6", "kreadconfig5")
     if border_size is not None and border_size not in BORDER_SIZES:
@@ -158,6 +171,20 @@ def apply(
         _kwrite(kw, "theme", "Breeze")
         if not keep_buttons:
             _restore_buttons(kw, kr)
+    elif backend == "qml":
+        from .slug import plugin_id
+
+        pkg_id = name if name.startswith("themey_") else plugin_id(name)
+        pkg_dir = paths.kwin_decorations() / pkg_id
+        if not (pkg_dir / "metadata.json").is_file():
+            raise ApplyError(
+                f"QML decoration {pkg_id!r} is not installed under "
+                f"{paths.kwin_decorations()} — run `themey convert` with the "
+                "qml backend first"
+            )
+        _kwrite(kw, "library", PLUGINS["legacy"])
+        _kwrite(kw, "theme", pkg_id)
+        border_size = None  # theme-controlled; never write BorderSize
     else:
         theme_dir = paths.aurorae_themes() / name
         if not theme_dir.is_dir():
