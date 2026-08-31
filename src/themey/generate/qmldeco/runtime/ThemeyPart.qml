@@ -49,6 +49,9 @@ Item {
 
     readonly property bool hovered: buttonLoader.item ? buttonLoader.item.hovered === true : false
     readonly property bool pressed: buttonLoader.item ? buttonLoader.item.pressed === true : false
+    // DecorationButton binds `toggled` for OnAllDesktops/Shade — without
+    // this the toggle buttons work but give no visual feedback.
+    readonly property bool toggled: buttonLoader.item ? buttonLoader.item.toggled === true : false
     readonly property var textCfg: partItem.part && partItem.part.text ? partItem.part.text : null
 
     BorderImage {
@@ -63,6 +66,10 @@ Item {
                 return Qt.resolvedUrl(a && imgs.pressedActive ? imgs.pressedActive : (imgs.pressed || imgs.normal));
             if (partItem.hovered)
                 return Qt.resolvedUrl(a && imgs.hoverActive ? imgs.hoverActive : (imgs.hover || imgs.normal));
+            // `|| imgs.pressed` keeps a stale installed theme.js (no
+            // toggled slots) degrading to clicked art instead of blank.
+            if (partItem.toggled)
+                return Qt.resolvedUrl(a && imgs.toggledActive ? imgs.toggledActive : (imgs.toggled || imgs.pressed || imgs.normal));
             return Qt.resolvedUrl(a && imgs.normalActive ? imgs.normalActive : imgs.normal);
         }
         border.left: partItem.part ? partItem.part.insets.left : 0

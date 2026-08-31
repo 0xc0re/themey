@@ -137,6 +137,53 @@ def test_e13_package_specifics(tmp_path):
     hidden_notes = [n for n in notes if n.startswith("qmldeco: button")]
     assert len(hidden_notes) == 3  # iconify/shade/stick hidden when maximized
 
+    # Toggle buttons (stick/shade) get toggled art so the pressed-in state
+    # is visible: e13 declares __NORMAL_STICKY, so the chain's first member
+    # wins.
+    stick = by_id["BUTTON_STICK"]["images"]
+    assert stick["toggled"] == "../images/button_stick_normal_sticky.png"
+    assert (
+        stick["toggledActive"]
+        == "../images/button_stick_normal_active_sticky.png"
+    )
+
+    # Shade is platform-dependent (KWin offers no shading for Wayland-native
+    # windows); the report must warn once per shade button.
+    shade_notes = [n for n in notes if n.startswith("qmldeco: shade")]
+    assert len(shade_notes) == 1
+    assert "shadeable" in shade_notes[0]
+
+
+def test_toggled_falls_back_to_clicked_without_sticky_art(tmp_path):
+    """A theme with no sticky art shows the clicked art while toggled —
+    sticky art pixel-identical to normal would otherwise leave the toggle
+    visually silent."""
+    from PIL import Image
+
+    from themey.generate.qmldeco.theme_js import _BUTTON_SLOTS, _resolve_images
+    from themey.ir import IClassSpec
+
+    normal = tmp_path / "normal.png"
+    clicked = tmp_path / "clicked.png"
+    Image.new("RGBA", (4, 4)).save(normal)
+    Image.new("RGBA", (4, 4)).save(clicked)
+    ic = IClassSpec(
+        name="BTN",
+        edge_scaling=(0, 0, 0, 0),
+        normal=normal,
+        normal_active=None,
+        hilited=None,
+        hilited_active=None,
+        clicked=clicked,
+        clicked_active=None,
+        normal_sticky=None,
+        normal_active_sticky=None,
+    )
+    images = _resolve_images(ic, _BUTTON_SLOTS, {})
+    assert images is not None
+    assert images["toggled"] == "../images/btn_clicked.png"
+    assert images["toggledActive"] == "../images/btn_clicked.png"
+
 
 @pytest.mark.parametrize("name", FIXTURE_NAMES)
 def test_theme_js_snapshot(name, tmp_path, snapshot):

@@ -11,6 +11,27 @@ DecorationButton {
     id: btn
     property string kind: ""
     anchors.fill: parent
+    // Gate on the client's capability so an unsupported request (e.g.
+    // shade on a Wayland-native window, where KWin offers no shading)
+    // degrades to a window drag instead of a dead click. `!== false`
+    // keeps the button live when the bridge omits the property (KCM
+    // preview hands us partial clients).
+    enabled: {
+        var c = decoration ? decoration.client : null;
+        if (!c)
+            return true;
+        switch (btn.kind) {
+        case "close":
+            return c.closeable !== false;
+        case "minimize":
+            return c.minimizeable !== false;
+        case "maximizeRestore":
+            return c.maximizeable !== false;
+        case "shade":
+            return c.shadeable !== false;
+        }
+        return true;
+    }
     buttonType: {
         switch (btn.kind) {
         case "close":
