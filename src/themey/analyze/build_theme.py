@@ -15,6 +15,11 @@ PNG names and logs its use to Theme.notes.
 T-05-01 (path traversal in cfg paths) is mitigated in ``build_iclasses``
 (path escape → None) and an additional missing-asset note is logged here
 for any iclass image path that doesn't exist on disk.
+
+``Theme.palette`` is NOT built here: it is derived from ``Theme.scheme``
+(see ``analyze/colors.py``) so the decoration backends and the emitted
+``.colors`` file cannot disagree about the titlebar. Change one and you
+change both.
 """
 from __future__ import annotations
 
@@ -23,13 +28,13 @@ from pathlib import Path
 from themey.etheme.ast import AstNode, Block
 from themey.ir import (
     BorderSpec,
-    Palette,
     Theme,
 )
 
 from .borders import _block_name as _border_block_name
 from .borders import build_border, select_default_border
 from .buttons import bin_left_right, classify_button, title_part
+from .colors import build_scheme, palette_from_scheme
 from .coords import REFERENCE_WINDOW_WIDTH, resolve
 from .cursors import extract_cursors
 from .fallback import discover_by_filename
@@ -43,16 +48,6 @@ from .wallpaper import extract_wallpapers
 def _collect_blocks(nodes: list[AstNode], keyword: str) -> list[Block]:
     """Collect all top-level Block nodes with the given keyword."""
     return [n for n in nodes if isinstance(n, Block) and n.keyword == keyword]
-
-
-def _default_palette() -> Palette:
-    """Sensible Aurorae defaults; Phase 2 (COLORS-01) does the real palette work."""
-    return Palette(
-        titlebar_active=(64, 64, 64),
-        titlebar_inactive=(128, 128, 128),
-        text_active=(255, 255, 255),
-        text_inactive=(192, 192, 192),
-    )
 
 
 def build_theme(
@@ -284,18 +279,13 @@ def build_theme(
         )
 
     # ------------------------------------------------------------------
-    # 6. Palette — use TEXT1 tclass colors when available; else defaults.
-    #    (Phase 2 COLORS-01 does the full dominant-color palette extraction.)
+    # 6. Colors — sample the whole KDE scheme from the border art, then
+    #    derive the decoration Palette from its [WM] pair. One source of
+    #    truth: what KDE paints on the titlebar and what the decoration
+    #    backends paint are the same four colors by construction.
     # ------------------------------------------------------------------
-    palette = _default_palette()
-    text1 = tclasses.get("TEXT1")
-    if text1 is not None:
-        palette = Palette(
-            titlebar_active=palette.titlebar_active,
-            titlebar_inactive=palette.titlebar_inactive,
-            text_active=text1.fg_active or palette.text_active,
-            text_inactive=text1.fg_normal or palette.text_inactive,
-        )
+    scheme = build_scheme(border, iclasses, tclasses, notes)
+    palette = palette_from_scheme(scheme)
 
     return Theme(
         name=name,
@@ -310,6 +300,7 @@ def build_theme(
         left_buttons=left,
         right_buttons=right,
         palette=palette,
+        scheme=scheme,
         cursors=cursors,
         wallpapers=wallpapers,
         notes=notes,

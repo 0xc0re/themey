@@ -26,3 +26,8 @@ tests/snapshots/__snapshots__/.cache/
 .idea/
 .vscode/
 
+
+# Planning & agent scratch (local only)
+.planning/
+.superpowers/
+.claude/
