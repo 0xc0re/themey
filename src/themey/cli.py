@@ -201,12 +201,24 @@ def apply_cmd(
             help="KWin BorderSize (Tiny..Oversized); default = bracket that fits the theme",
         ),
     ] = None,
+    keep_buttons: Annotated[
+        bool,
+        typer.Option(
+            "--keep-buttons",
+            help="Don't touch the global titlebar button layout (kwinrc ButtonsOnLeft/Right)",
+        ),
+    ] = False,
 ) -> None:
     """Point the live KWin session at an installed theme (writes kwinrc, reconfigures)."""
     from . import apply
 
     try:
-        apply.apply(name, legacy_plugin=legacy_plugin, border_size=border_size)
+        apply.apply(
+            name,
+            legacy_plugin=legacy_plugin,
+            border_size=border_size,
+            keep_buttons=keep_buttons,
+        )
     except apply.ApplyError as exc:
         logging.getLogger(__name__).error("apply failed: %s", exc)
         raise typer.Exit(code=1) from exc

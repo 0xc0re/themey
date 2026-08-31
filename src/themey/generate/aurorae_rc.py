@@ -388,6 +388,14 @@ def write_aurorae_rc(theme: Theme, out_dir: Path) -> Path:
         "Animation": "1",
     }
     cp["Layout"] = _layout_values(theme)
+    # Themey-private section (Aurorae ignores unknown groups): the theme's
+    # L/R button binning. KWin's button ORDER is global kwinrc state that no
+    # theme file can set, so ``themey apply`` reads this to reproduce the
+    # E16 layout (e13 stacks all four buttons on the left).
+    cp["Themey"] = {
+        "LeftButtons": theme.left_buttons,
+        "RightButtons": theme.right_buttons,
+    }
 
     out_path = out_dir / f"{theme.name}rc"
     with open(out_path, "w", encoding="utf-8") as f:

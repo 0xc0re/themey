@@ -82,14 +82,25 @@ def resolve_theme_dir(theme: str, *, scale: int, work: Path) -> tuple[str, Path]
 
 
 def write_kwinrc(
-    cfg_dir: Path, *, name: str, plugin: str, border_size: str,
+    cfg_dir: Path,
+    *,
+    name: str,
+    plugin: str,
+    border_size: str,
+    buttons: tuple[str, str] | None = None,
 ) -> Path:
+    """Nested-session kwinrc. ``buttons`` is the theme's (L, R) binning from
+    the installed rc's [Themey] section — the same layout ``themey apply``
+    sets on the real desktop, so the harness screenshot shows what the user
+    will get. Falls back to M / IAX when the theme has no opinion.
+    """
     if plugin not in PLUGINS:
         raise RenderError(f"unknown plugin {plugin!r}; expected one of {sorted(PLUGINS)}")
     if border_size not in BORDER_SIZES:
         raise RenderError(
             f"unknown border size {border_size!r}; expected one of {BORDER_SIZES}"
         )
+    left, right = buttons if buttons is not None else ("M", "IAX")
     cfg_dir.mkdir(parents=True, exist_ok=True)
     kwinrc = cfg_dir / "kwinrc"
     kwinrc.write_text(
@@ -98,8 +109,8 @@ def write_kwinrc(
         f"theme=__aurorae__svg__{name}\n"
         f"BorderSize={border_size}\n"
         "BorderSizeAuto=false\n"
-        "ButtonsOnLeft=M\n"
-        "ButtonsOnRight=IAX\n"
+        f"ButtonsOnLeft={left}\n"
+        f"ButtonsOnRight={right}\n"
         "\n[Compositing]\n"
         "Enabled=true\n",
         encoding="utf-8",
@@ -179,7 +190,15 @@ def render(
         runtime = work / "runtime"
         runtime.mkdir(mode=0o700)
         shutil.copytree(theme_dir, data / "aurorae" / "themes" / name)
-        write_kwinrc(cfg, name=name, plugin=plugin, border_size=border_size)
+        from themey.apply import buttons_for_installed
+
+        write_kwinrc(
+            cfg,
+            name=name,
+            plugin=plugin,
+            border_size=border_size,
+            buttons=buttons_for_installed(theme_dir, name),
+        )
         write_kwinrulesrc(cfg, maximized=maximized)
 
         if out is None:

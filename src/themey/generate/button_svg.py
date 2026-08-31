@@ -111,25 +111,40 @@ def _placeholder_glyph(theme: Theme, code: str, w: int, h: int) -> bytes:
     ``M`` (menu) gets a 2-px OUTLINE square in the theme's active title
     text colour (three-quarter size, centred, transparent interior) so a
     kwinrc ``ButtonsOnLeft=M`` shows a visible, clickable target — a filled
-    block rendered as an opaque rectangle over e13's title art. Every other
-    code is transparent.
+    block rendered as an opaque rectangle over e13's title art. The outline
+    gets a 1-px contrasting halo (black for light text, white for dark) so
+    it stays visible where the band behind it is transparent and the
+    wallpaper matches the text colour (e13: white text over a shaped
+    transparent zone). Every other code is transparent.
     """
     w, h = max(1, w), max(1, h)
     img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     if code == "M":
         r, g, b = theme.palette.text_active
-        inset_x = max(1, w // 4)
-        inset_y = max(1, h // 4)
+        luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        halo = (0, 0, 0, 255) if luma > 127 else (255, 255, 255, 255)
+        inset_x = max(2, w // 4)
+        inset_y = max(2, h // 4)
         stroke = 2
-        for y in range(inset_y, h - inset_y):
-            for x in range(inset_x, w - inset_x):
-                on_edge = (
-                    x < inset_x + stroke
-                    or x >= w - inset_x - stroke
-                    or y < inset_y + stroke
-                    or y >= h - inset_y - stroke
-                )
-                if on_edge:
+
+        def on_ring(x: int, y: int, grow: int) -> bool:
+            ix, iy = inset_x - grow, inset_y - grow
+            if not (ix <= x < w - ix and iy <= y < h - iy):
+                return False
+            return (
+                x < ix + stroke + 2 * grow
+                or x >= w - ix - stroke - 2 * grow
+                or y < iy + stroke + 2 * grow
+                or y >= h - iy - stroke - 2 * grow
+            )
+
+        for y in range(h):
+            for x in range(w):
+                if on_ring(x, y, 1):
+                    img.putpixel((x, y), halo)
+        for y in range(h):
+            for x in range(w):
+                if on_ring(x, y, 0):
                     img.putpixel((x, y), (r, g, b, 255))
     buf = io.BytesIO()
     img.save(buf, format="PNG")
