@@ -1,0 +1,69 @@
+# serializer version: 1
+# name: test_defaults_snapshot_all_artifacts
+  '''
+  [kdeglobals][General]
+  ColorScheme=themey_Aliens
+  
+  [kcminputrc][Mouse]
+  cursorTheme=themey_Aliens-cursors
+  
+  [Wallpaper]
+  Image=themey_Aliens_giger045
+  
+  [kwinrc][org.kde.kdecoration2]
+  library=org.kde.kwin.aurorae
+  theme=themey_Aliens
+  
+  '''
+# ---
+# name: test_defaults_snapshot_no_wallpaper_no_cursor
+  '''
+  [kdeglobals][General]
+  ColorScheme=themey_Synthetic
+  
+  [kwinrc][org.kde.kdecoration2]
+  library=org.kde.kwin.aurorae.v2
+  theme=__aurorae__svg__Synthetic
+  
+  '''
+# ---
+# name: test_metadata_snapshot_all_artifacts
+  '''
+  {
+      "KPackageStructure": "Plasma/LookAndFeel",
+      "KPlugin": {
+          "Authors": [
+              {
+                  "Name": "tester"
+              }
+          ],
+          "Description": "E16 theme 'Aliens' converted by themey \u2014 decoration, colors, wallpaper and cursors as one Plasma Global Theme",
+          "Id": "themey_Aliens",
+          "License": "GPL",
+          "Name": "Aliens (themey)",
+          "Version": "1.0"
+      }
+  }
+  
+  '''
+# ---
+# name: test_metadata_snapshot_no_wallpaper_no_cursor
+  '''
+  {
+      "KPackageStructure": "Plasma/LookAndFeel",
+      "KPlugin": {
+          "Authors": [
+              {
+                  "Name": "tester"
+              }
+          ],
+          "Description": "E16 theme 'Synthetic' converted by themey \u2014 decoration, colors, wallpaper and cursors as one Plasma Global Theme",
+          "Id": "themey_Synthetic",
+          "License": "GPL",
+          "Name": "Synthetic (themey)",
+          "Version": "1.0"
+      }
+  }
+  
+  '''
+# ---
