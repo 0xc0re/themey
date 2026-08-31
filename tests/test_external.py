@@ -169,7 +169,7 @@ def test_run_xcursorgen_raises_when_output_empty(monkeypatch: pytest.MonkeyPatch
     _fake_xcursorgen(tmp_path / "bin", ': > "$4"; exit 0')
     _on_path(monkeypatch, tmp_path / "bin")
     cfg, images = _config(tmp_path)
-    with pytest.raises(XcursorgenError, match="empty|no output"):
+    with pytest.raises(XcursorgenError, match=r"no output"):
         run_xcursorgen(cfg, tmp_path / "out" / "default", images)
 
 
