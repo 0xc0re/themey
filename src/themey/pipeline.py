@@ -34,6 +34,7 @@ from .generate.colors import scheme_stem, write_colors
 from .generate.wallpaper import WallpaperError
 from .generate.wallpaper import write_package as write_wallpaper_package
 from .images.upscale import UPSCALE_MODES
+from .ir import WallpaperSpec
 from .preview import render as render_preview
 from .report import write as write_report
 from .slug import plugin_id, slugify, wallpaper_id
@@ -158,6 +159,11 @@ def convert(
         qml_installed: Path | None = None
         colors_path: Path | None = None
         wallpaper_dirs: list[Path] = []
+        # Subset of theme.wallpaper_specs that actually made it to disk —
+        # threaded into write_report so its status line can't overstate
+        # what's installed when write_wallpaper_package fails partway
+        # through (see report.write's wallpaper_specs docstring).
+        installed_wallpaper_specs: list[WallpaperSpec] = []
 
         if output_dir is not None:
             # Non-installing mode: write straight into output_dir.
@@ -189,6 +195,7 @@ def convert(
                     )
                     continue
                 wallpaper_dirs.append(wp_out)
+                installed_wallpaper_specs.append(spec)
                 log.info("wrote wallpaper package to %s", wp_out)
             previews = output_dir
         else:
@@ -238,6 +245,7 @@ def convert(
                         wp_id, stage_wp_dir, target_root=paths.wallpapers()
                     )
                     wallpaper_dirs.append(installed_wp)
+                    installed_wallpaper_specs.append(spec)
                     log.info("installed wallpaper package to %s", installed_wp)
             previews = paths.themey_previews()
 
@@ -246,7 +254,10 @@ def convert(
         # trims). See lifecycle invariant in module docstring.
         previews.mkdir(parents=True, exist_ok=True)
         report_path = write_report(
-            theme, previews / f"{theme_name}.report.txt", backend=backend
+            theme,
+            previews / f"{theme_name}.report.txt",
+            backend=backend,
+            wallpaper_specs=tuple(installed_wallpaper_specs),
         )
         preview_path = render_preview(theme, previews / f"{theme_name}.html")
 

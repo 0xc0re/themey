@@ -4,6 +4,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+import themey.pipeline as pipeline_mod
+from themey.generate.wallpaper import WallpaperError
+from themey.generate.wallpaper import write_package as real_write_package
 from themey.pipeline import convert
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -67,3 +72,62 @@ def test_pipeline_idempotent_rerun_reinstalls_wallpapers(fake_home):
         assert d.is_dir()
         backup = d.with_name(f"{d.name}.themey-old")
         assert not backup.exists()
+
+
+# --------------------------------------------------------------------- #
+# WallpaperError mid-pipeline (review fix round 1, Important #1)
+# --------------------------------------------------------------------- #
+
+
+def _fail_one_wallpaper(failing_stem: str):
+    """A write_wallpaper_package stand-in that fails for one spec, and
+    otherwise delegates to the real writer."""
+
+    def _flaky(theme, spec, pkg_dir):
+        if spec.path.stem == failing_stem:
+            raise WallpaperError("synthetic failure for test")
+        return real_write_package(theme, spec, pkg_dir)
+
+    return _flaky
+
+
+def test_pipeline_wallpaper_error_installed_count_matches_wallpaper_dirs(
+    fake_home, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(
+        pipeline_mod, "write_wallpaper_package", _fail_one_wallpaper("giger045")
+    )
+    result = convert(FIXTURES / "Aliens.etheme", scale=2, backend="svg")
+    assert len(result.wallpaper_dirs) == 3
+    for d in result.wallpaper_dirs:
+        assert d.is_dir()
+
+
+def test_pipeline_wallpaper_error_report_reflects_actual_installed_count(
+    fake_home, monkeypatch: pytest.MonkeyPatch
+):
+    """The Preserved-section count must match what's actually on disk, not
+    the full set discovered at analysis time (review finding Important #1)."""
+    monkeypatch.setattr(
+        pipeline_mod, "write_wallpaper_package", _fail_one_wallpaper("giger045")
+    )
+    result = convert(FIXTURES / "Aliens.etheme", scale=2, backend="svg")
+    text = result.report_path.read_text()
+    assert len(result.wallpaper_dirs) == 3
+    assert "3 of 4" in text
+    assert "- Wallpaper: 4 background image(s) installed" not in text
+    assert "wallpaper: skipped giger045" in text
+
+
+def test_pipeline_wallpaper_error_all_fail_report_says_none_converted(
+    fake_home, monkeypatch: pytest.MonkeyPatch
+):
+    def _always_fail(theme, spec, pkg_dir):
+        raise WallpaperError("synthetic failure for test")
+
+    monkeypatch.setattr(pipeline_mod, "write_wallpaper_package", _always_fail)
+    result = convert(FIXTURES / "Aliens.etheme", scale=2, backend="svg")
+    assert result.wallpaper_dirs == ()
+    text = result.report_path.read_text()
+    assert "none could be converted" in text
+    assert "installed as Plasma wallpaper packages" not in text

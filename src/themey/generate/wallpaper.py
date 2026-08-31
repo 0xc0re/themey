@@ -73,7 +73,12 @@ def write_package(theme: Theme, spec: WallpaperSpec, pkg_dir: Path) -> Wallpaper
     ``KPlugin.Id``, same contract as every other themey package.
 
     Raises WallpaperError if *spec.path* can't be opened/decoded, or is
-    over the decompression-bomb guard.
+    over the decompression-bomb guard. On ANY failure — the guard, a copy/
+    decode error, or a metadata-write error — *pkg_dir* is removed again
+    before the error propagates: a failed conversion leaves no filesystem
+    trace, not just the pre-write guard case. ``pkg_dir`` must therefore be
+    a directory this call owns exclusively (the pipeline stages/clears it
+    first); nothing pre-existing under it survives a failure.
     """
     stem = spec.path.stem
     pkg_id = wallpaper_id(theme.name, stem)
@@ -86,8 +91,6 @@ def write_package(theme: Theme, spec: WallpaperSpec, pkg_dir: Path) -> Wallpaper
                     f"{spec.path.name} is {im.width}x{im.height} — over "
                     f"the {MAX_IMAGE_PIXELS}-pixel guard"
                 )
-            # Only create the package dir once the source has cleared the
-            # guard — a failed conversion should leave no filesystem trace.
             images_dir.mkdir(parents=True, exist_ok=True)
             fmt = im.format or ""
             if fmt in _PASSTHROUGH_EXTENSIONS:
@@ -99,19 +102,24 @@ def write_package(theme: Theme, spec: WallpaperSpec, pkg_dir: Path) -> Wallpaper
                 width, height = frame.width, frame.height
                 dest = images_dir / f"{width}x{height}.png"
                 frame.save(dest, format="PNG")
+
+        meta = {
+            "KPlugin": {
+                "Id": pkg_id,
+                "Name": f"{theme.display_name}: {stem} (themey)",
+            },
+            "X-Themey-FillMode": spec.fill_mode,
+        }
+        (pkg_dir / "metadata.json").write_text(
+            json.dumps(meta, indent=4, sort_keys=True) + "\n"
+        )
+    except WallpaperError:
+        shutil.rmtree(pkg_dir, ignore_errors=True)
+        raise
     except (OSError, ValueError) as exc:
+        shutil.rmtree(pkg_dir, ignore_errors=True)
         raise WallpaperError(f"cannot convert {spec.path}: {exc}") from exc
 
-    meta = {
-        "KPlugin": {
-            "Id": pkg_id,
-            "Name": f"{theme.display_name}: {stem} (themey)",
-        },
-        "X-Themey-FillMode": spec.fill_mode,
-    }
-    (pkg_dir / "metadata.json").write_text(
-        json.dumps(meta, indent=4, sort_keys=True) + "\n"
-    )
     return WallpaperPackage(
         id=pkg_id, dir=pkg_dir, width=width, height=height, fill_mode=spec.fill_mode
     )

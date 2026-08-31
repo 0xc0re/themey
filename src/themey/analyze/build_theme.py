@@ -270,11 +270,11 @@ def build_theme(
 
     # ------------------------------------------------------------------
     # 5c. Wallpapers — scan desktops.cfg's macro syntax for image paths.
+    # report.py's Preserved section reports the real installed count
+    # (pipeline.py threads it back in); no separate note needed here.
     # ------------------------------------------------------------------
     wallpaper_specs = extract_wallpaper_specs(asset_root, notes)
     wallpapers = tuple(spec.path for spec in wallpaper_specs)
-    if wallpaper_specs:
-        notes.append(f"found {len(wallpaper_specs)} wallpaper image(s)")
 
     # ------------------------------------------------------------------
     # 6. Colors — sample the whole KDE scheme from the border art, then

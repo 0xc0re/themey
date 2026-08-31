@@ -177,6 +177,54 @@ def test_write_package_missing_file_raises(tmp_path: Path) -> None:
         write_package(theme, spec, tmp_path / "pkg")
 
 
+def test_write_package_cleans_up_pkg_dir_on_mid_write_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failure AFTER images_dir exists (not just the pre-open bomb guard)
+    must still leave no partial package directory behind."""
+    src = _png(tmp_path / "src" / "bg.png", (10, 10))
+    theme = _make_theme()
+    spec = WallpaperSpec(path=src, fill_mode="scaled")
+    pkg_dir = tmp_path / "pkg"
+
+    import themey.generate.wallpaper as wallpaper_mod
+
+    def _boom(*_a: object, **_k: object) -> None:
+        raise OSError("disk full (synthetic)")
+
+    monkeypatch.setattr(wallpaper_mod.shutil, "copyfile", _boom)
+
+    with pytest.raises(WallpaperError, match="disk full"):
+        write_package(theme, spec, pkg_dir)
+    assert not pkg_dir.exists()
+
+
+def test_write_package_cleans_up_pkg_dir_on_metadata_write_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failure writing metadata.json (after the image itself succeeded)
+    must also roll back the whole package dir, not just the image."""
+    src = _png(tmp_path / "src" / "bg.png", (10, 10))
+    theme = _make_theme()
+    spec = WallpaperSpec(path=src, fill_mode="scaled")
+    pkg_dir = tmp_path / "pkg"
+
+    import themey.generate.wallpaper as wallpaper_mod
+
+    orig_write_text = wallpaper_mod.Path.write_text
+
+    def _boom(self: Path, *a: object, **k: object) -> int:
+        if self.name == "metadata.json":
+            raise OSError("disk full (synthetic)")
+        return orig_write_text(self, *a, **k)  # type: ignore[return-value]
+
+    monkeypatch.setattr(wallpaper_mod.Path, "write_text", _boom)
+
+    with pytest.raises(WallpaperError, match="disk full"):
+        write_package(theme, spec, pkg_dir)
+    assert not pkg_dir.exists()
+
+
 def test_pick_default_largest_area() -> None:
     small = WallpaperPackage(id="a", dir=Path("a"), width=10, height=10, fill_mode="scaled")
     big = WallpaperPackage(id="b", dir=Path("b"), width=100, height=50, fill_mode="tiled")
