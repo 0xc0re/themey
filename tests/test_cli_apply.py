@@ -64,6 +64,30 @@ def test_apply_without_name_or_revert_errors(monkeypatch) -> None:
     assert result.exit_code != 0
 
 
+def test_apply_svg_backend_without_deco_only_rejected(monkeypatch, caplog) -> None:
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        apply_mod, "apply_full", lambda name, **kw: calls.append((name, kw))
+    )
+    result = CliRunner().invoke(app, ["apply", "e13", "--backend=svg"])
+    assert result.exit_code != 0
+    assert calls == []
+    assert "--deco-only" in caplog.text
+
+
+def test_apply_svg_backend_with_deco_only_still_routes_to_apply(monkeypatch) -> None:
+    calls: list[tuple] = []
+    monkeypatch.setattr(apply_mod, "apply", lambda name, **kw: calls.append((name, kw)))
+    result = CliRunner().invoke(app, ["apply", "e13", "--deco-only", "--backend=svg"])
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        ("e13", {
+            "legacy_plugin": False, "border_size": None,
+            "keep_buttons": False, "backend": "svg",
+        })
+    ]
+
+
 def test_apply_full_apply_error_exits_nonzero(monkeypatch) -> None:
     def boom(name, **kw):
         raise apply_mod.ApplyError("not installed")

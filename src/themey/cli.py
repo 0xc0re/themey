@@ -179,10 +179,17 @@ def convert_cmd(
     typer.echo(f"Preview:   {result.preview_path}")
     typer.echo(f"Report:    {result.report_path}")
     if result.installed:
-        typer.echo(
-            f"Apply via System Settings - Window Decorations - {result.theme_name}, "
-            f"or: themey apply {result.theme_name}"
-        )
+        qml_built = result.qml_installed_dir is not None
+        if qml_built:
+            typer.echo(
+                f"Apply via System Settings - Window Decorations - {result.theme_name}, "
+                f"or: themey apply {result.theme_name}"
+            )
+        else:
+            typer.echo(
+                f"Apply via System Settings - Window Decorations - {result.theme_name}, "
+                f"or: themey apply {result.theme_name} --deco-only --backend svg"
+            )
         if result.color_scheme_path is not None:
             typer.echo(
                 f"Colors:    pick '{result.theme_name} (themey)' under "
@@ -194,10 +201,18 @@ def convert_cmd(
                 "System Settings - Cursors"
             )
         if result.lnf_id is not None:
-            typer.echo(
-                f"Global theme: {result.lnf_id} — apply: themey apply "
-                f"{result.theme_name}"
-            )
+            if qml_built:
+                typer.echo(
+                    f"Global theme: {result.lnf_id} — apply: themey apply "
+                    f"{result.theme_name}"
+                )
+            else:
+                typer.echo(
+                    f"Global theme: {result.lnf_id} — apply via System "
+                    "Settings - Appearance - Global Theme, or decoration-"
+                    f"only: themey apply {result.theme_name} --deco-only "
+                    "--backend svg"
+                )
 
     if no_open:
         return
@@ -340,6 +355,14 @@ def apply_cmd(
         raise typer.Exit(code=1)
 
     try:
+        if backend == "svg" and not deco_only:
+            raise apply.ApplyError(
+                "--backend svg only applies via --deco-only (the full "
+                "Look-and-Feel bundle apply is QML-only); run `themey apply "
+                f"{name} --deco-only --backend svg`, or apply the svg bundle's "
+                "colors/wallpaper/cursors via System Settings -> Appearance "
+                "-> Global Theme"
+            )
         if deco_only:
             apply.apply(
                 name,

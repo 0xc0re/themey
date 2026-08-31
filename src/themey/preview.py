@@ -262,8 +262,14 @@ def render(theme: Theme, out_path: Path) -> Path:
      width="{mock_w}" height="{mock_h}">
 
 <h2>Apply this theme</h2>
-<p>Open <strong>System Settings &rarr; Window Decorations</strong> and select
-   <strong>{name_safe}</strong> from the list, OR run from a terminal:</p>
+<p>Run <code>themey apply {plugin_id_safe}</code> to apply the whole Plasma
+   Global Theme in one step &mdash; window decoration, color scheme,
+   wallpaper, and pointer theme together. Add <code>--deco-only</code> to
+   apply just the decoration, or run <code>themey apply --revert</code> to
+   restore whatever was active before.</p>
+<p>To apply just the decoration by hand, open <strong>System Settings &rarr;
+   Window Decorations</strong> and select <strong>{name_safe}</strong> from
+   the list, OR run from a terminal:</p>
 <pre>{kwrite_cmd}</pre>
 <p><strong>Borders look thin?</strong> Both Aurorae plugins in Plasma 6.6 clamp
    the left/right/bottom borders to the <em>Border size</em> setting (Normal =
@@ -282,7 +288,8 @@ def render(theme: Theme, out_path: Path) -> Path:
 
 <p class="meta">Skipped borders: {skipped_safe}.
    Color scheme, wallpaper, and pointer theme are installed alongside the
-   decoration; the Look-and-Feel bundle is deferred to a later phase.
+   decoration and bundled as one Plasma Global Theme &mdash;
+   <code>themey apply {plugin_id_safe}</code> applies everything.
    See report.txt for full fidelity details.</p>
 
 </body></html>

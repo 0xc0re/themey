@@ -177,6 +177,18 @@ def test_cli_shade_button_hide_accepted(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
 
 
+def test_cli_svg_backend_apply_advice_uses_deco_only(fake_home, monkeypatch):
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    result = CliRunner().invoke(
+        app, ["--backend", "svg", str(FIXTURES / "Aliens.etheme")]
+    )
+    assert result.exit_code == 0, result.output
+    assert "themey apply Aliens --deco-only --backend svg" in result.output
+    assert "or: themey apply Aliens\n" not in result.output
+    assert "apply: themey apply Aliens\n" not in result.output
+
+
 def test_cli_shade_button_invalid_rejected():
     result = CliRunner().invoke(
         app, ["--shade-button", "bogus", str(FIXTURES / "Aliens.etheme")]
