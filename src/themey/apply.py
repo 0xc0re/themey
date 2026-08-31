@@ -466,31 +466,37 @@ def revert() -> bool:
     is typically a third-party theme, e.g.
     ``com.github.vinceliuice.MacVentura-Dark``, not Breeze), restores the
     deco triple (deleting any key that was ``@unset`` before), restores
-    the button layout, then deletes both markers.
+    the button layout, then deletes the marker(s) for whatever it actually
+    restored.
 
     Returns False (no error, no side effects beyond the ``which()``
-    lookups) when there is no ``ThemeyPrevDeco`` marker — no prior
-    ``apply_full`` on this machine — so the CLI can print a friendly
-    "nothing to revert" message instead of failing. Returns True when a
-    revert was actually performed.
+    lookups) when NEITHER marker is present — no prior ``apply_full`` on
+    this machine — so the CLI can print a friendly "nothing to revert"
+    message instead of failing. Returns True when a revert was actually
+    performed.
 
     A failure to reapply the recorded Look-and-Feel package (its most
     plausible cause: the baseline theme was uninstalled since the last
     ``apply_full``) does NOT abandon the rest of the recovery — the deco
-    triple, the button layout, and both markers are still restored/cleared
-    and ``qdbus`` still reconfigures, so a broken revert never gets stuck
-    half-restored. The failure is still surfaced: it is raised as an
-    :class:`ApplyError` at the end, after everything that could be
-    restored has been.
+    triple and the button layout are still restored, ``ThemeyPrevDeco`` is
+    still cleared (that half succeeded), and ``qdbus`` still reconfigures.
+    ``PrevLookAndFeelPackage`` is deliberately KEPT in this one case — it
+    is the only record of the baseline global theme, so a later
+    ``themey apply --revert`` (after the user fixes the underlying
+    problem, e.g. reinstalls the missing theme) retries just the
+    Look-and-Feel restore and still succeeds, rather than reporting
+    "nothing to revert" while the desktop is still on the themey LnF. The
+    failure is surfaced either way: raised as an :class:`ApplyError` at
+    the end, after everything that could be restored has been.
     """
     kw = _which("kwriteconfig6", "kwriteconfig5")
     kr = _which("kreadconfig6", "kreadconfig5")
 
     prev_deco = _kread(kr, _PREV_DECO_KEY)
-    if prev_deco is None:
+    prev_lnf = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_LNF_KEY)
+    if prev_deco is None and prev_lnf is None:
         return False
 
-    prev_lnf = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_LNF_KEY)
     lnf_error: ApplyError | None = None
     if prev_lnf is not None and prev_lnf != _UNSET:
         plasma_apply_lnf = _which("plasma-apply-lookandfeel")
@@ -503,31 +509,34 @@ def revert() -> bool:
             lnf_error = exc
             log.warning(
                 "could not reapply the previous global theme %r (%s) — "
-                "restoring the decoration and button layout anyway",
+                "restoring the decoration and button layout anyway; "
+                "keeping the marker so a later `themey apply --revert` "
+                "can retry it",
                 prev_lnf, exc,
             )
+    if prev_lnf is not None and lnf_error is None:
+        _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_LNF_KEY)
 
-    prev_library, prev_theme, prev_border = prev_deco.split("|", 2)
-    for key, prev in (
-        ("library", prev_library),
-        ("theme", prev_theme),
-        ("BorderSize", prev_border),
-    ):
-        if prev == _UNSET:
-            _kdelete(kw, key)
-        else:
-            _kwrite(kw, key, prev)
-
-    _restore_buttons(kw, kr)
-
-    _kdelete(kw, _PREV_DECO_KEY)
-    _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_LNF_KEY)
+    if prev_deco is not None:
+        prev_library, prev_theme, prev_border = prev_deco.split("|", 2)
+        for key, prev in (
+            ("library", prev_library),
+            ("theme", prev_theme),
+            ("BorderSize", prev_border),
+        ):
+            if prev == _UNSET:
+                _kdelete(kw, key)
+            else:
+                _kwrite(kw, key, prev)
+        _restore_buttons(kw, kr)
+        _kdelete(kw, _PREV_DECO_KEY)
 
     _reconfigure()
 
     if lnf_error is not None:
         raise ApplyError(
             "decoration and button layout restored, but the previous "
-            f"global theme could not be reapplied: {lnf_error}"
+            f"global theme could not be reapplied: {lnf_error} — run "
+            "`themey apply --revert` again to retry the global theme restore"
         )
     return True

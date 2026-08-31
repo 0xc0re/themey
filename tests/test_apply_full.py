@@ -332,9 +332,9 @@ def test_revert_lookandfeel_failure_still_restores_deco_and_buttons(
     fake_kconfig: FakeKConfig,
 ) -> None:
     """A real-world revert failure: the recorded baseline theme is no
-    longer installed. plasma-apply-lookandfeel fails, but the deco triple,
-    the button layout, and both markers must still be restored/cleared —
-    the recovery command must not abandon the rest of the recovery."""
+    longer installed. plasma-apply-lookandfeel fails, but the deco triple
+    and the button layout must still be restored — the recovery command
+    must not abandon the rest of the recovery."""
     fake_kconfig.store[apply_mod._PREV_LNF_KEY] = (
         "com.github.vinceliuice.MacVentura-Dark"
     )
@@ -351,7 +351,36 @@ def test_revert_lookandfeel_failure_still_restores_deco_and_buttons(
     assert fake_kconfig.store["ButtonsOnLeft"] == "MS"
     assert fake_kconfig.store["ButtonsOnRight"] == "IAX"
     assert apply_mod._PREV_BUTTONS_KEY not in fake_kconfig.store
+    # The deco half succeeded, so its marker is cleared...
     assert apply_mod._PREV_DECO_KEY not in fake_kconfig.store
-    assert apply_mod._PREV_LNF_KEY not in fake_kconfig.store
+    # ...but the LnF half failed, so its marker is the only remaining
+    # record of the baseline global theme and must survive for a retry.
+    assert fake_kconfig.store[apply_mod._PREV_LNF_KEY] == (
+        "com.github.vinceliuice.MacVentura-Dark"
+    )
     # Reconfigure still ran despite the LnF failure.
+    assert any(Path(c[0]).name.startswith("qdbus") for c in fake_kconfig.calls)
+
+
+def test_revert_retry_with_only_lnf_marker_succeeds(fake_kconfig: FakeKConfig) -> None:
+    """After a failed revert leaves only the LnF marker behind (previous
+    test), a later `themey apply --revert` must retry just the LnF restore,
+    succeed, delete that marker, and NOT report "nothing to revert" —
+    even though ThemeyPrevDeco/ThemeyPrevButtons are already gone."""
+    fake_kconfig.store[apply_mod._PREV_LNF_KEY] = (
+        "com.github.vinceliuice.MacVentura-Dark"
+    )
+    # No ThemeyPrevDeco, no ThemeyPrevButtons — already restored earlier.
+
+    reverted = apply_mod.revert()
+
+    assert reverted is True
+    lnf_call = fake_kconfig.index_of(
+        "-a", "com.github.vinceliuice.MacVentura-Dark"
+    )
+    assert "plasma-apply-lookandfeel" in fake_kconfig.calls[lnf_call][0]
+    assert apply_mod._PREV_LNF_KEY not in fake_kconfig.store
+    # No deco keys touched — nothing was recorded to restore this time.
+    assert "library" not in fake_kconfig.store
+    assert "theme" not in fake_kconfig.store
     assert any(Path(c[0]).name.startswith("qdbus") for c in fake_kconfig.calls)
