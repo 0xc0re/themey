@@ -162,7 +162,13 @@ def render_cmd(
     ] = None,
     plugin: Annotated[
         str,
-        typer.Option("--plugin", help="Aurorae plugin: 'legacy' (org.kde.kwin.aurorae) or 'v2'"),
+        typer.Option(
+            "--plugin",
+            help=(
+                "'legacy' (org.kde.kwin.aurorae SVG), 'v2', or 'qml' "
+                "(the QML decoration package backend)"
+            ),
+        ),
     ] = "legacy",
     border_size: Annotated[
         str,
@@ -221,6 +227,13 @@ def apply_cmd(
             help="Don't touch the global titlebar button layout (kwinrc ButtonsOnLeft/Right)",
         ),
     ] = False,
+    backend: Annotated[
+        str,
+        typer.Option(
+            "--backend",
+            help="'qml' (QML decoration package) or 'svg' (Aurorae SVG theme)",
+        ),
+    ] = "svg",
 ) -> None:
     """Point the live KWin session at an installed theme (writes kwinrc, reconfigures)."""
     from . import apply
@@ -231,6 +244,7 @@ def apply_cmd(
             legacy_plugin=legacy_plugin,
             border_size=border_size,
             keep_buttons=keep_buttons,
+            backend=backend,
         )
     except apply.ApplyError as exc:
         logging.getLogger(__name__).error("apply failed: %s", exc)
