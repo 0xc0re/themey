@@ -151,6 +151,9 @@ def convert_cmd(
     if result.qml_installed_dir is not None and result.qml_installed_dir != result.installed_dir:
         verb = "Installed" if result.installed else "Wrote"
         typer.echo(f"{verb} (QML): {result.qml_installed_dir}")
+    if result.color_scheme_path is not None:
+        verb = "Installed" if result.installed else "Wrote"
+        typer.echo(f"{verb} (colors): {result.color_scheme_path}")
     typer.echo(f"Preview:   {result.preview_path}")
     typer.echo(f"Report:    {result.report_path}")
     if result.installed:
@@ -158,6 +161,11 @@ def convert_cmd(
             f"Apply via System Settings - Window Decorations - {result.theme_name}, "
             f"or: themey apply {result.theme_name}"
         )
+        if result.color_scheme_path is not None:
+            typer.echo(
+                f"Colors:    pick '{result.theme_name} (themey)' under "
+                "System Settings - Colors"
+            )
 
     if no_open:
         return

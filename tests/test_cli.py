@@ -45,6 +45,12 @@ def test_cli_aliens_end_to_end(fake_home, monkeypatch):
     pkg = fake_home / ".local/share/kwin/decorations/themey_Aliens"
     assert (pkg / "metadata.json").is_file()
     assert (pkg / "contents/ui/theme.js").is_file()
+    # The sampled color scheme installs alongside it, under the XDG root
+    # KDE's Colors KCM reads.
+    colors = fake_home / ".local/share/color-schemes/themey_Aliens.colors"
+    assert colors.is_file()
+    assert "[General]\nColorScheme=themey_Aliens\n" in colors.read_text()
+    assert "Installed (colors):" in result.output
 
 
 def test_cli_quiet_suppresses_info(fake_home, monkeypatch):
@@ -85,7 +91,9 @@ def test_cli_output_dir_skips_install(fake_home, tmp_path, monkeypatch):
     assert (out / "themey_Aliens" / "contents/ui/theme.js").is_file()
     assert (out / "Aliens.report.txt").is_file()
     assert (out / "Aliens.html").is_file()
+    assert (out / "themey_Aliens.colors").is_file()
     assert not (fake_home / ".local/share/aurorae").exists()
+    assert not (fake_home / ".local/share/color-schemes").exists()
     assert "Wrote:" in result.output
 
 

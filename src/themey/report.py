@@ -60,6 +60,11 @@ def write(theme: Theme, out_path: Path, backend: str = "svg") -> Path:
         f"- {len(theme.iclasses)} image class(es) parsed; "
         "borders embedded as base64 PNG inside decoration.svg"
     )
+    lines.append(
+        f"- Color scheme sampled from the border art and installed as "
+        f"'{theme.display_name} (themey)' — pick it under System "
+        "Settings -> Colors. Sources are listed below."
+    )
     lines.append("")
 
     # ------------------------------------------------------------------ #
@@ -87,7 +92,7 @@ def write(theme: Theme, out_path: Path, backend: str = "svg") -> Path:
     # Surface layout-decision notes (aurorae_rc:, composite:, qmldeco:)
     # BEFORE the truncated-state-drop bucket so they don't get buried past
     # line 20.
-    _layout_prefixes = ("aurorae_rc:", "composite:", "qmldeco:")
+    _layout_prefixes = ("aurorae_rc:", "colors:", "composite:", "qmldeco:")
     layout_notes = [n for n in theme.notes if n.startswith(_layout_prefixes)]
     state_notes = [n for n in theme.notes if not n.startswith(_layout_prefixes)]
     for note in layout_notes:
@@ -122,7 +127,9 @@ def write(theme: Theme, out_path: Path, backend: str = "svg") -> Path:
     else:
         lines.append("- No additional border types found.")
     lines.append(
-        "- Color scheme: deferred to later phase (COLORS-01 / Phase 2)."
+        "- Semantic colors (link / visited / error / warning / success) "
+        "stay Breeze stock: tinting them to the theme would make them "
+        "misreport meaning."
     )
     if theme.wallpapers:
         lines.append(
