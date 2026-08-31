@@ -78,7 +78,6 @@ def write_package(theme: Theme, spec: WallpaperSpec, pkg_dir: Path) -> Wallpaper
     stem = spec.path.stem
     pkg_id = wallpaper_id(theme.name, stem)
     images_dir = pkg_dir / "contents" / "images"
-    images_dir.mkdir(parents=True, exist_ok=True)
 
     try:
         with Image.open(spec.path) as im:
@@ -87,6 +86,9 @@ def write_package(theme: Theme, spec: WallpaperSpec, pkg_dir: Path) -> Wallpaper
                     f"{spec.path.name} is {im.width}x{im.height} — over "
                     f"the {MAX_IMAGE_PIXELS}-pixel guard"
                 )
+            # Only create the package dir once the source has cleared the
+            # guard — a failed conversion should leave no filesystem trace.
+            images_dir.mkdir(parents=True, exist_ok=True)
             fmt = im.format or ""
             if fmt in _PASSTHROUGH_EXTENSIONS:
                 width, height = im.width, im.height
