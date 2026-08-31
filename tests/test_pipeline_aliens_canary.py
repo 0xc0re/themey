@@ -14,7 +14,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def test_pipeline_convert_aliens_writes_all_artifacts(fake_home):
-    result = convert(FIXTURES / "Aliens.etheme", scale=2)
+    result = convert(FIXTURES / "Aliens.etheme", scale=2, backend="svg")
     assert result.theme_name == "Aliens"
     assert result.installed_dir == fake_home / ".local/share/aurorae/themes/Aliens"
     assert result.installed_dir.is_dir()
@@ -29,7 +29,7 @@ def test_pipeline_convert_aliens_writes_all_artifacts(fake_home):
 
 
 def test_pipeline_18_framesvg_ids_in_installed_decoration_svg(fake_home):
-    result = convert(FIXTURES / "Aliens.etheme", scale=2)
+    result = convert(FIXTURES / "Aliens.etheme", scale=2, backend="svg")
     root = ET.parse(result.installed_dir / "decoration.svg").getroot()
     present = {e.get("id") for e in root.iter() if e.get("id")}
     missing = set(REQUIRED_FRAMESVG_IDS) - present
@@ -37,8 +37,8 @@ def test_pipeline_18_framesvg_ids_in_installed_decoration_svg(fake_home):
 
 
 def test_pipeline_idempotent_rerun(fake_home):
-    r1 = convert(FIXTURES / "Aliens.etheme", scale=2)
-    r2 = convert(FIXTURES / "Aliens.etheme", scale=2)
+    r1 = convert(FIXTURES / "Aliens.etheme", scale=2, backend="svg")
+    r2 = convert(FIXTURES / "Aliens.etheme", scale=2, backend="svg")
     assert r1.installed_dir == r2.installed_dir
     # Second run should have replaced first; both files still there
     assert (r2.installed_dir / "decoration.svg").is_file()
@@ -48,19 +48,19 @@ def test_pipeline_idempotent_rerun(fake_home):
 
 
 def test_pipeline_scale_changes_BorderLeft(fake_home):
-    r1 = convert(FIXTURES / "Aliens.etheme", scale=1)
+    r1 = convert(FIXTURES / "Aliens.etheme", scale=1, backend="svg")
     cp1 = RawConfigParser()
     cp1.optionxform = str  # type: ignore[method-assign]
     cp1.read(r1.installed_dir / "Aliensrc")
     bl_1 = int(cp1["Layout"]["BorderLeft"])
 
-    r2 = convert(FIXTURES / "Aliens.etheme", scale=2)
+    r2 = convert(FIXTURES / "Aliens.etheme", scale=2, backend="svg")
     cp2 = RawConfigParser()
     cp2.optionxform = str  # type: ignore[method-assign]
     cp2.read(r2.installed_dir / "Aliensrc")
     bl_2 = int(cp2["Layout"]["BorderLeft"])
 
-    r3 = convert(FIXTURES / "Aliens.etheme", scale=3)
+    r3 = convert(FIXTURES / "Aliens.etheme", scale=3, backend="svg")
     cp3 = RawConfigParser()
     cp3.optionxform = str  # type: ignore[method-assign]
     cp3.read(r3.installed_dir / "Aliensrc")
@@ -79,7 +79,7 @@ def test_pipeline_scale_changes_BorderLeft(fake_home):
 
 def test_pipeline_malicious_archive_writes_nothing(fake_home):
     with pytest.raises((UnsafeArchiveError, InstallError, Exception)):
-        convert(FIXTURES / "malicious/path_traversal.tar.gz", scale=2)
+        convert(FIXTURES / "malicious/path_traversal.tar.gz", scale=2, backend="svg")
     # No new theme dir should have been created
     themes_dir = fake_home / ".local/share/aurorae/themes"
     if themes_dir.exists():
@@ -90,7 +90,7 @@ def test_pipeline_malicious_archive_writes_nothing(fake_home):
 def test_pipeline_aliens_button_svgs_for_xai(fake_home):
     """Button ORDER is global (kwinrc), so the rc carries no LeftButtons;
     the theme decides only which button SVGs exist (X, A, I → 4 files)."""
-    result = convert(FIXTURES / "Aliens.etheme", scale=2)
+    result = convert(FIXTURES / "Aliens.etheme", scale=2, backend="svg")
     cp = RawConfigParser()
     cp.optionxform = str  # type: ignore[method-assign]
     cp.read(result.installed_dir / "Aliensrc")
@@ -128,7 +128,7 @@ def test_pipeline_capped_left_strip_keeps_inner_edge_art(fake_home):
     at the INNER edge (next to the client); when wider, it spans the zone.
     Either way the strip must not render empty. (5 of 124 ref px ≈ 4%.)
     """
-    result = convert(FIXTURES / "Aliens.etheme", scale=2)
+    result = convert(FIXTURES / "Aliens.etheme", scale=2, backend="svg")
     svg = result.installed_dir / "decoration.svg"
     assert _region_opaque_fraction(svg, "decoration-left") > 0.02
     assert _region_opaque_fraction(svg, "decoration-bottom") > 0.02
@@ -139,7 +139,7 @@ def test_pipeline_hint_left_margin_matches_folded_corner(fake_home):
     the frame independently of KWin's clamped BorderLeft. So when corner art
     is folded into the title band, the hint (and the left strip slot) must be
     as wide as the corner slot or the art gets squashed to BorderLeft."""
-    result = convert(FIXTURES / "Aliens.etheme", scale=2)
+    result = convert(FIXTURES / "Aliens.etheme", scale=2, backend="svg")
     ns = {"s": "http://www.w3.org/2000/svg"}
     root = ET.parse(result.installed_dir / "decoration.svg").getroot()
 
@@ -166,7 +166,7 @@ def test_pipeline_side_composites_match_slots(fake_home):
 
     from PIL import Image
 
-    result = convert(FIXTURES / "Aliens.etheme", scale=2)
+    result = convert(FIXTURES / "Aliens.etheme", scale=2, backend="svg")
     ns = {"s": "http://www.w3.org/2000/svg"}
     root = ET.parse(result.installed_dir / "decoration.svg").getroot()
     for g in root.findall("s:g", ns):

@@ -19,16 +19,20 @@ from .ir import Theme
 from .kwin import recommended_border_size
 
 
-def write(theme: Theme, out_path: Path) -> Path:
+def write(theme: Theme, out_path: Path, backend: str = "svg") -> Path:
     """Write report.txt for *theme* to *out_path*.
 
-    Returns *out_path* so callers can chain.
+    ``backend`` ("svg" | "qml" | "both") selects which Apply guidance is
+    emitted. Returns *out_path* so callers can chain.
     """
+    want_qml = backend in ("qml", "both")
+    want_svg = backend in ("svg", "both")
     lines: list[str] = []
     lines.append(f"# themey conversion report: {theme.display_name}")
     lines.append("")
     lines.append(f"Source theme: {theme.name}")
     lines.append(f"Scale: {theme.scale}x")
+    lines.append(f"Backend: {backend}")
     lines.append("")
 
     # ------------------------------------------------------------------ #
@@ -62,16 +66,30 @@ def write(theme: Theme, out_path: Path) -> Path:
     # Approximated
     # ------------------------------------------------------------------ #
     lines.append("## Approximated")
-    lines.append(
-        "- Title font: Aurorae cannot override the title font; "
-        "system default is used. Source font preserved as a "
-        "name-only note (Aurorae limitation)."
-    )
+    if want_qml:
+        lines.append(
+            "- QML backend: E16 part geometry, text-sized title plaques, "
+            "side-border buttons and theme TTF fonts are reproduced 1:1; "
+            "borders are NOT clamped by the KWin Border-size bracket."
+        )
+        lines.append(
+            "- Cosmetic caveat: the mouse cursor shows a resize shape over "
+            "side-border buttons (KDecoration exposes a single titleBar "
+            "rect); clicks still work."
+        )
+    if want_svg:
+        lines.append(
+            "- Title font (SVG backend): Aurorae cannot override the title "
+            "font; system default is used. Source font preserved as a "
+            "name-only note (Aurorae limitation)."
+        )
 
-    # Surface layout-decision notes (aurorae_rc:, composite:, etc.) BEFORE
-    # the truncated-state-drop bucket so they don't get buried past line 20.
-    layout_notes = [n for n in theme.notes if n.startswith(("aurorae_rc:", "composite:"))]
-    state_notes = [n for n in theme.notes if not n.startswith(("aurorae_rc:", "composite:"))]
+    # Surface layout-decision notes (aurorae_rc:, composite:, qmldeco:)
+    # BEFORE the truncated-state-drop bucket so they don't get buried past
+    # line 20.
+    _layout_prefixes = ("aurorae_rc:", "composite:", "qmldeco:")
+    layout_notes = [n for n in theme.notes if n.startswith(_layout_prefixes)]
+    state_notes = [n for n in theme.notes if not n.startswith(_layout_prefixes)]
     for note in layout_notes:
         lines.append(f"- {note}")
 
@@ -135,30 +153,41 @@ def write(theme: Theme, out_path: Path) -> Path:
     # Apply
     # ------------------------------------------------------------------ #
     lines.append("## Apply")
-    lines.append(
-        "- Both Aurorae plugins in Plasma 6.6 (org.kde.kwin.aurorae and "
-        ".v2) clamp BorderLeft/Right/Bottom to the System Settings 'Border "
-        "size' bracket (Normal = 4-6 px ... Oversized = 36-48 px); only the "
-        "title band is theme-controlled. Corner art wider than the side is "
-        "folded into the title band so it survives the clamp."
-    )
-    thick = strip_thicknesses(theme)
-    rec = recommended_border_size(thick["left"], thick["right"], thick["bottom"])
-    lines.append(
-        f"- This theme's sides are {thick['left']}/{thick['right']}/"
-        f"{thick['bottom']} px (L/R/B) -> set Window Decorations -> Border "
-        f"size = {rec}, or run `themey apply {theme.name}` (picks {rec}; "
-        "override with --border-size, add --legacy-plugin for the v1 QML "
-        "plugin, which also honours the text-shadow keys)."
-    )
-    lines.append(
-        "- Button order is global kwinrc state; `themey apply` sets it to "
-        f"this theme's E16 binning (Left={theme.left_buttons or '(none)'} "
-        f"Right={theme.right_buttons or '(none)'}), records your previous "
-        "layout, and `themey apply Breeze` restores it. Skip with "
-        "--keep-buttons or adjust under Window Decorations -> Titlebar "
-        "Buttons."
-    )
+    if want_qml:
+        lines.append(
+            "- QML backend: installed as a KWin/Decoration package under "
+            "~/.local/share/kwin/decorations/ and loaded by the v1 Aurorae "
+            "plugin (org.kde.kwin.aurorae — legacy but present in Plasma "
+            "master; QML packages are exempt from the v1->v2 migration). "
+            f"Run `themey apply {theme.name}` or pick it in Window "
+            "Decorations. Border sizes come from the theme, unclamped."
+        )
+    if want_svg:
+        lines.append(
+            "- Both Aurorae plugins in Plasma 6.6 (org.kde.kwin.aurorae and "
+            ".v2) clamp BorderLeft/Right/Bottom to the System Settings 'Border "
+            "size' bracket (Normal = 4-6 px ... Oversized = 36-48 px); only the "
+            "title band is theme-controlled. Corner art wider than the side is "
+            "folded into the title band so it survives the clamp."
+        )
+        thick = strip_thicknesses(theme)
+        rec = recommended_border_size(thick["left"], thick["right"], thick["bottom"])
+        lines.append(
+            f"- SVG backend: this theme's sides are {thick['left']}/{thick['right']}/"
+            f"{thick['bottom']} px (L/R/B) -> set Window Decorations -> Border "
+            f"size = {rec}, or run `themey apply {theme.name} --backend svg` "
+            f"(picks {rec}; override with --border-size, add --legacy-plugin "
+            "for the v1 QML plugin, which also honours the text-shadow keys)."
+        )
+        lines.append(
+            "- Button order is global kwinrc state; `themey apply` (SVG "
+            "backend) sets it to this theme's E16 binning "
+            f"(Left={theme.left_buttons or '(none)'} "
+            f"Right={theme.right_buttons or '(none)'}), records your previous "
+            "layout, and `themey apply Breeze` restores it. Skip with "
+            "--keep-buttons or adjust under Window Decorations -> Titlebar "
+            "Buttons. The QML backend draws its own buttons and ignores this."
+        )
     lines.append("")
 
     out_path.parent.mkdir(parents=True, exist_ok=True)

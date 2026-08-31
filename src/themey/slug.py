@@ -38,3 +38,13 @@ def slugify(name: str) -> str:
     if not n or set(n) == {"-"}:
         raise ValueError(f"theme name reduces to empty after sanitization: {name!r}")
     return n
+
+
+def plugin_id(name: str) -> str:
+    """KPlugin Id for the QML decoration package: ``themey_<slug>``.
+
+    Hyphens become underscores — the id doubles as the package directory
+    name under ``kwin/decorations/`` and as the kwinrc ``theme=`` value,
+    and a single-token identifier avoids any KPackage id quoting concerns.
+    """
+    return "themey_" + slugify(name).replace("-", "_")

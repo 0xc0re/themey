@@ -214,7 +214,7 @@ def test_aliens_title_text_centered_in_capped_chrome(tmp_path: Path, monkeypatch
         import pytest
 
         pytest.skip("Aliens.etheme fixture not available")
-    result = convert(aliens, scale=2)
+    result = convert(aliens, scale=2, backend="svg")
 
     cp = _read_rc(result.installed_dir / "Aliensrc")
     layout = cp["Layout"]
@@ -305,7 +305,7 @@ def test_litegnome_title_edge_padding_at_least_1(tmp_path: Path, monkeypatch) ->
     if not litegnome.exists():
         import pytest
         pytest.skip("LiteGnome.etheme fixture not available")
-    result = convert(litegnome, scale=2)
+    result = convert(litegnome, scale=2, backend="svg")
     cp = _read_rc(result.installed_dir / "LiteGnomerc")
     layout = cp["Layout"]
     title_edge_top = int(layout["TitleEdgeTop"])
@@ -480,7 +480,7 @@ def test_openstep_title_text_contrast_acceptable(tmp_path: Path, monkeypatch) ->
     if not openstep.exists():
         import pytest
         pytest.skip("OPENSTEP.etheme fixture not available")
-    result = convert(openstep, scale=2)
+    result = convert(openstep, scale=2, backend="svg")
     cp = _read_rc(result.installed_dir / "OPENSTEPrc")
     # Parse RGB tuple from "r,g,b,a" string.
     parts = cp["General"]["ActiveTextColor"].split(",")
@@ -522,7 +522,7 @@ def test_e13_title_canonical_placement_when_fills_chrome(
         import pytest
 
         pytest.skip("e13.etheme fixture not available")
-    result = convert(e13, scale=2)
+    result = convert(e13, scale=2, backend="svg")
 
     cp = _read_rc(result.installed_dir / "e13rc")
     layout = cp["Layout"]
@@ -570,7 +570,7 @@ def test_e13_title_height_trimmed_to_opaque_rows(
         import pytest
 
         pytest.skip("e13.etheme fixture not available")
-    result = convert(e13, scale=2)
+    result = convert(e13, scale=2, backend="svg")
 
     layout = _read_rc(result.installed_dir / "e13rc")["Layout"]
     border_top = int(layout["TitleEdgeTop"]) + int(layout["TitleHeight"]) + int(

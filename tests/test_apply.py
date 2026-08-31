@@ -69,7 +69,7 @@ def _install_fake_theme(
 
 def test_apply_sets_buttons_from_installed_rc(fake_kconfig: FakeKConfig) -> None:
     _install_fake_theme("e13")
-    apply_mod.apply("e13")
+    apply_mod.apply("e13", backend="svg")
     assert fake_kconfig.store["ButtonsOnLeft"] == "XILS"
     assert fake_kconfig.store["ButtonsOnRight"] == ""
     # Previous (unset) layout recorded for revert.
@@ -78,7 +78,7 @@ def test_apply_sets_buttons_from_installed_rc(fake_kconfig: FakeKConfig) -> None
 
 def test_apply_keep_buttons_flag_skips(fake_kconfig: FakeKConfig) -> None:
     _install_fake_theme("e13")
-    apply_mod.apply("e13", keep_buttons=True)
+    apply_mod.apply("e13", keep_buttons=True, backend="svg")
     assert "ButtonsOnLeft" not in fake_kconfig.store
     assert "ThemeyPrevButtons" not in fake_kconfig.store
 
@@ -90,9 +90,9 @@ def test_apply_records_existing_layout_once(fake_kconfig: FakeKConfig) -> None:
     fake_kconfig.store["ButtonsOnRight"] = "IAX"
     _install_fake_theme("e13")
     _install_fake_theme("other", left="X", right="I")
-    apply_mod.apply("e13")
+    apply_mod.apply("e13", backend="svg")
     assert fake_kconfig.store["ThemeyPrevButtons"] == "MS|IAX"
-    apply_mod.apply("other")
+    apply_mod.apply("other", backend="svg")
     assert fake_kconfig.store["ThemeyPrevButtons"] == "MS|IAX"  # unchanged
     assert fake_kconfig.store["ButtonsOnLeft"] == "X"
 
@@ -101,7 +101,7 @@ def test_apply_breeze_restores_previous_layout(fake_kconfig: FakeKConfig) -> Non
     fake_kconfig.store["ButtonsOnLeft"] = "MS"
     fake_kconfig.store["ButtonsOnRight"] = "IAX"
     _install_fake_theme("e13")
-    apply_mod.apply("e13")
+    apply_mod.apply("e13", backend="svg")
     apply_mod.apply("Breeze")
     assert fake_kconfig.store["ButtonsOnLeft"] == "MS"
     assert fake_kconfig.store["ButtonsOnRight"] == "IAX"
@@ -112,7 +112,7 @@ def test_apply_breeze_deletes_buttons_when_originally_unset(
     fake_kconfig: FakeKConfig,
 ) -> None:
     _install_fake_theme("e13")
-    apply_mod.apply("e13")
+    apply_mod.apply("e13", backend="svg")
     apply_mod.apply("Breeze")
     assert "ButtonsOnLeft" not in fake_kconfig.store
     assert "ButtonsOnRight" not in fake_kconfig.store
@@ -122,6 +122,6 @@ def test_apply_theme_without_binning_leaves_buttons_alone(
     fake_kconfig: FakeKConfig,
 ) -> None:
     _install_fake_theme("plain", left=None)
-    apply_mod.apply("plain")
+    apply_mod.apply("plain", backend="svg")
     assert "ButtonsOnLeft" not in fake_kconfig.store
     assert "ThemeyPrevButtons" not in fake_kconfig.store
