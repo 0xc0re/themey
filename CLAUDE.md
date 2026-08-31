@@ -233,8 +233,11 @@ themey is a local Python CLI that converts Enlightenment DR16 (E16) `.etheme` ar
 
 - `RawConfigParser` with `optionxform = str` for KDE INI; a hand-rolled writer
   for `.desktop` files.
-- `Image.Resampling.NEAREST` for border art. LANCZOS must not appear anywhere
-  under `src/themey/images/`.
+- `Image.Resampling.NEAREST` for border art by default. The ONE carve-out:
+  the opt-in quality path (`--upscale quality`, QML-backend-only) — hqx in
+  `images/hqx.py`, and `upscale.py`'s quality mode may LANCZOS-*downsample*
+  hqx(ceil(scale)) output to a fractional target. No other LANCZOS under
+  `src/themey/images/`, and never on raw pixel art.
 - Everything is written under `$XDG_DATA_HOME`, staged first and installed with
   `os.replace`. No system paths, no root.
 
@@ -265,7 +268,7 @@ receives no fidelity work.
 |---------|------|
 | `etheme/` | `archive.py` (validating tar extract), `lex.py`, `parse.py`, `ast.py` — the E16 grammar front end |
 | `analyze/` | AST → frozen `ir.Theme`: iclass resolution, state collapse, button binning, coordinate math, palette, borders, `fonts.py` (__FONTS scan) |
-| `images/` | `ninepatch.py`, `opaque.py`, `upscale.py`, `embed.py` — raster primitives, NEAREST only |
+| `images/` | `ninepatch.py`, `opaque.py`, `upscale.py` (`upscale_part`: scale_px-dim targets, nearest/quality modes), `hqx.py` (opt-in quality scaler), `embed.py` — raster primitives, NEAREST default |
 | `generate/qmldeco/` | DEFAULT backend: `theme_js.py` (part model), `resolver.py` (E16 geometry, Python mirror), `actions.py`, `package.py`, `runtime/` (4 verbatim QML/JS files) |
 | `generate/` (rest) | SVG backend: `aurorae.py` orchestrates `decoration_svg.py`, `aurorae_rc.py`, `aurorae_meta.py`, `button_svg.py`, `composite.py` |
 | root modules | `ir.py` (IR), `paths.py` (XDG), `install.py` (atomic deploy), `report.py`, `preview.py`, `kwin.py`, `render.py`, `apply.py`, `external.py`, `slug.py`, `log.py` |
@@ -275,14 +278,22 @@ QML-backend contracts:
 1. **resolver.js and resolver.py are the same algorithm** (E16
    `BorderWinpartCalc`: Q10 percents, inclusive bottom-right anchors,
    re-centering max clamps, `__FLAG_TITLE`+`MAX_WIDTH 0` text sizing). All
-   math runs in E16 REFERENCE px and multiplies by scale at the end —
-   output-space math shifts every max-clamped part. Change both together
-   and bump `RUNTIME_VERSION`; `tests/test_qmldeco_geometry.py` pins e13
-   ground truth (KILL 40x38@(0,0), stack x=9, plaque = textwidth+25).
+   math runs in E16 REFERENCE px; ref→output conversion goes through the
+   shared `scale_px(v, s) = floor(v*s + 0.5)` (half-up in BOTH languages —
+   Python `round()` is banker's, `Math.round()` half-up) and the final
+   multiply is EDGE-based (`x_out = scale_px(x)`, `w_out = scale_px(x+w) -
+   x_out`) so adjacent parts stay seamless at fractional scales; identical
+   to `v*scale` at integer scales. Scale may be fractional ([1,3], 2
+   decimals) — **QML-backend-only**; svg/both hard-error. Change both
+   resolvers together and bump `RUNTIME_VERSION` (currently 2);
+   `tests/test_qmldeco_geometry.py` pins e13 ground truth (KILL
+   40x38@(0,0), stack x=9, plaque = textwidth+25) at scale 2 and 1.5.
 2. **theme.js is pure data** (`var theme = {...}` — no runtime I/O/XHR);
    image state fallbacks and origin-topology validation happen at generate
    time. Geometry fields are UNSCALED ref px; `borders`/`insets`/`pixelSize`
-   are pre-scaled.
+   are pre-scaled via `scale_px`, and exported art targets the same
+   `scale_px` dims (`upscale_part`) so BorderImage insets always match the
+   shipped PNGs.
 3. **KPlugin Id == package dir name == kwinrc `theme=`** (`slug.plugin_id`,
    `themey_<slug>`). QML applies must NOT write BorderSize or
    ButtonsOnLeft/Right — the theme draws its own buttons and unclamped
