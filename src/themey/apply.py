@@ -385,11 +385,16 @@ def _set_wallpaper_tiled(image: Path) -> None:
     _run_checked(
         [plasma_apply_wp, str(image)], f"plasma-apply-wallpaperimage {image}"
     )
+    # reloadConfig() is load-bearing: a scripting writeConfig lands in the
+    # config but the Image wallpaper's fillMode binding is only re-read on
+    # a wallpaper reload (verified live 2026-08-31 — without it the config
+    # says tiled while the screen keeps the old fill until next login).
     script = (
         "for (const d of desktops()) {"
         " d.wallpaperPlugin = 'org.kde.image';"
         " d.currentConfigGroup = ['Wallpaper', 'org.kde.image', 'General'];"
         f" d.writeConfig('FillMode', {_WALLPAPER_TILE_FILL_MODE_INT});"
+        " d.reloadConfig();"
         "}"
     )
     _run_checked(

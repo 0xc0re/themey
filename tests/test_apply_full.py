@@ -181,6 +181,7 @@ def test_apply_full_tiled_wallpaper_triggers_fill_fixup(
     script = fake_kconfig.calls[script_call][-1]
     assert "org.kde.plasmashell" in fake_kconfig.calls[script_call]
     assert "writeConfig('FillMode', 3)" in script
+    assert "reloadConfig()" in script  # required for the live repaint
     assert script_call > call  # image first, then the fill-mode script
 
 
