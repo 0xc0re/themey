@@ -673,6 +673,24 @@ def test_apply_full_sets_panels_fit_and_records_modes(
     assert "org.kde.plasmashell" in fake_kconfig.calls[i]
 
 
+def test_apply_full_panels_fit_before_wallpaper_fixup(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """A failing wallpaper fix-up must not cost the panel feel: the fit
+    script runs first, and the wallpaper error still raises after."""
+    _install_fake_deco("e13")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tiled")
+    _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
+    fake_kconfig.panel_read_reply = "1195=fill"
+    fake_kconfig.fail_on["plasma-apply-wallpaperimage"] = "boom"
+    with pytest.raises(apply_mod.ApplyError, match="plasma-apply-wallpaperimage"):
+        apply_mod.apply_full("e13")
+    i_fit = fake_kconfig.index_of("p.lengthMode = 'fit'")
+    i_wp = fake_kconfig.index_of("plasma-apply-wallpaperimage")
+    assert i_fit < i_wp
+    assert fake_kconfig.store["PrevPanelLengthModes"] == "1195=fill"
+
+
 def test_apply_full_panel_marker_written_once(fake_kconfig: FakeKConfig) -> None:
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
