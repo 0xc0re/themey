@@ -47,9 +47,20 @@ def wallpapers() -> Path:
     return _xdg_data_home() / "wallpapers"
 
 
-def icon_themes() -> Path:
-    """Icon *and* XCursor themes both live here: ``icons/<theme>/cursors/``."""
-    return _xdg_data_home() / "icons"
+def cursor_themes() -> Path:
+    """XCursor pointer themes: ``~/.icons/<theme>/cursors/``.
+
+    Deliberately NOT under ``_xdg_data_home()``: cursor lookup goes through
+    libXcursor's compiled-in search path, and Kubuntu's build (hence
+    Plasma's cursor KCM and ``plasma-apply-cursortheme`` on it) scans
+    ``~/.icons`` and ``/usr/share/icons`` but never
+    ``$XDG_DATA_HOME/icons`` — a theme installed there simply doesn't
+    exist as far as System Settings is concerned (verified live
+    2026-08-31; every third-party cursor theme on the reference machine
+    installs to ``~/.icons`` for the same reason). Still per-user and
+    reversible: uninstall = delete ``~/.icons/themey_<slug>-cursors``.
+    """
+    return Path(os.environ.get("HOME", "/")) / ".icons"
 
 
 def look_and_feel() -> Path:
