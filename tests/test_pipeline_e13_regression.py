@@ -65,24 +65,32 @@ def test_e13_rc_border_values_are_sane(tmp_path, monkeypatch):
     padding_left = int(layout["PaddingLeft"])
     padding_top = int(layout["PaddingTop"])
 
-    # BorderLeft = BORDER_SIZE_LEFT x scale. e13 has BORDER_SIZE_LEFT=40 so
-    # BorderLeft = 80 at scale=2. Acceptable range bounded by the [2, 120]
-    # clamp in strip_thicknesses().
-    assert border_left <= 120, f"BorderLeft={border_left} above clamp"
+    # e13's declared 40-ref left zone hosts its button stack (KILL/ICONIFY/
+    # SHADE/STICK); the border trims to WIN_SIDE_LEFT's 7-ref opaque edge
+    # → BorderLeft = 14 at scale=2. 80 was the smeared-frame bug.
+    assert border_left <= 16, f"BorderLeft={border_left}: side trim regressed"
     assert border_left >= 4, f"BorderLeft={border_left} too small (< 4)"
 
     # BorderRight: e13's BORDER_SIZE_RIGHT is small; expect 6-40 at scale=2.
     assert border_right <= 60, f"BorderRight={border_right} too large"
     assert border_right >= 2, f"BorderRight={border_right} too small"
 
-    # TitleHeight must be within the top zone (≤ BorderTop) and at least the
-    # minimum readable size. The full-zone semantics allow TitleHeight to
-    # equal BorderTop when the title bar part spans the whole top zone.
+    # TitleHeight trims to the titlebar art's opaque rows 0-30 (~31 ref =
+    # 62 out); the transparent notch below stays in the 92-tall band.
     border_top = int(layout["BorderTop"])
     assert title_height <= border_top, (
         f"TitleHeight={title_height} exceeds BorderTop={border_top}"
     )
-    assert title_height >= 12, f"TitleHeight={title_height} too small"
+    assert 56 <= title_height <= 64, (
+        f"TitleHeight={title_height}: opaque-rows trim regressed"
+    )
+
+    # No 80x76 shared button slot anywhere — buttons are per-code sized.
+    for key, value in layout.items():
+        if key.startswith("ButtonWidth"):
+            assert int(value) != 80, f"{key}=80: shared-slot regression"
+        if key.startswith("ButtonHeight"):
+            assert int(value) != 76, f"{key}=76: shared-slot regression"
 
     # Padding* must be 0 -- E16 has no shadow concept, and the old formula
     # (border_size_* * scale) emitted a huge shadow zone that left the title
@@ -145,6 +153,72 @@ def test_e13_buttons_bound_to_one_side(tmp_path, monkeypatch):
     # Every code in left+right must be unique (one button → one side).
     assert len(combined) == len(set(combined)), (
         f"duplicate button code in Left+Right combined: {combined!r}"
+    )
+
+
+@pytest.mark.skipif(
+    not E13_PATH.exists(),
+    reason="e13.etheme not available on this machine",
+)
+def test_e13_bottom_opaque_and_top_notch_survives(tmp_path, monkeypatch):
+    """decoration-bottom composites art; decoration-top keeps the notch.
+
+    WIN_BOTTOM's degenerate rect used to fail the y1<=y0 guard → invisible
+    bottom border. And the uniform stretch used to paint titlebar caps over
+    the shaped transparent notch → a 100%-opaque smeared top band. Both
+    must stay fixed: the bottom strip has opaque pixels; the top strip's
+    lower third keeps transparent ones (the wallpaper shows through).
+    """
+    import base64
+    import io
+
+    from PIL import Image
+
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("XDG_DATA_HOME", str(fake_home / ".local" / "share"))
+
+    import themey.paths as paths_mod
+
+    aurorae_dir = fake_home / ".local/share/aurorae/themes"
+    previews_dir = fake_home / ".local/share/themey/previews"
+    monkeypatch.setattr(paths_mod, "aurorae_themes", lambda: aurorae_dir)
+    monkeypatch.setattr(paths_mod, "themey_previews", lambda: previews_dir)
+
+    from themey.pipeline import convert
+
+    result = convert(E13_PATH, scale=2)
+    root = ET.parse(result.installed_dir / "decoration.svg").getroot()
+    SVG_NS = "{http://www.w3.org/2000/svg}"
+    XLINK = "{http://www.w3.org/1999/xlink}href"
+
+    def region_png(region_id: str) -> Image.Image:
+        for g in root.iter(f"{SVG_NS}g"):
+            if g.get("id") == region_id:
+                img = g.find(f"{SVG_NS}image")
+                assert img is not None
+                href = img.get(XLINK, "")
+                data = base64.b64decode(href.split(",", 1)[1])
+                return Image.open(io.BytesIO(data)).convert("RGBA")
+        raise AssertionError(f"no {region_id}")
+
+    bottom = region_png("decoration-bottom")
+    bottom_alpha = list(bottom.getchannel("A").getdata())
+    assert any(a > 32 for a in bottom_alpha), "bottom strip fully transparent"
+
+    # The notch: e13's band is capsule (rows 0-61 at scale=2), a transparent
+    # gap, then the fin's stretched "waterline" bar along the bottom. The
+    # gap rows (~0.68h-0.74h) must stay majority-transparent — the uniform
+    # stretch painted them 100% opaque.
+    top = region_png("decoration-top")
+    w, h = top.size
+    gap = top.crop((0, int(h * 0.68), w, int(h * 0.74)))
+    gap_alpha = list(gap.getchannel("A").getdata())
+    transparent = sum(1 for a in gap_alpha if a <= 32)
+    assert transparent > len(gap_alpha) // 2, (
+        f"notch rows are {100 - 100 * transparent // len(gap_alpha)}% opaque "
+        "— the shaped notch was painted shut"
     )
 
 
