@@ -32,7 +32,6 @@ import logging
 from pathlib import Path
 from typing import Annotated
 
-import click
 import typer
 import typer.core
 
@@ -54,7 +53,13 @@ class _DefaultConvertGroup(typer.core.TyperGroup):
     for the group's own lone flags (:data:`_GROUP_ONLY_FLAGS`).
     """
 
-    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+    # ``ctx`` is annotated with ``typer.Context``, not ``click.Context``:
+    # typer >=0.26 vendors its own click as ``typer._click``, so
+    # ``TyperGroup.parse_args`` expects the vendored ``Context`` and a real
+    # ``click.Context`` no longer type-checks. ``typer.Context`` subclasses
+    # whichever one the installed typer uses, so it is correct on both sides
+    # of that split — and it avoids importing the private ``typer._click``.
+    def parse_args(self, ctx: typer.Context, args: list[str]) -> list[str]:
         if args and not any(a in self.commands for a in args):
             if not (len(args) == 1 and args[0] in _GROUP_ONLY_FLAGS):
                 args = ["convert", *args]

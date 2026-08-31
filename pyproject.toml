@@ -28,7 +28,7 @@ dependencies = [
     # untrusted third-party image and font files to Pillow by design; see
     # SECURITY.md.
     "pillow>=12.3,<13",
-    "typer>=0.25,<0.26",
+    "typer>=0.25,<0.28",
 ]
 
 [project.urls]
@@ -50,7 +50,7 @@ dev = [
     "pyright>=1.1.409,<2",
     "pytest>=9.0,<10",
     "ruff>=0.15,<0.16",
-    "syrupy>=5.1,<6",
+    "syrupy>=6.0,<7",
 ]
 
 [tool.ruff]

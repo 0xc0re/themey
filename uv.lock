@@ -12,18 +12,6 @@ wheels = [
 ]
 
 [[package]]
-name = "click"
-version = "8.3.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/bb/63/f9e1ea081ce35720d8b92acde70daaedace594dc93b693c869e0d5910718/click-8.3.3.tar.gz", hash = "sha256:398329ad4837b2ff7cbe1dd166a4c0f8900c3ca3a218de04466f38f6497f18a2", size = 328061, upload-time = "2026-04-22T15:11:27.506Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ae/44/c1221527f6a71a01ec6fbad7fa78f1d50dfa02217385cf0fa3eec7087d59/click-8.3.3-py3-none-any.whl", hash = "sha256:a2bf429bb3033c89fa4936ffb35d5cb471e3719e1f3c8a7c3fff0b8314305613", size = 110502, upload-time = "2026-04-22T15:11:25.044Z" },
-]
-
-[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -485,14 +473,14 @@ wheels = [
 
 [[package]]
 name = "syrupy"
-version = "5.1.0"
+version = "6.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pytest" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2e/b0/24bca682d6a6337854be37f242d116cceeda9942571d5804c44bc1bdd427/syrupy-5.1.0.tar.gz", hash = "sha256:df543c7aa50d3cf1246e83d58fe490afe5f7dab7b41e74ecc0d8d23ae19bd4b8", size = 50495, upload-time = "2026-01-25T14:53:06.2Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d2/a7/3c797c76994dc817582abdda90ee31867a9883567b0add47dbc0ccb12ce4/syrupy-6.0.0.tar.gz", hash = "sha256:bf4f5f662a7b23a9e5711bd5597e301cd09c00f31be5fa4095f79da7b0585f3d", size = 99435, upload-time = "2026-08-22T20:48:39.493Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/de/70/cf880c3b95a6034ef673e74b369941b42315c01f1554a5637a4f8b911009/syrupy-5.1.0-py3-none-any.whl", hash = "sha256:95162d2b05e61ed3e13f117b88dfab7c58bd6f90e66ebbf918e8a77114ad51c5", size = 51658, upload-time = "2026-01-25T14:53:05.105Z" },
+    { url = "https://files.pythonhosted.org/packages/7c/ff/4d8ae6d6070ea73ee9d466701584a75db9586ce09de98f8f1b3276efad5f/syrupy-6.0.0-py3-none-any.whl", hash = "sha256:3efa16d767bd8614413cc20057552e4aec14428c6e5ea788c1f7e03047e8a5e4", size = 58047, upload-time = "2026-08-22T20:48:38.213Z" },
 ]
 
 [[package]]
@@ -516,7 +504,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "pillow", specifier = ">=12.3,<13" },
-    { name = "typer", specifier = ">=0.25,<0.26" },
+    { name = "typer", specifier = ">=0.25,<0.28" },
 ]
 
 [package.metadata.requires-dev]
@@ -525,22 +513,22 @@ dev = [
     { name = "pyright", specifier = ">=1.1.409,<2" },
     { name = "pytest", specifier = ">=9.0,<10" },
     { name = "ruff", specifier = ">=0.15,<0.16" },
-    { name = "syrupy", specifier = ">=5.1,<6" },
+    { name = "syrupy", specifier = ">=6.0,<7" },
 ]
 
 [[package]]
 name = "typer"
-version = "0.25.1"
+version = "0.27.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "annotated-doc" },
-    { name = "click" },
+    { name = "colorama", marker = "sys_platform == 'win32'" },
     { name = "rich" },
     { name = "shellingham" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e4/51/9aed62104cea109b820bbd6c14245af756112017d309da813ef107d42e7e/typer-0.25.1.tar.gz", hash = "sha256:9616eb8853a09ffeabab1698952f33c6f29ffdbceb4eaeecf571880e8d7664cc", size = 122276, upload-time = "2026-04-30T19:32:16.964Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/16/f7/57713ba479fd405eb76de31404b2c744c289e336b2d999511ebf51e496f7/typer-0.27.2.tar.gz", hash = "sha256:269b7eb9d3c202ca84b4bc9618cb04ebb43d3d4d1e567e4c768607232c05f945", size = 204045, upload-time = "2026-08-28T10:26:55.046Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3f/f9/2b3ff4e56e5fa7debfaf9eb135d0da96f3e9a1d5b27222223c7296336e5f/typer-0.25.1-py3-none-any.whl", hash = "sha256:75caa44ed46a03fb2dab8808753ffacdbfea88495e74c85a28c5eefcf5f39c89", size = 58409, upload-time = "2026-04-30T19:32:18.271Z" },
+    { url = "https://files.pythonhosted.org/packages/dc/bf/205d0004930ede8f542fb58f601526fccf4ae7626075ca1e6c4de5d3d652/typer-0.27.2-py3-none-any.whl", hash = "sha256:b3a5fc4342d5fc8fda8fc3010b1cf117e9249aab7fae800c2eff62fd3842d97d", size = 123130, upload-time = "2026-08-28T10:26:53.752Z" },
 ]
 
 [[package]]
