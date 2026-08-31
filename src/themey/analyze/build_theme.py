@@ -271,7 +271,7 @@ def build_theme(
     # ------------------------------------------------------------------
     # 5c. Wallpapers — scan desktops.cfg's macro syntax for image paths.
     # ------------------------------------------------------------------
-    wallpaper_specs = extract_wallpaper_specs(asset_root)
+    wallpaper_specs = extract_wallpaper_specs(asset_root, notes)
     wallpapers = tuple(spec.path for spec in wallpaper_specs)
     if wallpaper_specs:
         notes.append(f"found {len(wallpaper_specs)} wallpaper image(s)")
