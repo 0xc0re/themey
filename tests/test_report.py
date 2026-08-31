@@ -196,3 +196,34 @@ def test_report_apply_section_mentions_border_size_clamp(tmp_path: Path) -> None
     assert "## Apply" in text
     assert "Oversized" in text
     assert "Border size =" in text and "themey apply" in text
+
+
+def test_report_mentions_the_plasma_style_when_id_given(tmp_path: Path) -> None:
+    theme = _make_theme()
+    out = write(
+        theme, tmp_path / "r.txt", backend="qml",
+        lnf_id="themey_TestTheme", desktop_theme_id="themey_TestTheme",
+    )
+    text = out.read_text()
+    assert "Plasma Style" in text
+    assert "themey_TestTheme" in text
+    assert "Plasma Style: not installed" not in text
+
+
+def test_report_plasma_style_not_installed_variant(tmp_path: Path) -> None:
+    theme = _make_theme(notes=["plasmastyle: skipped: boom"])
+    out = write(theme, tmp_path / "r.txt", backend="qml", desktop_theme_id=None)
+    text = out.read_text()
+    assert "Plasma Style: not installed" in text
+    assert "plasmastyle: skipped: boom" in text
+
+
+def test_report_surfaces_plasmastyle_notes_before_the_state_bucket(
+    tmp_path: Path,
+) -> None:
+    theme = _make_theme(
+        notes=["some state note", "plasmastyle: panel background from iclass X"]
+    )
+    out = write(theme, tmp_path / "r.txt", backend="qml")
+    text = out.read_text()
+    assert text.index("plasmastyle: panel background") < text.index("some state note")

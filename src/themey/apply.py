@@ -34,9 +34,12 @@ theme draws its own.
 
 :func:`apply_full` additionally snapshots, once, the pre-themey global
 theme (kdeglobals ``[KDE] LookAndFeelPackage``, marker
-``[Themey] PrevLookAndFeelPackage``) and the pre-themey deco triple
+``[Themey] PrevLookAndFeelPackage``), the pre-themey deco triple
 (kwinrc ``[org.kde.kdecoration2] library|theme|BorderSize``, marker
-``ThemeyPrevDeco``) — both ``@unset``-sentineled, both written only once,
+``ThemeyPrevDeco``) and — when the matching artifacts are installed — the
+user-layer color scheme (``PrevColorScheme``) and Plasma Style (plasmarc
+``[Theme] name``, marker ``PrevPlasmaTheme``) — all ``@unset``-sentineled,
+all written only once,
 so a second ``themey apply`` never clobbers the ORIGINAL baseline with an
 already-themey'd one. :func:`revert` (CLI ``themey apply --revert``) reads
 those markers back, reapplies the recorded Look-and-Feel package (no
@@ -54,6 +57,7 @@ from __future__ import annotations
 import configparser
 import json
 import logging
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -75,6 +79,10 @@ _GENERAL_GROUP = "General"
 _COLORSCHEME_KEY = "ColorScheme"
 #: themey's own kdeglobals group for its one marker key.
 _THEMEY_GROUP = "Themey"
+#: Vanilla plasmarc location of the active Plasma Style (desktop theme).
+_PLASMARC = "plasmarc"
+_PLASMA_THEME_GROUP = "Theme"
+_PLASMA_NAME_KEY = "name"
 
 #: ``plasma-apply-wallpaperimage -f`` token for a tiled fill. Provisionally
 #: chosen (not yet live-verified against a real Plasma 6.6 session) —
@@ -206,6 +214,7 @@ def _restore_buttons(kw: str, kr: str) -> None:
 _PREV_LNF_KEY = "PrevLookAndFeelPackage"
 _PREV_DECO_KEY = "ThemeyPrevDeco"
 _PREV_COLORS_KEY = "PrevColorScheme"
+_PREV_PLASMA_KEY = "PrevPlasmaTheme"
 
 
 def _record_prev_lookandfeel(kw: str, kr: str) -> None:
@@ -233,6 +242,45 @@ def _record_prev_colorscheme(kw: str, kr: str) -> None:
         return
     prev = _cfg_read(kr, _KDEGLOBALS, _GENERAL_GROUP, _COLORSCHEME_KEY) or _UNSET
     _cfg_write(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_COLORS_KEY, prev)
+
+
+def _record_prev_plasmatheme(kw: str, kr: str) -> None:
+    """Snapshot the user-layer plasmarc ``[Theme] name`` once, before the
+    first ``apply_full`` overwrites it via ``plasma-apply-desktoptheme`` —
+    the Plasma Style half of the revert baseline.
+
+    Same layer-shadowing reason as :func:`_record_prev_colorscheme`: the
+    reference machine's plasmarc carries an explicit ``name=Otto``, which a
+    Look-and-Feel apply would not displace — so ``apply_full`` calls
+    ``plasma-apply-desktoptheme`` explicitly and must record what it is
+    about to overwrite."""
+    if _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PLASMA_KEY) is not None:
+        return
+    prev = _cfg_read(kr, _PLASMARC, _PLASMA_THEME_GROUP, _PLASMA_NAME_KEY) or _UNSET
+    _cfg_write(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PLASMA_KEY, prev)
+
+
+def _clear_style_cache(pkg_id: str) -> None:
+    """Delete plasmashell's rendered-SVG caches for the themey style.
+
+    The ``plasma_theme_<name>[_v<version>].kcache`` files are keyed by the
+    package metadata ``Version``, which a re-convert never bumps — without
+    this, re-converting a theme and re-applying it would keep painting the
+    PREVIOUS conversion's panel art forever. Environment is read at call
+    time (not import time) so tests can monkeypatch it, mirroring
+    ``paths.py``."""
+    cache_home = os.environ.get("XDG_CACHE_HOME")
+    cache_root = (
+        Path(cache_home)
+        if cache_home
+        else Path(os.environ.get("HOME", "/")) / ".cache"
+    )
+    for cache in cache_root.glob(f"plasma_theme_{pkg_id}*.kcache"):
+        try:
+            cache.unlink()
+            log.debug("removed stale style cache %s", cache)
+        except OSError as exc:
+            log.warning("could not remove style cache %s: %s", cache, exc)
 
 
 def _record_prev_deco(kw: str, kr: str) -> None:
@@ -412,7 +460,11 @@ def apply_full(
     ``--resetLayout``, which would blow away unrelated layout state) →
     ``plasma-apply-colorscheme themey_<slug>`` when the scheme is installed
     (REQUIRED: the LnF apply does not touch an explicit user-layer
-    ``[General] ColorScheme`` — see :func:`_record_prev_colorscheme`) → the
+    ``[General] ColorScheme`` — see :func:`_record_prev_colorscheme`) →
+    when the Plasma Style package is installed, clear its Version-keyed SVG
+    cache (:func:`_clear_style_cache`) then ``plasma-apply-desktoptheme
+    themey_<slug>`` (explicit for the same user-layer-shadowing reason —
+    see :func:`_record_prev_plasmatheme`) → the
     same decoration write :func:`apply` uses (REQUIRED even though the LnF
     apply already wrote deco defaults: those land in the
     ``~/.config/kdedefaults/`` layer, and only an explicit user-layer write
@@ -456,11 +508,14 @@ def apply_full(
 
     scheme_file = paths.color_schemes() / f"{pkg_id}.colors"
     has_colors = scheme_file.is_file()
+    has_style = (paths.desktop_themes() / pkg_id / "metadata.json").is_file()
 
     _record_prev_lookandfeel(kw, kr)
     _record_prev_deco(kw, kr)
     if has_colors:
         _record_prev_colorscheme(kw, kr)
+    if has_style:
+        _record_prev_plasmatheme(kw, kr)
 
     plasma_apply_lnf = _which("plasma-apply-lookandfeel")
     _run_checked([plasma_apply_lnf, "-a", pkg_id], f"plasma-apply-lookandfeel -a {pkg_id}")
@@ -474,6 +529,19 @@ def apply_full(
         _run_checked(
             [plasma_apply_colors, pkg_id],
             f"plasma-apply-colorscheme {pkg_id}",
+        )
+
+    if has_style:
+        # Same user-layer shadowing as the color scheme (the reference
+        # machine's plasmarc has an explicit name=Otto), so the explicit
+        # apply is required, not belt-and-braces. The cache clear must come
+        # first: plasmashell would otherwise repaint from the stale
+        # Version-keyed kcache of a previous conversion.
+        _clear_style_cache(pkg_id)
+        plasma_apply_style = _which("plasma-apply-desktoptheme")
+        _run_checked(
+            [plasma_apply_style, pkg_id],
+            f"plasma-apply-desktoptheme {pkg_id}",
         )
 
     _write_deco(
@@ -501,10 +569,11 @@ def revert() -> bool:
     """``themey apply --revert``: restore the pre-``apply_full`` state.
 
     Reads the markers :func:`_record_prev_lookandfeel`/
-    :func:`_record_prev_deco`/:func:`_record_prev_colorscheme` left behind
-    (the color scheme restore mirrors the Look-and-Feel one: ``@unset`` →
-    delete the user-layer key; a failure keeps ``PrevColorScheme`` so a
-    later revert retries it), reapplies the recorded
+    :func:`_record_prev_deco`/:func:`_record_prev_colorscheme`/
+    :func:`_record_prev_plasmatheme` left behind
+    (the color scheme and Plasma Style restores mirror the Look-and-Feel
+    one: ``@unset`` → delete the user-layer key; a failure keeps the
+    marker so a later revert retries it), reapplies the recorded
     Look-and-Feel package (no special-casing here — a real user's baseline
     is typically a third-party theme, e.g.
     ``com.github.vinceliuice.MacVentura-Dark``, not Breeze), restores the
@@ -538,7 +607,13 @@ def revert() -> bool:
     prev_deco = _kread(kr, _PREV_DECO_KEY)
     prev_lnf = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_LNF_KEY)
     prev_colors = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_COLORS_KEY)
-    if prev_deco is None and prev_lnf is None and prev_colors is None:
+    prev_plasma = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PLASMA_KEY)
+    if (
+        prev_deco is None
+        and prev_lnf is None
+        and prev_colors is None
+        and prev_plasma is None
+    ):
         return False
 
     lnf_error: ApplyError | None = None
@@ -600,11 +675,37 @@ def revert() -> bool:
                     prev_colors, exc,
                 )
 
+    plasma_error: ApplyError | None = None
+    if prev_plasma is not None:
+        if prev_plasma == _UNSET:
+            # No explicit user-layer style before themey: delete the key we
+            # wrote so the (restored) Look-and-Feel's defaults take over.
+            _cfg_delete(kw, _PLASMARC, _PLASMA_THEME_GROUP, _PLASMA_NAME_KEY)
+            _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PLASMA_KEY)
+        else:
+            plasma_apply_style = _which("plasma-apply-desktoptheme")
+            try:
+                _run_checked(
+                    [plasma_apply_style, prev_plasma],
+                    f"plasma-apply-desktoptheme {prev_plasma}",
+                )
+                _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PLASMA_KEY)
+            except ApplyError as exc:
+                plasma_error = exc
+                log.warning(
+                    "could not reapply the previous Plasma Style %r (%s) — "
+                    "keeping the marker so a later `themey apply --revert` "
+                    "can retry it",
+                    prev_plasma, exc,
+                )
+
     _reconfigure()
 
-    if lnf_error is not None or colors_error is not None:
+    if lnf_error is not None or colors_error is not None or plasma_error is not None:
         failed = " and ".join(
-            str(e) for e in (lnf_error, colors_error) if e is not None
+            str(e)
+            for e in (lnf_error, colors_error, plasma_error)
+            if e is not None
         )
         raise ApplyError(
             "everything else was restored, but part of the previous state "

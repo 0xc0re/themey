@@ -173,6 +173,9 @@ def convert_cmd(
     if result.cursor_theme_dir is not None:
         verb = "Installed" if result.installed else "Wrote"
         typer.echo(f"{verb} (cursors): {result.cursor_theme_dir}")
+    if result.desktop_theme_dir is not None:
+        verb = "Installed" if result.installed else "Wrote"
+        typer.echo(f"{verb} (plasma style): {result.desktop_theme_dir}")
     if result.lnf_dir is not None:
         verb = "Installed" if result.installed else "Wrote"
         typer.echo(f"{verb} (bundle): {result.lnf_dir}")
