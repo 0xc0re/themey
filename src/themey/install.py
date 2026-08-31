@@ -8,6 +8,9 @@ Pattern (INSTALL-01):
   5. On failure: restore .themey-old; raise InstallError
 
 The previous-install backup makes re-runs idempotent (CLI-03 partial).
+``deploy_file`` applies the same pattern to the Global-Theme artifacts
+that are a single file rather than a package directory (the ``.colors``
+scheme).
 
 Note on cross-filesystem moves: source_dir SHOULD be created under the
 same XDG_DATA_HOME tree (e.g. via paths.staging_dir()) so os.replace
@@ -60,4 +63,40 @@ def deploy(theme_name: str, source_dir: Path, target_root: Path | None = None) -
     # Success — clean up the backup
     if backup.exists():
         shutil.rmtree(backup)
+    return final
+
+
+def deploy_file(file_name: str, source_file: Path, *, target_root: Path) -> Path:
+    """Atomically install a single file as ``<target_root>/<file_name>``.
+
+    Single-file sibling of :func:`deploy`, for the Global-Theme artifacts
+    that are one file rather than a package directory (the ``.colors``
+    scheme). Same INSTALL-01 pattern: move any existing target aside to
+    ``<file_name>.themey-old``, ``os.replace`` the staged file into place,
+    drop the backup on success, restore it on failure.
+
+    ``source_file`` MUST be staged on the same filesystem as ``target_root``
+    (see the cross-device note in the module docstring) — it is *renamed*,
+    not copied, so it no longer exists afterwards.
+
+    Returns the final installed Path. Raises InstallError on any failure.
+    """
+    if not source_file.is_file():
+        raise InstallError(f"source_file does not exist: {source_file}")
+    final = target_root / file_name
+    final.parent.mkdir(parents=True, exist_ok=True)
+    backup = final.with_name(f"{file_name}.themey-old")
+    had_previous = final.exists()
+    if backup.exists():
+        backup.unlink()
+    if had_previous:
+        os.replace(final, backup)  # atomic move-aside
+    try:
+        os.replace(source_file, final)  # atomic rename-into-place
+    except OSError as exc:
+        if had_previous and backup.exists():
+            os.replace(backup, final)
+        raise InstallError(f"atomic install failed for {file_name!r}: {exc}") from exc
+    if backup.exists():
+        backup.unlink()
     return final

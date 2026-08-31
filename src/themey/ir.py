@@ -23,6 +23,54 @@ class Palette:
 
 
 @dataclass(frozen=True)
+class ColorGroup:
+    """The theme-derived half of one KColorScheme ``[Colors:*]`` group.
+
+    A ``.colors`` group holds 12 keys; these are the 7 that carry the
+    theme's own cast. The other 5 (``ForegroundLink``/``Visited``/
+    ``Negative``/``Neutral``/``Positive``) are semantic — "this link is
+    unvisited", "this value is an error" — so they stay Breeze stock and
+    live in ``generate/colors.py`` rather than here.
+    """
+
+    background_normal: tuple[int, int, int]  # RGB 0-255
+    background_alternate: tuple[int, int, int]
+    foreground_normal: tuple[int, int, int]
+    foreground_inactive: tuple[int, int, int]
+    foreground_active: tuple[int, int, int]
+    decoration_focus: tuple[int, int, int]
+    decoration_hover: tuple[int, int, int]
+
+
+@dataclass(frozen=True)
+class ColorScheme:
+    """A whole KColorScheme sampled from the theme's border art.
+
+    One field per ``[Colors:*]`` group in the 13-group ``.colors`` file,
+    plus the four ``[WM]`` colors (the titlebar pair KWin reads). The
+    ``header_inactive`` group is emitted under the literal nested section
+    ``[Colors:Header][Inactive]``.
+
+    ``Palette`` is derived from the ``wm_*`` fields (see
+    ``analyze/colors.build_scheme``) so the decoration backends and the
+    color scheme cannot disagree about the titlebar.
+    """
+
+    view: ColorGroup
+    window: ColorGroup
+    button: ColorGroup
+    selection: ColorGroup
+    tooltip: ColorGroup
+    complementary: ColorGroup
+    header: ColorGroup
+    header_inactive: ColorGroup
+    wm_active_background: tuple[int, int, int]
+    wm_active_foreground: tuple[int, int, int]
+    wm_inactive_background: tuple[int, int, int]
+    wm_inactive_foreground: tuple[int, int, int]
+
+
+@dataclass(frozen=True)
 class IClassSpec:
     """E16 image class — one border-region image with up to 8 state variants."""
 
@@ -185,6 +233,11 @@ class Theme:
     palette: Palette
     cursors: tuple[CursorSpec, ...] = ()
     wallpapers: tuple[Path, ...] = ()
+    # Sampled KDE color scheme. ``palette`` above is derived from it, so the
+    # two always agree. Defaulted so hand-built Themes in existing tests stay
+    # valid; ``generate/colors.py`` falls back to the sampler's default when
+    # it is None.
+    scheme: ColorScheme | None = None
     # __FONTS aliases (fonts.theme.cfg / fonts.cfg) keyed by alias name.
     # Defaulted so hand-built Themes in existing tests stay valid.
     fonts: dict[str, FontSpec] = field(default_factory=dict)

@@ -30,6 +30,7 @@ from .etheme.archive import extract
 from .etheme.parse import parse_tree
 from .generate import qmldeco
 from .generate.aurorae import write as write_aurorae
+from .generate.colors import scheme_stem, write_colors
 from .images.upscale import UPSCALE_MODES
 from .preview import render as render_preview
 from .report import write as write_report
@@ -56,6 +57,8 @@ class ConvertResult:
     """QML decoration package dir (backend 'qml'/'both'); None for 'svg'."""
     qml_plugin_id: str | None = None
     """KPlugin Id / kwinrc theme= value for the QML package."""
+    color_scheme_path: Path | None = None
+    """Installed ``themey_<slug>.colors`` (or the copy under ``output_dir``)."""
 
 
 def convert(
@@ -87,7 +90,8 @@ def convert(
         A :class:`ConvertResult`. ``installed_dir`` is the SVG theme dir
         when the SVG backend ran, else the QML package dir;
         ``qml_installed_dir``/``qml_plugin_id`` are set whenever the QML
-        backend ran.
+        backend ran. ``color_scheme_path`` is the ``.colors`` file, which
+        both backends share.
 
     Raises:
         ValueError: If ``scale`` or ``backend`` is invalid.
@@ -142,8 +146,10 @@ def convert(
         )
 
         pkg_id = plugin_id(theme_name)
+        colors_name = f"{scheme_stem(theme)}.colors"
         installed: Path | None = None
         qml_installed: Path | None = None
+        colors_path: Path | None = None
 
         if output_dir is not None:
             # Non-installing mode: write straight into output_dir.
@@ -160,6 +166,8 @@ def convert(
                     shutil.rmtree(qml_installed)
                 qmldeco.write(theme, qml_installed, upscale=upscale)
                 log.info("wrote QML decoration package to %s", qml_installed)
+            colors_path = write_colors(theme, output_dir / colors_name)
+            log.info("wrote color scheme to %s", colors_path)
             previews = output_dir
         else:
             # Stage outputs under XDG_DATA_HOME so os.replace can rename
@@ -188,6 +196,12 @@ def convert(
                         target_root=paths.kwin_decorations(),
                     )
                     log.info("installed QML decoration to %s", qml_installed)
+                stage_colors = stage / colors_name
+                write_colors(theme, stage_colors)
+                colors_path = install.deploy_file(
+                    colors_name, stage_colors, target_root=paths.color_schemes()
+                )
+                log.info("installed color scheme to %s", colors_path)
             previews = paths.themey_previews()
 
         # Report and preview MUST run inside the extract block: they call
@@ -210,4 +224,5 @@ def convert(
         installed=output_dir is None,
         qml_installed_dir=qml_installed,
         qml_plugin_id=pkg_id if want_qml else None,
+        color_scheme_path=colors_path,
     )
