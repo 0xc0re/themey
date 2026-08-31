@@ -189,6 +189,14 @@ def _layout_values(theme: Theme) -> dict[str, str]:
     # keeps the full zone — the notch stays in the band and shows wallpaper.
     opaque_rows = title_opaque_rows_ref(theme)
     if 0 < opaque_rows < canonical_title_height_ref:
+        note = (
+            f"aurorae_rc: TitleHeight trimmed to the title art's opaque rows "
+            f"({opaque_rows * s} of {canonical_title_height_ref * s} output "
+            "px); the shaped transparent notch stays in the band and shows "
+            "the wallpaper"
+        )
+        if note not in theme.notes:
+            theme.notes.append(note)
         canonical_title_height_ref = opaque_rows
     title_height = max(2 * s, canonical_title_height_ref * s)
     # Cap title_height inside the (possibly grown) chrome.

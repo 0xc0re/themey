@@ -152,6 +152,47 @@ def test_e13_buttons_bound_to_one_side(tmp_path, monkeypatch):
     not E13_PATH.exists(),
     reason="e13.etheme not available on this machine",
 )
+def test_e13_report_carries_fidelity_notes(tmp_path, monkeypatch):
+    """report.txt documents the three e13 layout decisions.
+
+    Left-zone trim, title-notch trim, and the side-stack button migration
+    are approximations the user should be able to read about. A theme with
+    no shaped art (Mac3D) must gain none of them.
+    """
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("XDG_DATA_HOME", str(fake_home / ".local" / "share"))
+
+    import themey.paths as paths_mod
+
+    aurorae_dir = fake_home / ".local/share/aurorae/themes"
+    previews_dir = fake_home / ".local/share/themey/previews"
+    monkeypatch.setattr(paths_mod, "aurorae_themes", lambda: aurorae_dir)
+    monkeypatch.setattr(paths_mod, "themey_previews", lambda: previews_dir)
+
+    from themey.pipeline import convert
+
+    report = convert(E13_PATH, scale=2).report_path.read_text()
+    assert "hosts a button stack; border trimmed" in report, report
+    assert "TitleHeight trimmed to the title art's opaque rows" in report
+    assert "side-stack button(s) moved to the titlebar" in report
+
+    mac3d = E13_PATH.parent / "Mac3D.etheme"
+    if mac3d.exists():
+        mac_report = convert(mac3d, scale=2).report_path.read_text()
+        for marker in (
+            "border trimmed",
+            "TitleHeight trimmed",
+            "side-stack button(s)",
+        ):
+            assert marker not in mac_report, (marker, mac_report)
+
+
+@pytest.mark.skipif(
+    not E13_PATH.exists(),
+    reason="e13.etheme not available on this machine",
+)
 def test_e13_decoration_svg_has_18_ids(tmp_path, monkeypatch):
     """e13 decoration.svg must contain all 18 required FrameSvg IDs."""
     fake_home = tmp_path / "home"
