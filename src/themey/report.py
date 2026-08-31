@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .generate.cursors import CursorTheme
 from .generate.decoration_svg import strip_thicknesses
 from .ir import Theme, WallpaperSpec
 from .kwin import recommended_border_size
@@ -24,6 +25,7 @@ def write(
     out_path: Path,
     backend: str = "svg",
     wallpaper_specs: tuple[WallpaperSpec, ...] | None = None,
+    cursor_theme: CursorTheme | None = None,
 ) -> Path:
     """Write report.txt for *theme* to *out_path*.
 
@@ -34,7 +36,9 @@ def write(
     unopenable) so the status line below never overstates what's on disk.
     Defaults to ``theme.wallpaper_specs`` itself for callers that report
     straight from analysis (no install step ran, so there's nothing to
-    have failed). Returns *out_path* so callers can chain.
+    have failed). ``cursor_theme`` is the written XCursor theme, or None
+    when there was nothing to install — the ``cursors:`` notes say why.
+    Returns *out_path* so callers can chain.
     """
     want_qml = backend in ("qml", "both")
     want_svg = backend in ("svg", "both")
@@ -109,6 +113,20 @@ def write(
             "- Wallpaper: no background images found in desktops.cfg; "
             "the desktop wallpaper is left alone."
         )
+    if cursor_theme is not None:
+        lines.append(
+            f"- Pointer theme: {len(cursor_theme.shapes)} cursor shape(s) "
+            f"({', '.join(sorted(cursor_theme.shapes))}) converted to "
+            f"XCursor at 1x/2x/3x and installed as "
+            f"'{theme.display_name} (themey)' — pick it under System "
+            "Settings -> Colors & Themes -> Cursors. Shapes E16 never "
+            "defined fall back to Breeze."
+        )
+    else:
+        lines.append(
+            "- Pointer theme: not installed; the system cursor is left "
+            "alone — see cursors: notes below."
+        )
     lines.append("")
 
     # ------------------------------------------------------------------ #
@@ -137,7 +155,8 @@ def write(
     # qmldeco:) BEFORE the truncated-state-drop bucket so they don't get
     # buried past line 20.
     _layout_prefixes = (
-        "aurorae_rc:", "colors:", "composite:", "qmldeco:", "wallpaper:",
+        "aurorae_rc:", "colors:", "composite:", "cursors:", "qmldeco:",
+        "wallpaper:",
     )
     layout_notes = [n for n in theme.notes if n.startswith(_layout_prefixes)]
     state_notes = [n for n in theme.notes if not n.startswith(_layout_prefixes)]
@@ -177,16 +196,6 @@ def write(
         "stay Breeze stock: tinting them to the theme would make them "
         "misreport meaning."
     )
-    if theme.cursors:
-        lines.append(
-            f"- XCursor pointer theme: {len(theme.cursors)} __CURSOR "
-            "block(s) parsed but emission deferred to Phase 3."
-        )
-    else:
-        lines.append(
-            "- XCursor pointer theme: deferred to later phase "
-            "(CURSORS-01 / Phase 3)."
-        )
     lines.append(
         "- Plasma Look-and-Feel bundle: deferred to later phase "
         "(BUNDLE-01 / Phase 4)."

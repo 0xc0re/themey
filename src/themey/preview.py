@@ -281,7 +281,8 @@ def render(theme: Theme, out_path: Path) -> Path:
 {more_notes}
 
 <p class="meta">Skipped borders: {skipped_safe}.
-   Color scheme, wallpaper, cursor, and Look-and-Feel bundle are deferred to later phases.
+   Color scheme, wallpaper, and pointer theme are installed alongside the
+   decoration; the Look-and-Feel bundle is deferred to a later phase.
    See report.txt for full fidelity details.</p>
 
 </body></html>

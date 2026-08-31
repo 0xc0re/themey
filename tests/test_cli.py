@@ -1,4 +1,5 @@
 """Tests for src/themey/cli.py via Typer's testing runner."""
+import shutil
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -51,6 +52,11 @@ def test_cli_aliens_end_to_end(fake_home, monkeypatch):
     assert colors.is_file()
     assert "[General]\nColorScheme=themey_Aliens\n" in colors.read_text()
     assert "Installed (colors):" in result.output
+    if shutil.which("xcursorgen") is not None:
+        cursors = fake_home / ".local/share/icons/themey_Aliens-cursors"
+        assert (cursors / "index.theme").is_file()
+        assert (cursors / "cursors" / "default").is_file()
+        assert "Installed (cursors):" in result.output
 
 
 def test_cli_quiet_suppresses_info(fake_home, monkeypatch):
