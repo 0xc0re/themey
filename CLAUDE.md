@@ -163,9 +163,11 @@ LnF apply already wrote deco defaults — those land in the
 `~/.config/kdedefaults/` layer, and only an explicit user-layer write is
 guaranteed to win), then `_set_panels_fit` (every panel's `lengthMode` to
 `fit` — E16's iconbox/dragbar are content-sized and a full-width bar reads
-as Plasma, not E16), then `_ensure_iconbox` (a dedicated bottom-left
-content-sized panel with an icons-only task manager showing only MINIMIZED
-windows — E16's iconbox; created via plasmashell scripting, `[Themey]
+as Plasma, not E16), then `_ensure_iconbox` (a dedicated vertical
+LEFT-edge content-sized panel — pager on top (E16's pager lived top-left;
+vertical cells keep desktop aspect at readable size), icons-only task
+manager showing only MINIMIZED
+windows below it — E16's iconbox; created via plasmashell scripting, `[Themey]
 IconboxPanel` marker holds the containment id — an artifact marker, not a
 `Prev*` baseline: overwritten when the recorded panel is gone, skipped
 when alive, deleted when revert removes the panel; placed after the fit
