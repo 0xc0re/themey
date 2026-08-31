@@ -84,10 +84,14 @@ _PLASMARC = "plasmarc"
 _PLASMA_THEME_GROUP = "Theme"
 _PLASMA_NAME_KEY = "name"
 
-#: ``plasma-apply-wallpaperimage -f`` token for a tiled fill. Provisionally
-#: chosen (not yet live-verified against a real Plasma 6.6 session) —
-#: isolated here as the one place that would need to change.
-_WALLPAPER_TILE_FILL_MODE = "tile"
+#: QML ``Image.Tile`` — the ``FillMode`` int Plasma's Image wallpaper
+#: plugin stores. Needed because ``plasma-apply-wallpaperimage -f`` exposes
+#: NO tile token at all on Plasma 6.6.6 (verified live 2026-08-31: every
+#: spelling of tile is "Invalid fill mode"; only the camelCase QML names
+#: stretch/preserveAspectFit/preserveAspectCrop/pad are accepted), so the
+#: tiled fix-up writes FillMode through plasmashell's scripting D-Bus —
+#: the same mechanism the tool itself uses internally.
+_WALLPAPER_TILE_FILL_MODE_INT = 3
 
 
 class ApplyError(Exception):
@@ -358,9 +362,46 @@ def _write_deco(
         _kwrite(kw, "BorderSizeAuto", "false")
 
 
+def _which_qdbus() -> str:
+    return _which("qdbus6", "qdbus-qt6", "qdbus")
+
+
 def _reconfigure() -> None:
-    qdbus = _which("qdbus6", "qdbus-qt6", "qdbus")
-    subprocess.run([qdbus, "org.kde.KWin", "/KWin", "reconfigure"], check=False)
+    subprocess.run(
+        [_which_qdbus(), "org.kde.KWin", "/KWin", "reconfigure"], check=False
+    )
+
+
+def _set_wallpaper_tiled(image: Path) -> None:
+    """Set *image* as the wallpaper on all desktops, tiled.
+
+    Two steps because ``plasma-apply-wallpaperimage`` cannot express a
+    tiled fill (see :data:`_WALLPAPER_TILE_FILL_MODE_INT`): the tool sets
+    the image (and broadcasts the change), then a plasmashell scripting
+    call writes ``FillMode`` on every desktop's Image wallpaper config —
+    verified live on Plasma 6.6.6 (2026-08-31) to take effect immediately.
+    """
+    plasma_apply_wp = _which("plasma-apply-wallpaperimage")
+    _run_checked(
+        [plasma_apply_wp, str(image)], f"plasma-apply-wallpaperimage {image}"
+    )
+    script = (
+        "for (const d of desktops()) {"
+        " d.wallpaperPlugin = 'org.kde.image';"
+        " d.currentConfigGroup = ['Wallpaper', 'org.kde.image', 'General'];"
+        f" d.writeConfig('FillMode', {_WALLPAPER_TILE_FILL_MODE_INT});"
+        "}"
+    )
+    _run_checked(
+        [
+            _which_qdbus(),
+            "org.kde.plasmashell",
+            "/PlasmaShell",
+            "org.kde.PlasmaShell.evaluateScript",
+            script,
+        ],
+        "plasmashell tiled-FillMode script",
+    )
 
 
 def _run_checked(argv: list[str], what: str) -> None:
@@ -469,9 +510,11 @@ def apply_full(
     apply already wrote deco defaults: those land in the
     ``~/.config/kdedefaults/`` layer, and only an explicit user-layer write
     is guaranteed to win) → if the bundle's default wallpaper is
-    ``X-Themey-FillMode: tiled``, ``plasma-apply-wallpaperimage -f tile``
-    (Plasma's Image wallpaper plugin does not itself read fill-mode from
-    the wallpaper package) → one ``qdbus`` reconfigure, last.
+    ``X-Themey-FillMode: tiled``, :func:`_set_wallpaper_tiled` (Plasma's
+    Image wallpaper plugin does not itself read fill-mode from the
+    wallpaper package, and the apply tool has no tile token — see
+    :data:`_WALLPAPER_TILE_FILL_MODE_INT`) → one ``qdbus`` reconfigure,
+    last.
 
     ``name == "Breeze"`` (case-insensitive) is the one exception: Breeze
     has no Look-and-Feel bundle to verify or baseline to record — it is
@@ -556,11 +599,7 @@ def apply_full(
         if _wallpaper_fill_mode(wallpaper_dir) == "tiled":
             image = _wallpaper_image_path(wallpaper_dir)
             if image is not None:
-                plasma_apply_wp = _which("plasma-apply-wallpaperimage")
-                _run_checked(
-                    [plasma_apply_wp, "-f", _WALLPAPER_TILE_FILL_MODE, str(image)],
-                    f"plasma-apply-wallpaperimage -f {_WALLPAPER_TILE_FILL_MODE}",
-                )
+                _set_wallpaper_tiled(image)
 
     _reconfigure()
 

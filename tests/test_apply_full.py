@@ -167,15 +167,21 @@ def test_apply_full_writes_qml_deco(fake_kconfig: FakeKConfig) -> None:
 def test_apply_full_tiled_wallpaper_triggers_fill_fixup(
     fake_kconfig: FakeKConfig,
 ) -> None:
+    """Tiled fix-up = image apply (NO -f: the tool has no tile token on
+    Plasma 6.6, verified live) + a plasmashell script writing FillMode=3."""
     _install_fake_deco("e13")
     wp = _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tiled")
     _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
     apply_mod.apply_full("e13")
     call = fake_kconfig.index_of("plasma-apply-wallpaperimage")
     cmd = fake_kconfig.calls[call]
-    assert "-f" in cmd
-    assert cmd[cmd.index("-f") + 1] == "tile"
+    assert "-f" not in cmd
     assert str(wp / "contents" / "images" / "800x600.png") in cmd
+    script_call = fake_kconfig.index_of("evaluateScript")
+    script = fake_kconfig.calls[script_call][-1]
+    assert "org.kde.plasmashell" in fake_kconfig.calls[script_call]
+    assert "writeConfig('FillMode', 3)" in script
+    assert script_call > call  # image first, then the fill-mode script
 
 
 def test_apply_full_scaled_wallpaper_no_fixup(fake_kconfig: FakeKConfig) -> None:
