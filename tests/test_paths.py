@@ -54,3 +54,29 @@ def test_fake_home_routes_paths(fake_home, tmp_path):
     result = aurorae_themes()
     assert str(result).startswith(str(tmp_path))
     assert result.parts[-2:] == ("aurorae", "themes")
+
+
+def test_global_theme_dirs_default(monkeypatch):
+    """The four Global-Theme install roots resolve under the XDG default."""
+    monkeypatch.setenv("HOME", "/tmp/abc")
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+
+    from themey import paths
+
+    base = "/tmp/abc/.local/share"
+    assert str(paths.color_schemes()) == f"{base}/color-schemes"
+    assert str(paths.wallpapers()) == f"{base}/wallpapers"
+    assert str(paths.icon_themes()) == f"{base}/icons"
+    assert str(paths.look_and_feel()) == f"{base}/plasma/look-and-feel"
+
+
+def test_global_theme_dirs_xdg_override(monkeypatch):
+    """XDG_DATA_HOME redirects every Global-Theme root."""
+    monkeypatch.setenv("XDG_DATA_HOME", "/tmp/xdg")
+
+    from themey import paths
+
+    assert str(paths.color_schemes()) == "/tmp/xdg/color-schemes"
+    assert str(paths.wallpapers()) == "/tmp/xdg/wallpapers"
+    assert str(paths.icon_themes()) == "/tmp/xdg/icons"
+    assert str(paths.look_and_feel()) == "/tmp/xdg/plasma/look-and-feel"

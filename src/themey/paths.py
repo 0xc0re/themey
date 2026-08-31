@@ -37,6 +37,26 @@ def kwin_decorations() -> Path:
     return _xdg_data_home() / "kwin" / "decorations"
 
 
+def color_schemes() -> Path:
+    """KColorScheme ``.colors`` files — read by System Settings → Colors."""
+    return _xdg_data_home() / "color-schemes"
+
+
+def wallpapers() -> Path:
+    """Plasma wallpaper packages (one directory per image)."""
+    return _xdg_data_home() / "wallpapers"
+
+
+def icon_themes() -> Path:
+    """Icon *and* XCursor themes both live here: ``icons/<theme>/cursors/``."""
+    return _xdg_data_home() / "icons"
+
+
+def look_and_feel() -> Path:
+    """Plasma Global Theme (Look-and-Feel) packages."""
+    return _xdg_data_home() / "plasma" / "look-and-feel"
+
+
 def themey_previews() -> Path:
     return _xdg_data_home() / "themey" / "previews"
 
