@@ -32,6 +32,56 @@ DecorationButton {
         }
         return true;
     }
+    // Static English tooltip labels (localization out of scope) shown via
+    // the v1 plugin's decoration.requestShowToolTip — present on the
+    // decoration context property but never called by the stock QML.
+    readonly property string label: {
+        switch (btn.kind) {
+        case "close":
+            return "Close";
+        case "minimize":
+            return "Minimize";
+        case "maximizeRestore":
+            return "Maximize";
+        case "shade":
+            return "Shade";
+        case "onAllDesktops":
+            return "On all desktops";
+        case "keepAbove":
+            return "Keep above others";
+        case "keepBelow":
+            return "Keep below others";
+        case "menu":
+            return "Menu";
+        }
+        return "";
+    }
+
+    Timer {
+        id: tooltipTimer
+        interval: 700
+        onTriggered: {
+            if (btn.label !== "" && decoration
+                    && typeof decoration.requestShowToolTip === "function")
+                decoration.requestShowToolTip(btn.label);
+        }
+    }
+    function hideToolTip() {
+        tooltipTimer.stop();
+        if (decoration && typeof decoration.requestHideToolTip === "function")
+            decoration.requestHideToolTip();
+    }
+    onHoveredChanged: {
+        if (btn.hovered)
+            tooltipTimer.restart();
+        else
+            btn.hideToolTip();
+    }
+    onPressedChanged: {
+        if (btn.pressed)
+            btn.hideToolTip();
+    }
+
     buttonType: {
         switch (btn.kind) {
         case "close":
