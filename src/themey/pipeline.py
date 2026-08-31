@@ -30,6 +30,7 @@ from .etheme.archive import extract
 from .etheme.parse import parse_tree
 from .generate import qmldeco
 from .generate.aurorae import write as write_aurorae
+from .images.upscale import UPSCALE_MODES
 from .preview import render as render_preview
 from .report import write as write_report
 from .slug import plugin_id, slugify
@@ -60,15 +61,18 @@ class ConvertResult:
 def convert(
     etheme_path: Path,
     *,
-    scale: int = 2,
+    scale: float = 2,
     output_dir: Path | None = None,
     backend: str = "qml",
+    upscale: str = "nearest",
 ) -> ConvertResult:
     """Convert one .etheme to an installed KWin decoration + preview + report.
 
     Args:
         etheme_path: Path to a ``.etheme`` archive (gzipped tar).
-        scale: Border/image upscale factor. Must be 1, 2, or 3.
+        scale: Border/image upscale factor in [1, 3]; quantized to two
+            decimals, int-valued floats normalized to int. Fractional
+            values are accepted only with ``backend="qml"``.
         output_dir: When given, skip the XDG install entirely and write the
             output tree(s) under ``output_dir`` plus ``<name>.report.txt``
             and ``<name>.html`` next to them. Nothing under
@@ -76,6 +80,8 @@ def convert(
         backend: ``"qml"`` (default — the E16-faithful QML decoration
             package), ``"svg"`` (the legacy Aurorae SVG theme, kept as
             an escape hatch), or ``"both"``.
+        upscale: Part-art scaler for the QML package: ``"nearest"``
+            (default) or ``"quality"`` (hqx). Quality is QML-backend-only.
 
     Returns:
         A :class:`ConvertResult`. ``installed_dir`` is the SVG theme dir
@@ -88,16 +94,33 @@ def convert(
         UnsafeArchiveError: If the archive fails safe-extract validation.
         InstallError: If the atomic install rename fails.
     """
-    if scale not in (1, 2, 3):
-        raise ValueError(f"scale must be 1, 2, or 3 (got {scale})")
+    scale = round(float(scale), 2)
+    if not 1 <= scale <= 3:
+        raise ValueError(f"scale must be in [1, 3] (got {scale})")
+    if scale == int(scale):
+        scale = int(scale)
     if backend not in BACKENDS:
         raise ValueError(f"backend must be one of {BACKENDS} (got {backend!r})")
     want_svg = backend in ("svg", "both")
     want_qml = backend in ("qml", "both")
+    if want_svg and not isinstance(scale, int):
+        raise ValueError(
+            f"backend {backend!r} requires an integer scale (got {scale}); "
+            "fractional --scale is QML-backend-only"
+        )
+    if upscale not in UPSCALE_MODES:
+        raise ValueError(
+            f"upscale must be one of {UPSCALE_MODES} (got {upscale!r})"
+        )
+    if want_svg and upscale != "nearest":
+        raise ValueError(
+            f"backend {backend!r} requires upscale 'nearest' "
+            f"(got {upscale!r}); --upscale quality is QML-backend-only"
+        )
 
     # Theme name comes from the archive filename, never from cfg content.
     theme_name = slugify(etheme_path.stem)
-    log.info("converting %s as %s (scale=%d)", etheme_path, theme_name, scale)
+    log.info("converting %s as %s (scale=%s)", etheme_path, theme_name, scale)
 
     with extract(etheme_path) as raw:
         log.debug("extracted to %s", raw.asset_root)
@@ -135,7 +158,7 @@ def convert(
                 qml_installed = output_dir / pkg_id
                 if qml_installed.exists():
                     shutil.rmtree(qml_installed)
-                qmldeco.write(theme, qml_installed)
+                qmldeco.write(theme, qml_installed, upscale=upscale)
                 log.info("wrote QML decoration package to %s", qml_installed)
             previews = output_dir
         else:
@@ -158,7 +181,7 @@ def convert(
                     log.info("installed SVG theme to %s", installed)
                 if want_qml:
                     stage_pkg_dir = stage / pkg_id
-                    qmldeco.write(theme, stage_pkg_dir)
+                    qmldeco.write(theme, stage_pkg_dir, upscale=upscale)
                     log.debug("wrote QML package to %s", stage_pkg_dir)
                     qml_installed = install.deploy(
                         pkg_id, stage_pkg_dir,

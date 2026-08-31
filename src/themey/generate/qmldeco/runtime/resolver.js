@@ -14,19 +14,37 @@
 // inclusive "+1" and shifts max-clamped parts — part-model geometry
 // fields are UNSCALED ref px (insets/pixelSize/borders are the pre-scaled
 // display-only exceptions).
+//
+// Scale may be FRACTIONAL. Every ref→output conversion uses scalePx
+// (floor(v*s + 0.5) — half-up like resolver.py's scale_px, NOT
+// Math.round-vs-round() divergent), and the final multiply is EDGE-based
+// (x_out = scalePx(x), w_out = scalePx(x+w) - x_out) so adjacent parts
+// stay seamless. Identical to v*scale at integer scales.
 .pragma library
 
-var RUNTIME_VERSION = 1;
+var RUNTIME_VERSION = 2;
 var MAX_ORIGIN_DEPTH = 8;
+
+// Keep in lockstep with resolver.py scale_px.
+function scalePx(v, s) {
+    return Math.floor(v * s + 0.5);
+}
 
 // frameW/frameH and titleWidthFn results are OUTPUT px; so is the result.
 function partGeometry(theme, index, frameW, frameH, titleWidthFn) {
     var scale = theme.scale;
-    var refW = Math.round(frameW / scale);
-    var refH = Math.round(frameH / scale);
+    var refW = Math.floor(frameW / scale + 0.5);
+    var refH = Math.floor(frameH / scale + 0.5);
     var refTW = function (i) { return Math.ceil(titleWidthFn(i) / scale); };
     var g = _geom(theme, index, refW, refH, refTW, 0);
-    return { x: g.x * scale, y: g.y * scale, w: g.w * scale, h: g.h * scale };
+    var xOut = scalePx(g.x, scale);
+    var yOut = scalePx(g.y, scale);
+    return {
+        x: xOut,
+        y: yOut,
+        w: scalePx(g.x + g.w, scale) - xOut,
+        h: scalePx(g.y + g.h, scale) - yOut
+    };
 }
 
 function _geom(theme, index, refW, refH, titleWidthFn, depth) {

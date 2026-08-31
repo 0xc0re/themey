@@ -88,6 +88,21 @@ Decoration {
         return t ? Math.ceil(t.implicitWidth) : 0;
     }
 
+    // The title band doubles as the drag/double-click region; KWin derives
+    // the titleBar rect from this installed item. It excludes the side
+    // borders (like stock Aurorae) so a corner button such as e13's KILL
+    // is NOT inside the titleBar QRect — keeping the arrow cursor and
+    // button hit-testing correct over it. When maximized the side borders
+    // collapse to 0 and the band spans the full width.
+    Item {
+        id: titleBandItem
+        x: root.clientMaximized ? 0 : root.themeData.borders.left
+        y: 0
+        width: root.width - x
+               - (root.clientMaximized ? 0 : root.themeData.borders.right)
+        height: root.themeData.borders.top
+    }
+
     // ------------------------------------------------------------------
     // Parts — declaration order is z order (later parts draw on top).
     Repeater {
@@ -97,31 +112,17 @@ Decoration {
         delegate: ThemeyPart {}
     }
 
-    // The title band doubles as the drag/double-click region; KWin derives
-    // the titleBar rect from this installed item.
-    Item {
-        id: titleBandItem
-        x: 0
-        y: 0
-        width: root.width
-        height: root.themeData.borders.top
-    }
-
     Component.onCompleted: {
         var b = root.themeData.borders;
         borders.left = b.left;
         borders.right = b.right;
         borders.top = b.top;
         borders.bottom = b.bottom;
-        if (typeof borders.setTitle === "function")
-            borders.setTitle(b.top);
         // Maximized: side/bottom borders collapse; the title band stays.
         maximizedBorders.left = 0;
         maximizedBorders.right = 0;
         maximizedBorders.top = b.top;
         maximizedBorders.bottom = 0;
-        if (typeof maximizedBorders.setTitle === "function")
-            maximizedBorders.setTitle(b.top);
         if (decoration && typeof decoration.installTitleItem === "function")
             decoration.installTitleItem(titleBandItem);
     }

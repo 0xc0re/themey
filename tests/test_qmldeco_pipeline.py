@@ -97,3 +97,103 @@ def test_cli_backend_flag(tmp_path):
     )
     assert result.exit_code == 0, result.output
     assert "themey_e13" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Fractional scale (QML-backend-only)
+
+def _theme_js(pkg: Path) -> dict:
+    import re
+
+    src = (pkg / "contents" / "ui" / "theme.js").read_text()
+    m = re.search(r"var theme = (\{.*\});", src, re.S)
+    assert m
+    return json.loads(m.group(1))
+
+
+@needs_e13
+def test_convert_fractional_scale_qml(tmp_path):
+    from themey.generate.qmldeco.resolver import scale_px
+    from themey.pipeline import convert
+
+    out = tmp_path / "out"
+    convert(E13, scale=1.5, output_dir=out, backend="qml")
+    data = _theme_js(out / "themey_e13")
+    assert data["scale"] == 1.5
+    # e13 ref borders 40/6/46/6 through scale_px at 1.5.
+    assert data["borders"] == {"left": 60, "right": 9, "top": 69, "bottom": 9}
+    by_id = {p["id"]: p for p in data["parts"]}
+    # FIN's declared right edge_scaling 129 → scale_px(129, 1.5) = 194.
+    assert by_id["FIN"]["insets"]["right"] == scale_px(129, 1.5) == 194
+    # All insets and pixel sizes are ints (QML border.* wants ints).
+    for p in data["parts"]:
+        assert all(isinstance(v, int) for v in p["insets"].values()), p["id"]
+        if p["text"] is not None:
+            assert isinstance(p["text"]["pixelSize"], int)
+
+
+@needs_e13
+@pytest.mark.parametrize("backend", ["svg", "both"])
+def test_convert_fractional_scale_rejected_for_svg(tmp_path, backend):
+    from themey.pipeline import convert
+
+    with pytest.raises(ValueError, match="integer"):
+        convert(E13, scale=1.5, output_dir=tmp_path / "out", backend=backend)
+
+
+@needs_e13
+@pytest.mark.parametrize("scale", [0.5, 0.99, 3.5, 4])
+def test_convert_scale_out_of_range_rejected(tmp_path, scale):
+    from themey.pipeline import convert
+
+    with pytest.raises(ValueError, match="scale"):
+        convert(E13, scale=scale, output_dir=tmp_path / "out", backend="qml")
+
+
+@needs_e13
+def test_convert_scale_quantized_and_int_normalized(tmp_path):
+    from themey.pipeline import convert
+
+    out = tmp_path / "out"
+    convert(E13, scale=1.4999999, output_dir=out, backend="qml")
+    assert _theme_js(out / "themey_e13")["scale"] == 1.5
+
+    out2 = tmp_path / "out2"
+    convert(E13, scale=2.0, output_dir=out2, backend="qml")
+    # Integer-valued floats normalize to int so theme.js stays byte-stable
+    # (json emits 2, not 2.0 — round-tripping yields an int).
+    scale = _theme_js(out2 / "themey_e13")["scale"]
+    assert scale == 2 and isinstance(scale, int)
+
+
+# ---------------------------------------------------------------------------
+# --upscale quality (QML-backend-only)
+
+@needs_e13
+def test_convert_upscale_quality_qml(tmp_path):
+    from themey.pipeline import convert
+
+    out = tmp_path / "out"
+    convert(E13, scale=1.5, output_dir=out, backend="qml", upscale="quality")
+    imgs = list((out / "themey_e13" / "contents" / "images").glob("*.png"))
+    assert imgs
+
+
+@needs_e13
+@pytest.mark.parametrize("backend", ["svg", "both"])
+def test_convert_upscale_quality_rejected_for_svg(tmp_path, backend):
+    from themey.pipeline import convert
+
+    with pytest.raises(ValueError, match="upscale"):
+        convert(
+            E13, scale=2, output_dir=tmp_path / "o", backend=backend,
+            upscale="quality",
+        )
+
+
+@needs_e13
+def test_convert_rejects_unknown_upscale(tmp_path):
+    from themey.pipeline import convert
+
+    with pytest.raises(ValueError, match="upscale"):
+        convert(E13, scale=2, output_dir=tmp_path / "o", upscale="bicubic")

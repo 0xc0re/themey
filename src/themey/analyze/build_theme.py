@@ -62,7 +62,7 @@ def build_theme(
     name: str,
     display_name: str | None = None,
     author: str | None = None,
-    scale: int = 2,
+    scale: float = 2,
 ) -> Theme:
     """Compose AST + asset_root into a frozen Theme IR.
 

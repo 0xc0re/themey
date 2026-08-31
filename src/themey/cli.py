@@ -9,9 +9,10 @@ Subcommands:
     themey apply   <name> ...              point the live KWin at an installed theme
 
 Flags (convert):
-    --scale=N     1, 2 (default), or 3
+    --scale=N     in [1, 3]; fractional (e.g. 1.5) is QML-backend-only; default 2
     --output DIR  write the theme tree + report + preview under DIR instead
                   of installing to ~/.local/share (nothing outside DIR is touched)
+    --upscale M   part-art scaler: nearest (default) or quality (QML-only hqx)
     --no-open     do not launch the HTML preview in a browser
     -v / -vv      increase verbosity (DEBUG, default INFO)
     -q            quiet (WARNING+ only)
@@ -70,12 +71,15 @@ def convert_cmd(
         ),
     ],
     scale: Annotated[
-        int,
+        float,
         typer.Option(
             "--scale",
             min=1,
             max=3,
-            help="Border/image upscale factor (1/2/3; default 2)",
+            help=(
+                "Border/image upscale factor in [1, 3]; fractional values "
+                "(e.g. 1.5) are QML-backend-only (default 2)"
+            ),
         ),
     ] = 2,
     output: Annotated[
@@ -91,6 +95,16 @@ def convert_cmd(
         bool,
         typer.Option("--no-open", help="Do not open the HTML preview in a browser"),
     ] = False,
+    upscale: Annotated[
+        str,
+        typer.Option(
+            "--upscale",
+            help=(
+                "Part-art scaler: 'nearest' (default, pixel-art sharp) or "
+                "'quality' (hqx smoothing; QML-backend-only)"
+            ),
+        ),
+    ] = "nearest",
     backend: Annotated[
         str,
         typer.Option(
@@ -122,7 +136,10 @@ def convert_cmd(
     """Convert one .etheme to a Plasma 6 KWin window decoration."""
     log.setup_logging(verbose=verbose, quiet=quiet)
     try:
-        result = convert(theme, scale=scale, output_dir=output, backend=backend)
+        result = convert(
+            theme, scale=scale, output_dir=output, backend=backend,
+            upscale=upscale,
+        )
     except Exception as exc:
         logging.getLogger(__name__).error("conversion failed: %s", exc)
         raise typer.Exit(code=1) from exc
@@ -181,7 +198,11 @@ def render_cmd(
         bool,
         typer.Option("--maximized", help="Render the client window maximized"),
     ] = False,
-    scale: Annotated[int, typer.Option("--scale", min=1, max=3)] = 2,
+    scale: Annotated[float, typer.Option("--scale", min=1, max=3)] = 2,
+    upscale: Annotated[
+        str,
+        typer.Option("--upscale", help="'nearest' (default) or 'quality' (hqx)"),
+    ] = "nearest",
     verbose: Annotated[int, typer.Option("-v", "--verbose", count=True)] = 0,
 ) -> None:
     """Screenshot the theme inside a headless nested KWin (truth, not a mock)."""
@@ -196,6 +217,7 @@ def render_cmd(
             border_size=border_size,
             maximized=maximized,
             scale=scale,
+            upscale=upscale,
         )
     except render.RenderError as exc:
         logging.getLogger(__name__).error("render failed: %s", exc)

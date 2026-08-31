@@ -179,7 +179,7 @@ def _layout_values(theme: Theme) -> dict[str, str]:
     placement is honored. A note is appended to ``theme.notes`` when
     centering fires so ``report.txt`` documents the decision.
     """
-    s = theme.scale
+    s = int(theme.scale)  # SVG backend is integer-scale by contract
     thick = strip_thicknesses(theme)
     top, bot = thick["top"], thick["bottom"]
     lft, rgt = thick["left"], thick["right"]

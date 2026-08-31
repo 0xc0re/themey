@@ -23,14 +23,29 @@ doubles the inclusive "+1" and shifts every max-clamped part by
 (scale-1)/2 px (e13's KILL landed at (1,1) instead of (0,0)). The
 part-model geometry fields are therefore UNSCALED ref px; only
 display-only fields (insets, pixelSize, borders) are pre-scaled.
+
+Scale may be FRACTIONAL (e.g. 1.5). All ref→output conversion goes through
+``scale_px`` — floor(v*scale + 0.5), half-up in both implementations
+(Python ``round()`` is banker's, JS ``Math.round()`` is half-up; they
+disagree by 1 px on odd values at .5) — and the final multiply is
+EDGE-based: ``x_out = scale_px(x)``, ``w_out = scale_px(x+w) - x_out``,
+so parts adjacent in ref space stay seamless in output space. At integer
+scales this is arithmetically identical to ``v * scale``.
 """
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 
-RUNTIME_VERSION = 1
+RUNTIME_VERSION = 2
 
 _MAX_ORIGIN_DEPTH = 8
+
+
+def scale_px(v: float, scale: float) -> int:
+    """Ref px → output px: floor(v*scale + 0.5). Mirrors resolver.js
+    scalePx exactly — keep the two in lockstep."""
+    return math.floor(v * scale + 0.5)
 
 
 def part_geometry(
@@ -47,15 +62,22 @@ def part_geometry(
     px (no padding) for title part *i* — the runtime feeds it from a
     hidden ``Text``; tests feed constants.
     """
-    scale = int(data["scale"])
-    ref_w = round(frame_w / scale)
-    ref_h = round(frame_h / scale)
+    scale = float(data["scale"])
+    ref_w = math.floor(frame_w / scale + 0.5)
+    ref_h = math.floor(frame_h / scale + 0.5)
 
     def ref_title_width(i: int) -> int:
-        return -(-title_width(i) // scale)  # ceil division
+        return math.ceil(title_width(i) / scale)
 
     x, y, w, h = _geom_ref(data, index, ref_w, ref_h, ref_title_width, 0)
-    return (x * scale, y * scale, w * scale, h * scale)
+    x_out = scale_px(x, scale)
+    y_out = scale_px(y, scale)
+    return (
+        x_out,
+        y_out,
+        scale_px(x + w, scale) - x_out,
+        scale_px(y + h, scale) - y_out,
+    )
 
 
 def _geom_ref(
