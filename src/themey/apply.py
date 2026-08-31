@@ -602,11 +602,13 @@ def apply_full(
     ``X-Themey-FillMode: tiled``, :func:`_set_wallpaper_tiled` (Plasma's
     Image wallpaper plugin does not itself read fill-mode from the
     wallpaper package, and the apply tool has no tile token — see
-    :data:`_WALLPAPER_TILE_FILL_MODE_INT`) → every panel set to
-    fit-content (:func:`_set_panels_fit` — E16's iconbox/dragbar are
+    :data:`_WALLPAPER_TILE_FILL_MODE_INT`) → one ``qdbus`` reconfigure,
+    last. Every panel is set to fit-content just BEFORE the wallpaper
+    fix-up (:func:`_set_panels_fit` — E16's iconbox/dragbar are
     content-sized, and a full-width bar reads as Plasma, not E16; previous
-    modes recorded once in ``PrevPanelLengthModes``) → one ``qdbus``
-    reconfigure, last.
+    modes recorded once in ``PrevPanelLengthModes``): the wallpaper step
+    is the likeliest to raise, and a failed apply should still have
+    delivered the panel feel.
 
     ``name == "Breeze"`` (case-insensitive) is the one exception: Breeze
     has no Look-and-Feel bundle to verify or baseline to record — it is
@@ -685,6 +687,11 @@ def apply_full(
         keep_buttons=keep_buttons, backend="qml",
     )
 
+    # Panels BEFORE the wallpaper fix-up: plasma-apply-wallpaperimage is
+    # the most failure-prone external step here (a bad image/fill token
+    # raises), and the E16 panel feel must not be lost to it.
+    _set_panels_fit(kw, kr)
+
     wallpaper_id = _read_default_wallpaper_id(lnf_dir)
     if wallpaper_id is not None:
         wallpaper_dir = paths.wallpapers() / wallpaper_id
@@ -692,8 +699,6 @@ def apply_full(
             image = _wallpaper_image_path(wallpaper_dir)
             if image is not None:
                 _set_wallpaper_tiled(image)
-
-    _set_panels_fit(kw, kr)
 
     _reconfigure()
 
