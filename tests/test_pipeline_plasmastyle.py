@@ -22,7 +22,7 @@ ALIENS_EXPECTED_SVGS = {
     plasmastyle.VIEWITEM_SVG,
     plasmastyle.SCROLLBAR_SVG,
     plasmastyle.ARROWS_SVG,
-    plasmastyle.PAGER_SVG,  # Aliens ships wallpapers → pager minis
+    plasmastyle.PAGER_SVG,  # Aliens has PAGER_SEL/PAGER_BACKGROUND art
 }
 
 
@@ -76,23 +76,24 @@ def test_install_mode_deploys_style_to_xdg(fake_home):
     assert (expected / "colors").is_file()
 
 
-def test_no_wallpaper_theme_ships_no_pager(fake_home, tmp_path):
-    """OPENSTEP carries no backgrounds: the pager is left to the Breeze
-    fallback, while the panel tint still ships (it needs no art)."""
+def test_pager_ships_from_art_without_wallpapers(fake_home, tmp_path):
+    """OPENSTEP carries no backgrounds but does have PAGER_SEL art — the
+    pager is pure theme art now (no baked wallpaper minis), so it ships
+    regardless of wallpapers."""
     out = tmp_path / "out"
     result = convert(
         FIXTURES / "OPENSTEP.etheme", scale=2, backend="qml", output_dir=out
     )
     style_dir = out / "desktoptheme" / plugin_id("OPENSTEP")
     assert result.desktop_theme_dir == style_dir
-    assert not (style_dir / plasmastyle.PAGER_SVG).exists()
+    assert (style_dir / plasmastyle.PAGER_SVG).is_file()
     assert (style_dir / plasmastyle.PANEL_SVG).is_file()
 
 
 def test_style_failure_is_non_fatal_with_note(fake_home, tmp_path, monkeypatch):
     from themey import pipeline
 
-    def boom(theme, out_dir, **kwargs):
+    def boom(theme, out_dir):
         raise plastyle_err
 
     plastyle_err = plasmastyle.PlasmaStyleError("style exploded")
