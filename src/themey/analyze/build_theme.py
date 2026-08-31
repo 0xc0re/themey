@@ -121,7 +121,7 @@ def build_theme(
     iclass_blocks = _collect_blocks(ast_nodes, "__ICLASS")
     iclasses, raw_states = build_iclasses(iclass_blocks, asset_root)
 
-    # Per resolved storage policy (Plan 01-05 revision iter 1): iclasses.py
+    # Per the storage policy in iclasses.py's module docstring: iclasses.py
     # stores resolved paths unconditionally; build_theme logs missing-asset notes.
     for ic_name, state_map in raw_states.items():
         for state_key, path in state_map.items():
@@ -182,11 +182,11 @@ def build_theme(
 
     # Resolve titlebar bounds first (needed for spatial fallback tier-3).
     #
-    # Canonical E16 grammar (Section 6 / wilbs parse-cfg.ts:212): the title-
-    # bearing part is the one flagged ``__FLAGS __FLAG_TITLE``. Any iclass
-    # name is permitted (Aliens: TITLE_BAR_HORIZONTAL, e13: TITLEBAR). The
-    # previous substring heuristic ``"TITLE_BAR" in iclass_name`` missed
-    # e13's bareword TITLEBAR and left the bounds at the inversion sentinel.
+    # Canonical E16 grammar: the title-bearing part is the one flagged
+    # ``__FLAGS __FLAG_TITLE``. Any iclass name is permitted (Aliens:
+    # TITLE_BAR_HORIZONTAL, e13: TITLEBAR). The previous substring heuristic
+    # ``"TITLE_BAR" in iclass_name`` missed e13's bareword TITLEBAR and left
+    # the bounds at the inversion sentinel.
     titlebar_min_x: int = REFERENCE_WINDOW_WIDTH
     titlebar_max_x: int = 0
 

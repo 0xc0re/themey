@@ -31,7 +31,7 @@ def test_build_iclass_edge_scaling_lrtb(tmp_path: Path) -> None:
         "X",
         _kv("__EDGE_SCALING", 1, 2, 3, 4),
     )
-    typed, raw = build_iclasses([block], tmp_path)
+    typed, _raw = build_iclasses([block], tmp_path)
     assert "X" in typed
     assert typed["X"].edge_scaling == (1, 2, 3, 4)
 
@@ -51,7 +51,7 @@ def test_build_iclass_edge_scaling_default_zero(tmp_path: Path) -> None:
 def test_build_iclass_state_paths_stored_unconditionally(tmp_path: Path) -> None:
     """Paths are stored even when the file doesn't exist on disk.
 
-    RESOLVED POLICY (Plan 01-05 revision iter 1): iclasses.py stores the
+    RESOLVED POLICY (see ``analyze/iclasses.py``): iclasses.py stores the
     resolved Path unconditionally; never None for missing files. Callers
     check .is_file() themselves. build_theme appends a missing-asset note
     when the file does not exist on disk.
@@ -118,7 +118,7 @@ def test_build_iclass_raw_state_map_shape(tmp_path: Path) -> None:
         _kv("__NORMAL_ACTIVE", "na.png"),
         _kv("__NORMAL_STICKY", "ns.png"),
     )
-    typed, raw = build_iclasses([block], tmp_path)
+    _typed, raw = build_iclasses([block], tmp_path)
     # raw map should contain all declared state keywords
     assert "X" in raw
     state_map = raw["X"]
@@ -126,7 +126,7 @@ def test_build_iclass_raw_state_map_shape(tmp_path: Path) -> None:
     assert "__NORMAL_ACTIVE" in state_map
     assert "__NORMAL_STICKY" in state_map
     # values are Path objects (resolved)
-    for key, path in state_map.items():
+    for _key, path in state_map.items():
         if path is not None:
             assert isinstance(path, Path)
 
@@ -162,7 +162,7 @@ def test_build_iclass_path_traversal_rejected(tmp_path: Path) -> None:
         "X",
         _kv("__NORMAL", "../../../etc/passwd"),
     )
-    typed, raw = build_iclasses([block], tmp_path)
+    typed, _raw = build_iclasses([block], tmp_path)
     ic = typed["X"]
     # Path traversal attempt: result must be None (treated as missing-asset)
     assert ic.normal is None

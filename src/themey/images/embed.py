@@ -1,6 +1,6 @@
 """Embed PNG bytes as SVG-compatible base64 data URI.
 
-AURORAE-03 / Pitfall 6: every <image> element in decoration.svg must use
+AURORAE-03: every <image> element in decoration.svg must use
 `data:image/png;base64,...` — relative paths fail to resolve after the SVG
 is installed to a different directory.
 """

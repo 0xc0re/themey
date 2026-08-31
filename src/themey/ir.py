@@ -159,7 +159,7 @@ class ButtonPart:
     tl_origin: int = -1
     br_origin: int = -1
     # __FLAGS tokens verbatim (e.g. ("__FLAG_TITLE",) or ("__FLAG_MINIICON",)).
-    # Per E16 grammar Section 6 / wilbs parse-cfg.ts:212-227, __FLAGS is a
+    # Per the E16 config grammar, __FLAGS is a
     # whitespace-separated list of tokens. We retain ordering so consumers can
     # use simple membership tests.
     flags: tuple[str, ...] = ()
@@ -180,7 +180,7 @@ class ButtonPart:
 class BorderSpec:
     """One E16 border definition (DEFAULT, BORDERLESS, DIALOG, …)."""
 
-    name: str  # "DEFAULT" only in Phase 1; others SKIPPED
+    name: str  # "DEFAULT" in practice; other borders are SKIPPED
     border_size_left: int
     border_size_right: int
     border_size_top: int

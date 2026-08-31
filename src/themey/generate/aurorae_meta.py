@@ -1,6 +1,6 @@
 """Aurorae metadata.desktop + metadata.json writers.
 
-Emits BOTH files per 01-RESEARCH.md recommendation A8:
+Emits BOTH files:
 - ``metadata.desktop`` — legacy KF5-compatible plugin descriptor
 - ``metadata.json``    — KF6-native JSON plugin descriptor
 

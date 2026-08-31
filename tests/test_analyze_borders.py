@@ -159,7 +159,7 @@ def test_extract_button_parts_flags_default_empty_when_absent() -> None:
 def test_extract_button_parts_flags_parsed_verbatim() -> None:
     """__FLAGS values (space-separated tokens) round-trip verbatim into flags tuple.
 
-    Per wilbs parse-cfg.ts:212-227 and e16-reference.md Section 6, __FLAGS is a
+    Per the E16 config grammar, __FLAGS is a
     space-separated list of tokens like __FLAG_TITLE, __FLAG_MINIICON. We keep
     all tokens; consumers test by membership.
     """

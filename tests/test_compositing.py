@@ -504,7 +504,7 @@ def test_button_dims_caps_oversized_spatial_fallback() -> None:
     1472 px wide, which KWin cannot fit on a real title bar.
     """
     from themey.generate.composite import REFERENCE_W, button_dims
-    from themey.ir import BorderSpec, ButtonPart, IClassSpec, Palette, Theme
+    from themey.ir import BorderSpec, ButtonPart, Palette, Theme
 
     # One real button (close, 16x16) plus one bogus spatial-fallback part
     # that spans 0..799 (full width).

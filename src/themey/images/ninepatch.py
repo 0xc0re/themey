@@ -1,6 +1,6 @@
 """9-patch slice primitive driven by __EDGE_SCALING values.
 
-Field order is L R T B (Pitfall 1, verified against E16 iclass.c:
+Field order is L R T B (verified against E16 iclass.c:
 ``sscanf("%i %i %i %i", &l, &r, &t, &b)`` and the
 ``EImageBorder { left, right, top, bottom }`` struct in eimage.h).
 

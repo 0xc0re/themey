@@ -78,5 +78,5 @@ def themey_previews() -> Path:
 
 
 def themey_reports() -> Path:
-    # Phase 1 ships report.txt next to preview html
+    # report.txt lives next to the preview html
     return _xdg_data_home() / "themey" / "previews"

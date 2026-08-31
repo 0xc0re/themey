@@ -104,7 +104,7 @@ def _live_review(theme_name: str, library: str = "org.kde.kwin.aurorae") -> Path
         _apply_aurorae_theme(theme_name, library)
         # KWin needs a beat to reconfigure and repaint.
         time.sleep(1.5)
-        print(f"Capturing screenshot ...", file=sys.stderr)
+        print("Capturing screenshot ...", file=sys.stderr)
         if not _capture_screenshot(out):
             raise SystemExit(
                 "screenshot tools (spectacle/grim/scrot) all failed — install one"

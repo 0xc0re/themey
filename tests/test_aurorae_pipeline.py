@@ -1,8 +1,8 @@
 """End-to-end Aurorae generator tests.
 
-Task 3: Synthetic-theme smoke test + Aliens canary integration test.
+Synthetic-theme smoke test + Aliens canary integration test.
 
-The Aliens canary is the headline assertion for Phase 1: extract Aliens.etheme,
+The Aliens canary is the headline assertion: extract Aliens.etheme,
 parse_tree, build_theme -> Theme; call generate.aurorae.write(theme, out_dir)
 and assert the full 18-ID FrameSvg contract, rc key/value correctness, and
 metadata file correctness.

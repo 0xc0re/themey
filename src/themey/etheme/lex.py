@@ -6,7 +6,7 @@ Recognized tokens:
   NUMBER      — signed integers; floats are not used in E16 cfg.
                 Regex: -?[0-9]+
   STRING      — double-quoted; no escape sequences in E16 source (verified
-                against wilbs reference and E16 1.0.31 source).
+                against the E16 1.0.31 source).
                 Regex: "([^"]*)"   (value stored without surrounding quotes)
   INCLUDE     — '#include' keyword token (not a comment — lexer checks literal
                 'include' before entering the # comment path)

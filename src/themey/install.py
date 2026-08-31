@@ -16,8 +16,7 @@ Note on cross-filesystem moves: source_dir SHOULD be created under the
 same XDG_DATA_HOME tree (e.g. via paths.staging_dir()) so os.replace
 can rename atomically. If source_dir is on a different filesystem,
 os.replace raises OSError: [Errno 18] Invalid cross-device link — the
-caller is responsible for staging to the right location. See assumptions
-in 01-08-PLAN.md for rationale.
+caller is responsible for staging to the right location.
 """
 from __future__ import annotations
 

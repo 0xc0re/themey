@@ -1,12 +1,13 @@
 """Top-level Aurorae generator orchestrator.
 
 Calls the four sub-generators in order:
-  1. ``decoration.svg``         — 9-patch FrameSvg with 36 IDs (Pitfall 5)
+  1. ``decoration.svg``         — 9-patch FrameSvg, 36 IDs (see
+                                  ``REQUIRED_FRAMESVG_IDS`` below)
   2. ``<name>rc``               — INI [General] + [Layout]
-  3. ``metadata.desktop`` / ``metadata.json``  — both, per RESEARCH A8
+  3. ``metadata.desktop`` / ``metadata.json``  — both, for KF5 and KF6
   4. per-button SVGs            — close, maximize, restore, minimize, etc.
 
-This is the single-import contract for Plan 09 (CLI pipeline)::
+This is the single-import contract for the CLI pipeline::
 
     from themey.generate.aurorae import write as write_aurorae
 """
@@ -27,7 +28,7 @@ _SIDES = (
     "bottomleft", "bottom", "bottomright",
 )
 
-# 36 FrameSvg IDs verbatim — Pitfall 5.
+# 36 FrameSvg IDs verbatim.
 # Aurorae's FrameSvg renderer matches by literal id with ``decoration-`` prefix.
 # 9 x {active, inactive, maximized, maximized-inactive}. Without the
 # maximized groups Aurorae renders a blank title bar on maximized windows.

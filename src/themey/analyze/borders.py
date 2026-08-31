@@ -1,6 +1,7 @@
 """AST __BORDER block → BorderSpec + ButtonPart extraction.
 
-DEFAULT-only selection per CLAUDE.md / WILBS-REFERENCE.md Section 6.
+DEFAULT-only selection per CLAUDE.md: E16 themes ship many __BORDER blocks
+(BORDERLESS, DIALOG, MENU, ...) but Aurorae has only one window decoration.
 """
 from __future__ import annotations
 

@@ -21,7 +21,10 @@ Flags (convert):
     -v / -vv      increase verbosity (DEBUG, default INFO)
     -q            quiet (WARNING+ only)
 
-Batch form (themey --all <dir>) is Phase 4 and intentionally not exposed.
+Group flags:
+    --version     print themey.__version__ and exit 0
+
+Batch form (themey --all <dir>) is unbuilt and intentionally not exposed.
 """
 from __future__ import annotations
 
@@ -33,20 +36,27 @@ import click
 import typer
 import typer.core
 
-from . import external, log
+from . import __version__, external, log
 from .pipeline import convert
+
+#: Lone flags that belong to the group itself, not to the implicit
+#: ``convert``. Without this exemption ``_DefaultConvertGroup`` would rewrite
+#: ``themey --version`` into ``themey convert --version``, which has no such
+#: option.
+_GROUP_ONLY_FLAGS = ("--help", "-h", "--version")
 
 
 class _DefaultConvertGroup(typer.core.TyperGroup):
     """Click group that routes ``themey foo.etheme`` to ``themey convert``.
 
     If none of the argv tokens name a registered subcommand, ``convert`` is
-    prepended so the historical single-argument form keeps working.
+    prepended so the historical single-argument form keeps working — except
+    for the group's own lone flags (:data:`_GROUP_ONLY_FLAGS`).
     """
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
         if args and not any(a in self.commands for a in args):
-            if not (len(args) == 1 and args[0] in ("--help", "-h")):
+            if not (len(args) == 1 and args[0] in _GROUP_ONLY_FLAGS):
                 args = ["convert", *args]
         return super().parse_args(ctx, args)
 
@@ -61,6 +71,29 @@ app = typer.Typer(
         "(--scale, --output, --no-open live there)."
     ),
 )
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(__version__)
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=_version_callback,
+            is_eager=True,
+            help="Show the themey version and exit",
+        ),
+    ] = False,
+) -> None:
+    """Group-level options. Eager ``--version`` exits before any subcommand
+    runs; see ``_GROUP_ONLY_FLAGS`` for why it also has to bypass the
+    implicit-``convert`` rewrite."""
 
 
 @app.command("convert")
@@ -256,12 +289,28 @@ def render_cmd(
         bool,
         typer.Option("--maximized", help="Render the client window maximized"),
     ] = False,
-    scale: Annotated[float, typer.Option("--scale", min=1, max=3)] = 2,
+    scale: Annotated[
+        float,
+        typer.Option(
+            "--scale",
+            min=1,
+            max=3,
+            help="Border/image upscale factor in [1, 3]; fractional needs --plugin qml",
+        ),
+    ] = 2,
     upscale: Annotated[
         str,
         typer.Option("--upscale", help="'nearest' (default) or 'quality' (hqx)"),
     ] = "nearest",
-    verbose: Annotated[int, typer.Option("-v", "--verbose", count=True)] = 0,
+    verbose: Annotated[
+        int,
+        typer.Option(
+            "-v",
+            "--verbose",
+            count=True,
+            help="Increase verbosity (use -v for DEBUG)",
+        ),
+    ] = 0,
 ) -> None:
     """Screenshot the theme inside a headless nested KWin (truth, not a mock)."""
     from . import render

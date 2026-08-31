@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # xcursorgen lives in x11-apps (verified: `dpkg -S /usr/bin/xcursorgen`
+      # -> x11-apps). Installing it means the cursor-generation tests actually
+      # run instead of taking external.xcursorgen_available()'s graceful skip.
+      #
+      # Not installed, and deliberately so: qmllint and kwin_wayland. The
+      # QML-lint and nested-KWin render tests are already guarded and will skip
+      # in CI. A headless nested compositor is not something to fight a runner
+      # over — `themey render` stays a local verification tool.
+      - name: Install xcursorgen
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends x11-apps
+          command -v xcursorgen
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Tests
+        run: uv run pytest -q
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Type check
+        run: uv run pyright src

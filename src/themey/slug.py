@@ -3,7 +3,7 @@
 Reduces to [A-Za-z0-9_-]+; rejects names that resolve to empty or all-dots.
 
 Theme names come from archive filenames; cfg-content ``__NAME`` blocks must
-NEVER reach output paths (per Pitfall security note T-08-01).
+NEVER reach output paths.
 """
 from __future__ import annotations
 

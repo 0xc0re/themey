@@ -1,10 +1,10 @@
 """AST __ICLASS blocks → IClassSpec dict + raw state map for AURORAE-04 collapse.
 
-EDGE_SCALING order is L R T B (verified in iclass.c sscanf order; see Pitfall 1
-in 01-RESEARCH.md). The four values in __EDGE_SCALING map to indices 0..3 as
-(left, right, top, bottom).
+EDGE_SCALING order is L R T B (verified in E16's iclass.c sscanf order).
+The four values in __EDGE_SCALING map to indices 0..3 as (left, right,
+top, bottom).
 
-Storage policy (RESOLVED in Plan 01-05 revision iteration 1):
+Storage policy:
     iclasses.py stores the resolved Path unconditionally — never None for
     missing files. build_theme.py is responsible for appending a missing-asset
     Theme.notes entry when not path.is_file(). This module ONLY computes paths;
@@ -84,7 +84,7 @@ def build_iclasses(
         name = _block_name(block)
         if name is None:
             continue
-        edge = (0, 0, 0, 0)  # left, right, top, bottom — LRTB order per Pitfall 1
+        edge = (0, 0, 0, 0)  # left, right, top, bottom — LRTB order per E16 iclass.c
         padding = (0, 0, 0, 0)
         states: dict[str, Path | None] = {}
 

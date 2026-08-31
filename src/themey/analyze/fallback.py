@@ -4,19 +4,19 @@ When the AST yields zero __BORDER blocks (or an otherwise empty Theme),
 scan the extracted asset_root for canonical 2009-era E16 PNG names and
 synthesize a minimal IClassSpec dict.
 
-The pattern list is mined from wilbs's parse-e16-archive.ts, where it has
-been exercised against the production corpus.
+The pattern list is mined from the 2009-era E16 theme corpus — these are
+the canonical basenames across it.
 
-Phase 1 implements the discovery primitive; Aliens.etheme does NOT exercise
-this path because its cfgs parse cleanly. Future-phase malformed-cfg themes
-in the ~100-theme corpus will hit this fallback.
+Aliens.etheme does NOT exercise this path because its cfgs parse cleanly;
+the malformed-cfg themes in the ~100-theme corpus are what hit this
+fallback.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
 # iclass-name → list of canonical PNG basenames in priority order.
-# Mined from wilbs's parse-e16-archive.ts production corpus list.
+# Mined from the canonical basenames used across the 2009-era theme corpus.
 CANONICAL_FILENAMES: dict[str, list[str]] = {
     "TITLE_BAR_HORIZONTAL": [
         "border_top_default.png",

@@ -84,7 +84,13 @@ def test_aurorae_rc_maximized_layout_keys(tmp_path: Path) -> None:
     theme = _make_minimal_theme(left_buttons="XAI", right_buttons="")
     cp = _read_rc(write_aurorae_rc(theme, tmp_path))
     L = cp["Layout"]
-    for k in ("TitleEdgeTop", "TitleEdgeBottom", "TitleEdgeLeft", "TitleEdgeRight", "ButtonMarginTop"):
+    for k in (
+        "TitleEdgeTop",
+        "TitleEdgeBottom",
+        "TitleEdgeLeft",
+        "TitleEdgeRight",
+        "ButtonMarginTop",
+    ):
         assert L[f"{k}Maximized"] == L[k]
 
 

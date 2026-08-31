@@ -35,7 +35,7 @@ logged as a warning (and appended to ``parse_tree``'s optional ``notes``):
   E16's flat parser. E16 grammar never legitimately nests a block kind
   inside itself.
 
-Grammar (from 01-RESEARCH.md Pattern 1):
+Grammar:
 
     file     := (toplevel)*
     toplevel := include | block | top_kv
@@ -46,7 +46,7 @@ Grammar (from 01-RESEARCH.md Pattern 1):
     keyword  := IDENT
     value    := IDENT | NUMBER | STRING
 
-Security mitigations (T-03-01, T-03-02 from plan threat model):
+Security mitigations:
 - T-03-01: include resolution rejects any candidate whose resolved path does
   not start with the resolved ``asset_root`` prefix.
 - T-03-02: ``seen: set[Path]`` guards re-entry so recursive ``#include``
@@ -359,7 +359,7 @@ def _preprocess(
 class _Parser:
     """Token-stream consumer for the E16 cfg grammar.
 
-    Implements the BNF from 01-RESEARCH.md Pattern 1, with the E16-faithful
+    Implements the BNF in the module docstring, with the E16-faithful
     leniency rules from the module docstring.
     """
 

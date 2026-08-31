@@ -1,10 +1,10 @@
 """Three-tier button binning: __ACLASS first -> __ICLASS pattern -> spatial.
 
-Wilbs's gap-matrix post-mortem (e16-architecture-and-gap-matrix.md):
-throwing away __ACLASS and faking actions by iclass-name pattern shipped a
-buttons-fire-resize bug. We capture __ACLASS at parse time and prefer it
-over name patterns. Spatial center-of-mass is the LAST resort, used only
-when both aclass and iclass-pattern fail to identify the button.
+A prior E16-to-desktop converter's post-mortem: throwing away __ACLASS and
+faking actions by iclass-name pattern shipped a buttons-fire-resize bug.
+We capture __ACLASS at parse time and prefer it over name patterns.
+Spatial center-of-mass is the LAST resort, used only when both aclass and
+iclass-pattern fail to identify the button.
 """
 from __future__ import annotations
 
@@ -119,9 +119,9 @@ def classify_button(
 def title_part(parts: tuple[ButtonPart, ...]) -> ButtonPart | None:
     """Return the canonical title-bearing part, identified by __FLAG_TITLE.
 
-    Per E16 grammar Section 6 and wilbs parse-cfg.ts:212-213, the title
-    region is marked semantically — *any* iclass name is permitted (e.g.
-    Aliens uses TITLE_BAR_HORIZONTAL, e13 uses TITLEBAR without underscore).
+    Per the E16 config grammar, the title region is marked semantically —
+    *any* iclass name is permitted (e.g. Aliens uses TITLE_BAR_HORIZONTAL,
+    e13 uses TITLEBAR without underscore).
     Name-pattern matching is unreliable; this flag is canonical.
 
     Returns the first part with __FLAG_TITLE in its flags tuple, or None.

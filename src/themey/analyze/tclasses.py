@@ -107,9 +107,9 @@ def _raw_justification(value: object) -> int | None:
 def build_tclasses(tclass_blocks: list[Block]) -> dict[str, TClassSpec]:
     """Convert __TCLASS blocks to a TClassSpec dict keyed by tclass name.
 
-    Only ``fg_normal`` (from ``__NORMAL`` state) and ``fg_active`` (from
-    ``__NORMAL_ACTIVE`` state) are surfaced on TClassSpec for Phase 1.
-    Other states are silently skipped (no Aurorae target for them).
+    Only ``__NORMAL`` (→ ``fg_normal``) and ``__NORMAL_ACTIVE``
+    (→ ``fg_active``) contribute colors; other states' colors are silently
+    skipped (no Aurorae target for them).
     """
     out: dict[str, TClassSpec] = {}
     for block in tclass_blocks:

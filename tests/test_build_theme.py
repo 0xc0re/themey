@@ -2,9 +2,9 @@
 
 Includes:
 - Synthetic-AST unit tests for the orchestration logic
-- Aliens.etheme integration test (the headline canary assertion for Plan 01-05)
+- Aliens.etheme integration test (the headline canary assertion for analyze)
 
-Aliens canary expected outputs (from 01-RESEARCH.md):
+Aliens canary expected outputs (read from the fixture's own cfgs):
   left_buttons == 'XAI', right_buttons == ''
   border_size_left == 35, border_size_right == 20,
   border_size_top == 30, border_size_bottom == 25
@@ -191,7 +191,11 @@ def test_build_theme_logs_spatial_fallback_assigned(tmp_path: Path) -> None:
     # For left of titlebar, it's binned but the classify_button still returns (None, 'spatial')
     # since BUTTON_FOO doesn't match aclass or iclass pattern
     # Let's verify the note contains "spatial fallback" for the assignment
-    spatial_notes = [n for n in theme.notes if "spatial fallback" in n.lower() or "spatial" in n.lower()]
+    spatial_notes = [
+        n
+        for n in theme.notes
+        if "spatial fallback" in n.lower() or "spatial" in n.lower()
+    ]
     assert len(spatial_notes) >= 1, f"Expected spatial note, got notes: {theme.notes}"
 
 
@@ -236,7 +240,7 @@ def test_build_theme_button_codes_via_aclass(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Aliens canary integration test — headline assertion for Plan 01-05
+# Aliens canary integration test — headline assertion for analyze
 # ---------------------------------------------------------------------------
 
 
@@ -254,7 +258,8 @@ def aliens_asset_root():  # type: ignore[return]
 def test_build_theme_aliens_canary(aliens_asset_root: tuple[Path, list]) -> None:  # type: ignore[type-arg]
     """End-to-end Aliens.etheme canary — verifies the complete analyze pipeline.
 
-    Source of truth (01-RESEARCH.md line 812 + Pitfall 8):
+    Source of truth — the fixture's own borders/default.cfg and
+    imageclasses/borders.cfg, read byte-for-byte:
     - border: DEFAULT, L=35 R=20 T=30 B=25, >=8 parts
     - iclasses include: TITLE_BAR_HORIZONTAL, BUTTON_KILL, BUTTON_MAXIMIZE, BUTTON_ICONIFY
     - TEXT1: fg_active=(255,255,200), fg_normal=(200,200,150) (honors __FORGROUND_COLOR)
@@ -270,7 +275,7 @@ def test_build_theme_aliens_canary(aliens_asset_root: tuple[Path, list]) -> None
     assert theme.display_name == "Aliens"
     assert theme.author is None
 
-    # Border structure (from 01-RESEARCH.md line 812)
+    # Border structure (from borders/default.cfg __BORDER_SIZE_*)
     assert theme.border.name == "DEFAULT"
     assert theme.border.border_size_left == 35
     assert theme.border.border_size_right == 20
@@ -286,7 +291,7 @@ def test_build_theme_aliens_canary(aliens_asset_root: tuple[Path, list]) -> None
     assert "ACTION_MAX" in aclasses, f"Expected ACTION_MAX in parts, got: {aclasses}"
     assert "ACTION_ICONIFY" in aclasses, f"Expected ACTION_ICONIFY in parts, got: {aclasses}"
 
-    # IClasses (from 01-RESEARCH.md imageclasses canary)
+    # IClasses (from imageclasses/borders.cfg)
     assert "TITLE_BAR_HORIZONTAL" in theme.iclasses
     assert "BUTTON_KILL" in theme.iclasses
     assert "BUTTON_MAXIMIZE" in theme.iclasses
@@ -296,7 +301,7 @@ def test_build_theme_aliens_canary(aliens_asset_root: tuple[Path, list]) -> None
     assert isinstance(tb_edge, tuple) and len(tb_edge) == 4
     assert all(isinstance(v, int) for v in tb_edge)
 
-    # TClasses TEXT1 (from 01-RESEARCH.md Pitfall 8 — __FORGROUND_COLOR misspelling)
+    # TClasses TEXT1 (E16's own __FORGROUND_COLOR misspelling)
     assert "TEXT1" in theme.tclasses, (
         f"Expected TEXT1 in tclasses, got keys: {list(theme.tclasses.keys())}"
     )

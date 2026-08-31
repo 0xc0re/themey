@@ -1,4 +1,4 @@
-"""Phase 4 — apply + render wiring for the QML decoration backend.
+"""Apply + render wiring for the QML decoration backend.
 
 QML applies write library=org.kde.kwin.aurorae + the raw package id as
 theme=, and MUST NOT touch ButtonsOnLeft/Right or BorderSize (the theme

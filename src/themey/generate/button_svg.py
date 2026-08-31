@@ -22,7 +22,7 @@ checks succeed:
 group falls back to ``imagePath: ""`` and the button is hidden.)
 
 Every ``<image>`` uses ``xlink:href="data:image/png;base64,..."`` and
-``preserveAspectRatio="none"`` (same Pitfall 6 rules as decoration.svg).
+``preserveAspectRatio="none"`` (same data-URI rules as decoration.svg).
 """
 from __future__ import annotations
 

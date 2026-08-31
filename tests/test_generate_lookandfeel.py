@@ -1,7 +1,7 @@
 """Tests for themey.generate.lookandfeel — the Plasma Global Theme bundle writer.
 
-Format census (byte-verified against an installed Look-and-Feel package,
-see shared-context.md): metadata.json is Plasma/LookAndFeel with
+Format census (byte-verified against an installed Look-and-Feel
+package): metadata.json is Plasma/LookAndFeel with
 KPlugin.Id == dirname; contents/defaults carries double-bracket sections,
 each conditional on its artifact actually existing, in the order
 kdeglobals/kcminputrc/Wallpaper/kwinrc.

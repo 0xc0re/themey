@@ -6,7 +6,7 @@
   - xdg-open is not on PATH
 
 Uses subprocess.Popen (NOT run/check_call) so the browser launch does not
-block the CLI from returning (per must_have truth in 01-08-PLAN.md).
+block the CLI from returning.
 
 **xcursorgen** (XCursor binary assembly, xorg-xcursorgen package). Unlike
 xdg-open this one is load-bearing — there is no pure-Python XCursor writer

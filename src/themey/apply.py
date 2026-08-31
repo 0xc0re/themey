@@ -107,15 +107,16 @@ def _which(*names: str) -> str:
 
 
 def _cfg_write(kw: str, file: str, group: str, key: str, value: str) -> None:
-    subprocess.run(
-        [kw, "--file", file, "--group", group, "--key", key, value], check=True
+    _run_checked(
+        [kw, "--file", file, "--group", group, "--key", key, value],
+        f"writing {file} [{group}] {key}",
     )
 
 
 def _cfg_delete(kw: str, file: str, group: str, key: str) -> None:
-    subprocess.run(
+    _run_checked(
         [kw, "--file", file, "--group", group, "--key", key, "--delete"],
-        check=True,
+        f"deleting {file} [{group}] {key}",
     )
 
 
@@ -499,9 +500,12 @@ def _run_checked(argv: list[str], what: str) -> None:
     ``subprocess.CalledProcessError`` escape as an unhandled traceback —
     the same external-tool-failure shape as ``external.run_xcursorgen``.
 
-    Used for the two ``plasma-apply-*`` calls, which are far likelier to
-    fail (a stale/uninstalled package id, a bad fill-mode token) than the
-    ``kwriteconfig6``/``kreadconfig6`` calls elsewhere in this module.
+    Every external write in this module funnels through here: the two
+    ``plasma-apply-*`` calls (likeliest to fail — a stale/uninstalled
+    package id, a bad fill-mode token) and the ``kwriteconfig6`` writes and
+    deletes behind ``_cfg_write`` / ``_cfg_delete``. ``cli.py``'s apply
+    handler catches only :class:`ApplyError`, so anything that escapes as a
+    raw ``CalledProcessError`` reaches the user as a traceback.
     """
     proc = subprocess.run(argv, capture_output=True, text=True)
     if proc.returncode != 0:

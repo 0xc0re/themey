@@ -1,4 +1,4 @@
-"""report.txt scaffold (Phase 1 — Phase 2 fills full semantics).
+"""report.txt writer.
 
 Four sections (per REPORT-01):
   - Preserved: what mapped 1:1 from E16 to KDE
@@ -6,9 +6,7 @@ Four sections (per REPORT-01):
   - Skipped: what we couldn't convert and why (e.g. non-DEFAULT borders)
   - Apply: how to make KWin actually show the borders (v2 clamp caveat)
 
-Hard limit ~50 lines (per UX Pitfalls in PITFALLS.md). Phase 1 ships the
-scaffold; Phase 2 fills the full Preserved/Approximated/Skipped semantics
-for color and wallpaper.
+Hard limit ~50 lines.
 """
 from __future__ import annotations
 

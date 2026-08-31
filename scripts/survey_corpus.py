@@ -87,7 +87,7 @@ def survey_one(etheme: Path, out: Path, do_render: bool) -> Result:
         try:
             render(str(etheme), out=png)
             res.render = f"renders/{name}.png"
-        except (RenderError, Exception) as exc:  # noqa: BLE001 — bucket everything
+        except (RenderError, Exception) as exc:  # bucket everything
             res.status = "render-error"
             res.error = f"{type(exc).__name__}: {exc}"
             res.error_class = type(exc).__name__

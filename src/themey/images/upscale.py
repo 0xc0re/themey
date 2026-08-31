@@ -1,9 +1,8 @@
 """Upscale primitives for pixel-art E16 border PNGs.
 
-Borders use NEAREST resampling by default (Pitfall 12 / Anti-Pattern in
-01-RESEARCH.md). Pixel-art at 13-30 px source resolution must stay sharp
-at 2x/3x; bilinear resampling blurs corners and produces visible scaling
-seams.
+Borders use NEAREST resampling by default. Pixel-art at 13-30 px source
+resolution must stay sharp at 2x/3x; bilinear resampling blurs corners and
+produces visible scaling seams.
 
 ``upscale_part`` is the QML backend's entry point: it targets
 ``(scale_px(w), scale_px(h))`` — the SAME rounding the geometry resolver
@@ -14,7 +13,9 @@ there go hqx(ceil(scale)) then LANCZOS *down* to target. That LANCZOS
 call is the ONLY permitted one under src/themey/images/ — it downsamples
 already-smoothed hqx output, never raw pixel art (CLAUDE.md carve-out).
 
-Phase 2 wallpaper module uses a separate file with photographic resampling.
+Wallpapers never come through here: ``generate/wallpaper.py`` copies them
+at their real dimensions, and the one photographic LANCZOS in the tree is
+``lookandfeel.write_preview``'s thumbnail.
 """
 from __future__ import annotations
 

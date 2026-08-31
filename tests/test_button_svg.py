@@ -16,7 +16,12 @@ def _make_tiny_png(tmp_path: Path, name: str = "btn.png") -> Path:
     return p
 
 
-def _make_theme(tmp_path: Path, button_codes: dict[str, str], left_buttons: str = "", right_buttons: str = ""):
+def _make_theme(
+    tmp_path: Path,
+    button_codes: dict[str, str],
+    left_buttons: str = "",
+    right_buttons: str = "",
+):
     from themey.ir import BorderSpec, IClassSpec, Palette, Theme
 
     png = _make_tiny_png(tmp_path)
@@ -74,10 +79,10 @@ def test_button_svg_close_written_when_X_in_codes(tmp_path: Path) -> None:
     theme = _make_theme(
         tmp_path, {"BUTTON_CLOSE": "X"}, left_buttons="X"
     )
-    written = write_button_svgs(theme, tmp_path / "out")
-    (tmp_path / "out").mkdir(exist_ok=True)
-    written = write_button_svgs(theme, tmp_path / "out")
-    assert (tmp_path / "out" / "close.svg").is_file()
+    out = tmp_path / "out"
+    out.mkdir(exist_ok=True)
+    write_button_svgs(theme, out)
+    assert (out / "close.svg").is_file()
 
 
 def test_button_svg_maximize_and_restore_when_A_in_codes(tmp_path: Path) -> None:
@@ -162,8 +167,8 @@ def test_button_svg_uses_framesvg_prefixes(tmp_path: Path) -> None:
     assert "pressed-center" in ids, f"missing pressed-center prefix; ids={ids}"
     # Bare IDs (close, close-hover, close-pressed) match no FrameSvg prefix.
     assert "close" not in ids, f"bare id 'close' must not appear; ids={ids}"
-    assert "close-hover" not in ids, f"legacy id 'close-hover' must not appear"
-    assert "close-pressed" not in ids, f"legacy id 'close-pressed' must not appear"
+    assert "close-hover" not in ids, "legacy id 'close-hover' must not appear"
+    assert "close-pressed" not in ids, "legacy id 'close-pressed' must not appear"
 
 
 def test_button_svg_each_has_hover_and_pressed_subelements(tmp_path: Path) -> None:

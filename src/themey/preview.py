@@ -9,8 +9,7 @@ user can see the buttons themselves.
 
 The PNG is base64-embedded in the HTML so the preview is self-contained.
 
-All theme-derived strings are html.escape()'d for XSS prevention
-(T-08-02 in 01-08-PLAN.md threat model).
+All theme-derived strings are html.escape()'d for XSS prevention.
 """
 from __future__ import annotations
 

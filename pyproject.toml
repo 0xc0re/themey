@@ -1,22 +1,47 @@
 [project]
 name = "themey"
 version = "0.1.0"
-description = "Convert E16 .etheme archives to KDE Plasma 6 Aurorae window decorations"
+description = "Convert Enlightenment DR16 (E16) .etheme archives into installable KDE Plasma 6 themes"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
-    { name = "chris", email = "c0re@merle.io" }
+    { name = "Christopher Story", email = "c0re@merle.io" }
 ]
 requires-python = ">=3.11"
+keywords = ["kde", "plasma", "enlightenment", "e16", "theme", "aurorae", "kwin"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: X11 Applications :: KDE",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Desktop Environment :: Window Managers",
+]
 dependencies = [
-    "pillow>=12.2,<13",
+    # Floor is a security floor, not a feature floor: Pillow 12.3.0 fixes 13
+    # advisories (10 high) that land squarely in themey's threat path —
+    # heap OOB writes in Image.crop()/paste(), decompression-bomb bypasses in
+    # the Bdf/Pcf font loaders, and an OOB read on the mmap path. themey feeds
+    # untrusted third-party image and font files to Pillow by design; see
+    # SECURITY.md.
+    "pillow>=12.3,<13",
     "typer>=0.25,<0.26",
 ]
+
+[project.urls]
+Homepage = "https://github.com/0xc0re/themey"
+Repository = "https://github.com/0xc0re/themey"
+Issues = "https://github.com/0xc0re/themey/issues"
+Changelog = "https://github.com/0xc0re/themey/blob/master/CHANGELOG.md"
 
 [project.scripts]
 themey = "themey.cli:app"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [dependency-groups]
@@ -34,6 +59,12 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "C4", "UP", "RUF"]
+# Prose in docstrings and comments deliberately uses typographic characters:
+# the multiplication sign ("2 × scale"), the em dash, and the true minus sign
+# in math ("(BorderTop − TitleHeight) / 2"). All three are intentional, not
+# typos, so exempt them from the RUF001/002/003 ambiguous-unicode checks
+# rather than mangling the text.
+allowed-confusables = ["×", "—", "−"]
 
 [tool.pyright]
 include = ["src", "tests"]

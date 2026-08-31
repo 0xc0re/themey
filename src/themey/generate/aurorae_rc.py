@@ -122,10 +122,9 @@ def _contrast_corrected_text_rgb(
 def _title_bar_part(theme: Theme) -> tuple[int, int, int, int] | None:
     """Return the resolved bbox of the title-bearing part, or None.
 
-    Canonical E16 grammar (Section 6 / wilbs parse-cfg.ts:212): the title
-    region is the part flagged ``__FLAGS __FLAG_TITLE``. We look up that
-    part by flag, then return its resolved bbox at the reference window
-    size.
+    Canonical E16 grammar: the title region is the part flagged
+    ``__FLAGS __FLAG_TITLE``. We look up that part by flag, then return its
+    resolved bbox at the reference window size.
     """
     tp = title_part(theme.border.parts)
     if tp is None:

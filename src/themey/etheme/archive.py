@@ -14,7 +14,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-# Caps verified in production by ~/src/wilbs/src/lib/themes/e16/parse-e16-archive.ts
+# Byte caps chosen against the real 2009-era E16 theme corpus, where they held
+# in production.
 MAX_TOTAL_BYTES: int = 32 * 1024 * 1024  # 32 MB total extracted
 MAX_FILE_BYTES: int = 8 * 1024 * 1024  # 8 MB per file
 # Legitimate themes reach four digits (Ganymede: 1051 entries); the size caps

@@ -1,0 +1,31 @@
+# Dependabot configuration.
+#
+# uv coverage:
+#   Dependabot has supported the `uv` ecosystem for version updates since
+#   March 2025, which is what the first block below configures.
+#
+#   Security alerts cover the Python dependencies too. GitHub's published
+#   supported-ecosystems table does not list `uv.lock` explicitly — its Python
+#   entries are pip (`requirements.txt`, `pipfile.lock`) and Poetry
+#   (`poetry.lock`) — but the dependency graph was verified on 2026-08-31 to
+#   parse this repo's `uv.lock` anyway: the SBOM
+#   (`gh api repos/0xc0re/themey/dependency-graph/sbom`) lists the full
+#   resolved Python set, and open alerts are attributed to `uv.lock` as their
+#   manifest path. So this is verified by observation rather than by
+#   documentation, and is worth re-checking if GitHub changes how the graph
+#   ingests lockfiles.
+#
+# github-actions coverage:
+#   Actions in .github/workflows/ are pinned to full commit SHAs, which is
+#   precisely what gives this ecosystem something to keep current.
+version: 2
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

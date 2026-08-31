@@ -9,7 +9,7 @@ Aurorae window decoration plugin expects:
   - ``metadata.json``    — KF6-compatible plugin metadata
   - per-button SVGs      — close.svg, maximize.svg, restore.svg, minimize.svg, …
 
-Entry point for Plan 09 (CLI pipeline)::
+Entry point for the CLI pipeline::
 
     from themey.generate.aurorae import write as write_aurorae
 """

@@ -2,7 +2,7 @@
 
 E16 has up to 16 image-state cells; Aurorae has 2 (active, inactive)
 plus 3 button SVG sub-states (default, hover, pressed). The 8-state
-practical model (per WILBS-REFERENCE.md Section 2) maps as below.
+practical model E16 themes actually ship maps as below.
 
 Sticky variants and disabled drop with logged notes — Aurorae has no
 per-desktop button state and no separate disabled rendering.
