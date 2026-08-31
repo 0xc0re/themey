@@ -82,7 +82,7 @@ def _parse(text: str) -> dict[str, dict[str, str]]:
     return out
 
 
-def _theme(name: str, tmp_path: Path):
+def _theme(name: str):
     from themey.analyze.build_theme import build_theme
     from themey.etheme.archive import extract
     from themey.etheme.parse import parse_tree
@@ -188,7 +188,7 @@ def test_semantic_colors_are_breeze_stock(tmp_path: Path) -> None:
     """Link/Visited/Negative/Neutral/Positive must not take the theme's cast."""
     from themey.generate.colors import BREEZE_SEMANTIC, write_colors
 
-    out = write_colors(_theme("Aliens", tmp_path), tmp_path / "a.colors")
+    out = write_colors(_theme("Aliens"), tmp_path / "a.colors")
     parsed = _parse(out.read_text(encoding="utf-8"))
     for key, value in BREEZE_SEMANTIC.items():
         assert parsed["Colors:Window"][key] == "{},{},{}".format(*value)
@@ -197,7 +197,7 @@ def test_semantic_colors_are_breeze_stock(tmp_path: Path) -> None:
 def test_scheme_reflects_the_sampled_theme(tmp_path: Path) -> None:
     from themey.generate.colors import write_colors
 
-    theme = _theme("Aliens", tmp_path)
+    theme = _theme("Aliens")
     out = write_colors(theme, tmp_path / "a.colors")
     parsed = _parse(out.read_text(encoding="utf-8"))
     assert theme.scheme is not None
@@ -232,7 +232,7 @@ def test_theme_without_a_scheme_falls_back(tmp_path: Path) -> None:
 def test_colors_snapshot(name: str, tmp_path: Path, snapshot) -> None:
     from themey.generate.colors import write_colors
 
-    out = write_colors(_theme(name, tmp_path), tmp_path / f"{name}.colors")
+    out = write_colors(_theme(name), tmp_path / f"{name}.colors")
     assert out.read_text(encoding="utf-8") == snapshot
 
 

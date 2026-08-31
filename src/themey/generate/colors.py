@@ -116,7 +116,9 @@ def build_sections(
     scheme: ColorScheme, *, stem: str, display_name: str
 ) -> dict[str, dict[str, str]]:
     """Assemble the full 13-group section map, in Breeze's group order."""
-    sections: dict[str, dict[str, str]] = dict(BREEZE_COLOR_EFFECTS)
+    sections: dict[str, dict[str, str]] = {
+        name: dict(entries) for name, entries in BREEZE_COLOR_EFFECTS.items()
+    }
     sections["Colors:Button"] = _group_entries(scheme.button)
     sections["Colors:Complementary"] = _group_entries(scheme.complementary)
     sections["Colors:Header"] = _group_entries(scheme.header)
