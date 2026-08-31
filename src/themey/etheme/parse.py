@@ -1,12 +1,39 @@
-"""Recursive-descent parser for E16 cfg files.
+"""Recursive-descent parser + mini-cpp preprocessor for E16 cfg files.
 
 Generic-block-store: any keyword followed by __BGN ... __END forms a Block;
 keys not starting a block form KeyVal lines. Unknown keywords do NOT raise —
 the analyze layer in src/themey/analyze/ picks the blocks it understands.
 
-``#include <definitions>`` is silently skipped (E16's built-in macro file is
-not shipped in .etheme archives). Other includes are resolved relative to
-asset_root.
+**Preprocessing (parse_tree only).** E16 pipes every top-level cfg file
+through its bundled cpp (``epp -I <themedir>``) before parsing, so real
+themes rely on cpp semantics the token grammar alone cannot express:
+
+- ``#define`` macros — object-like value constants (Warp's
+  ``#define TITLE_SIZE 18`` in borders/sizes.cfg) and multi-line
+  function-like macros with backslash continuations (BlueIce's
+  ``BP_START(name,action,shade)`` in borders/definitions.cfg, whose body
+  joins statements with ';' — the lexer emits NEWLINE for ';').
+- ``#include`` splices *text*, so a ``__BORDER`` block may open in one file
+  and close in another (Warp: default.cfg -> edges.cfg -> corners.cfg).
+  Angle includes resolve against asset_root (epp's -I dir), quoted includes
+  against the including file's directory first. ``#include <definitions>``
+  (E16's built-in macro file, not shipped in archives) is silently skipped.
+
+Macro expansion never touches quoted strings, and comments are stripped
+before directive scanning so a commented-out ``#include`` is not spliced.
+
+**Leniency.** E16's own config reader (config.c) is line-based and lenient;
+the parser mirrors three tolerated corpus shapes instead of raising, each
+logged as a warning (and appended to ``parse_tree``'s optional ``notes``):
+
+- a stray top-level ``__END`` pops nothing (No_Frills/Spitfire2
+  imageclasses/epplets.cfg carry a doubled ``__END``);
+- a block still open at EOF is closed implicitly;
+- a block whose own keyword re-opens inside it (``__BORDER_PART __BGN``
+  directly inside a dangling empty ``__BORDER_PART`` — Tubular's
+  borders/default.cfg) implicitly closes the current block first, matching
+  E16's flat parser. E16 grammar never legitimately nests a block kind
+  inside itself.
 
 Grammar (from 01-RESEARCH.md Pattern 1):
 
@@ -20,25 +47,37 @@ Grammar (from 01-RESEARCH.md Pattern 1):
     value    := IDENT | NUMBER | STRING
 
 Security mitigations (T-03-01, T-03-02 from plan threat model):
-- T-03-01: ``_parse_with_includes`` rejects includes whose resolved path does
+- T-03-01: include resolution rejects any candidate whose resolved path does
   not start with the resolved ``asset_root`` prefix.
-- T-03-02: ``seen: set[Path]`` guards re-entry so recursive ``#include`` cycles
-  return an empty list instead of looping indefinitely.
+- T-03-02: ``seen: set[Path]`` guards re-entry so recursive ``#include``
+  cycles splice nothing instead of looping indefinitely.
 """
 from __future__ import annotations
 
+import logging
+import re
 from pathlib import Path
 
 from .ast import AstNode, Block, Include, KeyVal
 from .lex import Token, TokenKind, tokenize
 
+log = logging.getLogger(__name__)
+
 
 class ParseError(Exception):
-    """Raised on truly malformed input (e.g. mismatched __BGN/__END)."""
+    """Raised on truly malformed input the lenient parser cannot represent.
+
+    Kept as the subsystem's typed error; the corpus-tolerated shapes
+    (stray __END, unclosed block at EOF) no longer raise it.
+    """
 
 
 def parse_file(path: Path) -> list[AstNode]:
-    """Parse one cfg file.  Returns top-level nodes (Blocks, KeyVals, Includes)."""
+    """Parse one cfg file, WITHOUT preprocessing (no #define / #include).
+
+    Returns top-level nodes (Blocks, KeyVals, Includes). ``parse_tree`` is
+    the preprocessing entry point used by the pipeline.
+    """
     text = path.read_text(encoding="utf-8", errors="replace")
     tokens = tokenize(text)
     return _Parser(tokens, source=str(path)).parse_program()
@@ -47,20 +86,26 @@ def parse_file(path: Path) -> list[AstNode]:
 def parse_tree(
     asset_root: Path,
     entry_files: list[str] | None = None,
+    notes: list[str] | None = None,
 ) -> list[AstNode]:
-    """Parse a theme tree starting from entry_files; resolve #include directives.
+    """Preprocess and parse a theme tree starting from entry_files.
 
-    Resolves ``#include "path"`` by reading the referenced file (relative to
-    the current file's directory) and inlining its top-level nodes at the
-    include position.
+    Each entry file is run through the mini-cpp preprocessor (see module
+    docstring): includes are spliced textually, ``#define`` macros are
+    collected and expanded. Missing entry files are silently skipped (some
+    themes omit textclasses.cfg).
 
-    ``#include <definitions>`` is silently skipped (E16's built-in macro file
-    is not shipped in .etheme archives).
+    The macro table is shared across entry files: macros defined under
+    borders.cfg stay visible to later entry files (lenient superset of
+    E16's per-file epp runs). Repeated includes splice again, as cpp does;
+    only an include cycle is cut short.
 
-    Missing entry files are silently skipped (some themes omit textclasses.cfg).
+    ``notes`` (optional) collects human-readable leniency notes; they are
+    always also logged as warnings.
 
-    Returns a flat list of all top-level AstNode entries from all parsed files,
-    in entry-file declaration order, with includes inlined at their position.
+    Returns a flat list of all top-level AstNode entries from all parsed
+    files, in entry-file declaration order, with includes inlined at their
+    position.
     """
     if entry_files is None:
         entry_files = [
@@ -70,52 +115,240 @@ def parse_tree(
             "cursors.cfg",
         ]
     seen: set[Path] = set()
+    defines: _Defines = {}
     nodes: list[AstNode] = []
     for entry in entry_files:
         p = asset_root / entry
         if p.is_file():
-            nodes.extend(_parse_with_includes(p, asset_root, seen))
+            text = _preprocess(p, asset_root, seen, defines)
+            tokens = tokenize(text)
+            nodes.extend(
+                _Parser(tokens, source=str(p), notes=notes).parse_program()
+            )
     return nodes
 
 
-def _parse_with_includes(
+# ---------------------------------------------------------------------------
+# Mini-cpp preprocessor (the epp subset real themes use)
+# ---------------------------------------------------------------------------
+
+# name -> (params or None for object-like, body text)
+_Defines = dict[str, tuple[tuple[str, ...] | None, str]]
+
+# '(' must follow the name with no space for a function-like macro (cpp rule)
+_RE_DEFINE = re.compile(
+    r"^\s*#\s*define\s+([A-Za-z_][A-Za-z0-9_]*)(\([^)]*\))?[ \t]*(.*)$"
+)
+_RE_INCLUDE_LINE = re.compile(r'^\s*#\s*include\s+(?:<([^>]+)>|"([^"]+)")')
+_RE_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_RE_BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
+
+
+def _strip_c_comments(text: str) -> str:
+    """Remove /* ... */ comments, preserving line count (cpp strips comments
+    before directives — a commented-out #include must not be spliced)."""
+    text = _RE_BLOCK_COMMENT.sub(lambda m: "\n" * m.group(0).count("\n"), text)
+    idx = text.find("/*")
+    if idx != -1:  # unterminated comment — drop to end, like the lexer
+        text = text[:idx] + "\n" * text[idx:].count("\n")
+    return text
+
+
+def _join_continuations(text: str) -> str:
+    """Join backslash-continued lines, padding to preserve line numbering."""
+    out: list[str] = []
+    buf = ""
+    joined = 0
+    for ln in text.split("\n"):
+        r = ln.rstrip()
+        if r.endswith("\\"):
+            buf += r[:-1] + " "
+            joined += 1
+        else:
+            out.append(buf + ln)
+            out.extend([""] * joined)
+            buf = ""
+            joined = 0
+    if buf:
+        out.append(buf)
+    return "\n".join(out)
+
+
+def _resolve_include(
+    angle: str | None,
+    quoted: str | None,
+    including_file: Path,
+    root: Path,
+) -> Path | None:
+    """Resolve an include path, or None to drop it.
+
+    Angle form searches asset_root first (epp runs with -I <themedir>),
+    quoted form the including file's directory first; each falls back to
+    the other. T-03-01: candidates escaping asset_root are rejected.
+    """
+    name = angle if angle is not None else quoted
+    if name is None:
+        return None
+    if angle is not None and name == "definitions":
+        return None  # E16's built-in macro file is not shipped in archives
+    root_resolved = str(root.resolve())
+    if angle is not None:
+        candidates = [root / name, including_file.parent / name]
+    else:
+        candidates = [including_file.parent / name, root / name]
+    for candidate in candidates:
+        target = candidate.resolve()
+        if not (
+            str(target) == root_resolved
+            or str(target).startswith(root_resolved + "/")
+        ):
+            continue  # T-03-01: silently drop path-traversal attempts
+        if target.is_file():
+            return target
+    return None  # missing file — silently drop (stale includes in legacy themes)
+
+
+def _split_args(argstr: str) -> list[str]:
+    """Split a macro argument list on top-level commas."""
+    args: list[str] = []
+    depth = 0
+    cur: list[str] = []
+    for ch in argstr:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        if ch == "," and depth == 0:
+            args.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+    args.append("".join(cur))
+    return args
+
+
+def _expand_once(line: str, defines: _Defines) -> str:
+    """One macro-substitution pass over a line; quoted strings are opaque."""
+    out: list[str] = []
+    i = 0
+    n = len(line)
+    while i < n:
+        ch = line[i]
+        if ch == '"':
+            j = line.find('"', i + 1)
+            j = n if j == -1 else j + 1
+            out.append(line[i:j])
+            i = j
+            continue
+        m = _RE_WORD.match(line, i)
+        if not m:
+            out.append(ch)
+            i += 1
+            continue
+        word = m.group(0)
+        i = m.end()
+        entry = defines.get(word)
+        if entry is None:
+            out.append(word)
+            continue
+        params, body = entry
+        if params is None:  # object-like
+            out.append(body)
+            continue
+        # Function-like: need '(' args ')' on this line, else leave untouched
+        k = i
+        while k < n and line[k] in " \t":
+            k += 1
+        if k >= n or line[k] != "(":
+            out.append(word)
+            continue
+        depth = 0
+        end = -1
+        for e in range(k, n):
+            if line[e] == "(":
+                depth += 1
+            elif line[e] == ")":
+                depth -= 1
+                if depth == 0:
+                    end = e
+                    break
+        if end == -1:  # unbalanced call — leave untouched
+            out.append(word)
+            continue
+        args = _split_args(line[k + 1 : end])
+        i = end + 1
+        expansion = body
+        # Arity mismatch (malformed theme): substitute the pairs that exist
+        for param, arg in zip(params, args, strict=False):
+            expansion = re.sub(
+                rf"\b{re.escape(param)}\b", arg.strip(), expansion
+            )
+        out.append(expansion)
+    return "".join(out)
+
+
+def _expand_line(line: str, defines: _Defines) -> str:
+    """Expand macros to a fixpoint (bounded — self-referential defines stop)."""
+    for _ in range(8):
+        new = _expand_once(line, defines)
+        if new == line:
+            break
+        line = new
+    return line
+
+
+def _preprocess(
     path: Path,
     root: Path,
     seen: set[Path],
-) -> list[AstNode]:
-    """Parse ``path`` and recursively inline #include directives.
+    defines: _Defines,
+) -> str:
+    """Read ``path``, splice includes, collect #defines, expand macros.
 
-    T-03-01: Silently drops any include whose resolved path escapes ``root``.
-    T-03-02: ``seen`` prevents re-entering the same file (cycle guard).
+    T-03-02: ``seen`` holds the include chain currently being spliced, so a
+    cycle splices nothing instead of looping. It is NOT a permanent dedup: cpp
+    splices a file again on every repeated include, and Warp depends on it —
+    pager_bottom.cfg and transient.cfg each re-include borders/edges.cfg,
+    whose chain carries their borders' closing __END.
     """
     rp = path.resolve()
     if rp in seen:
-        return []  # cycle guard (T-03-02)
+        return ""
     seen.add(rp)
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        text = _join_continuations(_strip_c_comments(text))
 
-    root_resolved = str(root.resolve())
-    out: list[AstNode] = []
-
-    for node in parse_file(path):
-        if isinstance(node, Include):
-            # Silently skip the built-in E16 macro file
-            if node.is_angle and node.path == "definitions":
+        out_lines: list[str] = []
+        for ln in text.split("\n"):
+            if ln.lstrip().startswith("#"):
+                m = _RE_DEFINE.match(ln)
+                if m:
+                    name, paren, body = m.group(1), m.group(2), m.group(3)
+                    params: tuple[str, ...] | None = None
+                    if paren is not None:
+                        params = tuple(
+                            p.strip() for p in paren[1:-1].split(",") if p.strip()
+                        )
+                    defines[name] = (params, body.strip())
+                    out_lines.append("")
+                    continue
+                m = _RE_INCLUDE_LINE.match(ln)
+                if m:
+                    target = _resolve_include(m.group(1), m.group(2), path, root)
+                    if target is not None:
+                        out_lines.append(
+                            _preprocess(target, root, seen, defines)
+                        )
+                    else:
+                        out_lines.append("")
+                    continue
+                out_lines.append("")  # any other '#' line is a plain comment
                 continue
-            # Resolve relative to the including file's directory
-            target = (path.parent / node.path).resolve()
-            # T-03-01: reject includes that escape asset_root
-            if not (
-                str(target) == root_resolved
-                or str(target).startswith(root_resolved + "/")
-            ):
-                continue  # silently drop path-traversal attempts
-            if target.is_file():
-                out.extend(_parse_with_includes(target, root, seen))
-            # If file missing — silently drop (stale includes in legacy themes)
-        else:
-            out.append(node)
-
-    return out
+            out_lines.append(_expand_line(ln, defines) if defines else ln)
+        return "\n".join(out_lines)
+    finally:
+        seen.discard(rp)
 
 
 # ---------------------------------------------------------------------------
@@ -126,17 +359,30 @@ def _parse_with_includes(
 class _Parser:
     """Token-stream consumer for the E16 cfg grammar.
 
-    Implements the BNF from 01-RESEARCH.md Pattern 1.
+    Implements the BNF from 01-RESEARCH.md Pattern 1, with the E16-faithful
+    leniency rules from the module docstring.
     """
 
-    def __init__(self, tokens: list[Token], source: str = "<string>") -> None:
+    def __init__(
+        self,
+        tokens: list[Token],
+        source: str = "<string>",
+        notes: list[str] | None = None,
+    ) -> None:
         self._tokens = tokens
         self._pos = 0
         self.source = source
+        self._notes = notes
 
     # ------------------------------------------------------------------
     # Token helpers
     # ------------------------------------------------------------------
+
+    def _note(self, msg: str) -> None:
+        """Record a leniency note: always logged, optionally collected."""
+        log.warning("%s", msg)
+        if self._notes is not None:
+            self._notes.append(msg)
 
     def _peek(self) -> Token:
         """Return current token without advancing."""
@@ -159,6 +405,15 @@ class _Parser:
     def _peek_skipping_newlines(self) -> Token:
         """Return the next non-NEWLINE token without consuming any tokens."""
         i = self._pos
+        while i < len(self._tokens) and self._tokens[i].kind == TokenKind.NEWLINE:
+            i += 1
+        if i < len(self._tokens):
+            return self._tokens[i]
+        return Token(kind=TokenKind.EOF, value=None, line=0)
+
+    def _peek_after_current_skipping_newlines(self) -> Token:
+        """Return the first non-NEWLINE token after the current one."""
+        i = self._pos + 1
         while i < len(self._tokens) and self._tokens[i].kind == TokenKind.NEWLINE:
             i += 1
         if i < len(self._tokens):
@@ -213,7 +468,7 @@ class _Parser:
         # Malformed include (no path token) — skip
         return None
 
-    def _parse_ident_production(self) -> AstNode:
+    def _parse_ident_production(self) -> AstNode | None:
         """Dispatch: block or top_kv depending on whether __BGN follows.
 
         A production starting with IDENT is a block if __BGN appears after the
@@ -224,11 +479,14 @@ class _Parser:
         keyword_tok = self._advance()  # consume the keyword IDENT
         keyword = str(keyword_tok.value)
 
-        # Special case: __END at this level is a parse error (mismatched block)
+        # A stray __END at this level pops nothing — E16 tolerates it
+        # (doubled __END in No_Frills/Spitfire2 imageclasses/epplets.cfg)
         if keyword == "__END":
-            raise ParseError(
-                f"unexpected __END at line {keyword_tok.line} in {self.source}"
+            self._note(
+                f"parse: stray __END at line {keyword_tok.line} in "
+                f"{self.source} ignored"
             )
+            return None
 
         # Collect head-values (tokens between keyword and __BGN or NEWLINE/EOF)
         head_values: list[object] = []
@@ -292,13 +550,29 @@ class _Parser:
         while True:
             tok = self._peek()
             if tok.kind == TokenKind.EOF:
-                # Unclosed block — raise informative error
-                raise ParseError(
-                    f"unexpected EOF inside block '{keyword}' "
-                    f"(opened at line {line}) in {self.source}"
+                # Unclosed block — close implicitly, as E16 does
+                self._note(
+                    f"parse: block '{keyword}' (opened at line {line}) in "
+                    f"{self.source} not closed by __END; closed at EOF"
                 )
+                break
             if self._is_end(tok):
                 self._advance()  # consume __END
+                break
+            if (
+                tok.kind == TokenKind.IDENT
+                and tok.value == keyword
+                and self._is_bgn(self._peek_after_current_skipping_newlines())
+            ):
+                # The block's own keyword re-opens inside it: E16's flat
+                # parser treats this as the current block ending (Tubular's
+                # dangling empty __BORDER_PART).  Return without consuming;
+                # the parent loop parses the sibling.
+                self._note(
+                    f"parse: '{keyword}' re-opened at line {tok.line} in "
+                    f"{self.source} before the one at line {line} was closed; "
+                    f"closing the earlier block implicitly"
+                )
                 break
             child = self._parse_toplevel()
             if child is not None:
