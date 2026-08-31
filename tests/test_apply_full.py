@@ -777,7 +777,14 @@ def test_apply_full_creates_pager_panel_and_records_marker(
     assert "p.alignment = 'left'" in script
     assert "p.lengthMode = 'fit'" in script
     assert "p.height = 130" in script
+    # A scripted `new Panel` starts with min=max=full-screen and
+    # lengthMode='fit' does NOT clear them (verified live 2026-08-31:
+    # the panel drew as a full-height column around 33px of content).
+    assert "p.minimumLength = 0" in script
     assert "p.addWidget('org.kde.plasma.pager')" in script
+    # Dual-head virtual desktops are ultrawide; per-screen cells keep
+    # desktop aspect readable.
+    assert "w.writeConfig('showOnlyCurrentScreen', true)" in script
     assert "icontasks" not in script
     assert "print(p.id)" in script
     assert fake_kconfig.store["PagerPanel"] == "302"
@@ -800,6 +807,7 @@ def test_apply_full_creates_iconbox_panel_and_records_marker(
     assert "p.alignment = 'right'" in script
     assert "p.lengthMode = 'fit'" in script
     assert "p.height = 60" in script
+    assert "p.minimumLength = 0" in script
     assert "p.addWidget('org.kde.plasma.icontasks')" in script
     assert "org.kde.plasma.pager" not in script
     assert "w.writeConfig('showOnlyMinimized', true)" in script
@@ -1026,6 +1034,71 @@ def test_iconbox_non_digit_marker_never_interpolated(
         if any("evaluateScript" in tok for tok in c)
     )
     assert "IconboxPanel" not in fake_kconfig.store
+
+
+def test_apply_full_sets_vertical_desktop_grid(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """One pager column: kwinrc [Desktops] Rows = Number, prior Rows
+    recorded once, and the LIVE rows set over D-Bus — KWin reads the
+    config key only at startup (verified live 2026-08-31: kwriteconfig +
+    reconfigure left the layout unchanged)."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["Number"] = "2"
+    fake_kconfig.store["Rows"] = "1"
+    apply_mod.apply_full("e13")
+    assert fake_kconfig.store["Rows"] == "2"
+    assert fake_kconfig.store["PrevDesktopRows"] == "1"
+    i = fake_kconfig.index_of("VirtualDesktopManager", "rows")
+    cmd = fake_kconfig.calls[i]
+    assert "org.freedesktop.DBus.Properties.Set" in cmd
+    assert cmd[-1] == "2"
+
+
+def test_apply_full_desktop_rows_marker_written_once(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["Number"] = "2"
+    apply_mod.apply_full("e13")
+    assert fake_kconfig.store["PrevDesktopRows"] == "@unset"
+    fake_kconfig.iconbox_exists_reply = "exists"
+    apply_mod.apply_full("e13")  # Rows now "2" — must not become baseline
+    assert fake_kconfig.store["PrevDesktopRows"] == "@unset"
+
+
+def test_apply_full_no_desktop_count_skips_grid(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    apply_mod.apply_full("e13")  # no [Desktops] Number readable
+    assert "Rows" not in fake_kconfig.store
+    assert "PrevDesktopRows" not in fake_kconfig.store
+
+
+def test_revert_restores_desktop_rows(fake_kconfig: FakeKConfig) -> None:
+    fake_kconfig.store["PrevDesktopRows"] = "1"
+    fake_kconfig.store["Rows"] = "2"
+    assert apply_mod.revert() is True
+    assert fake_kconfig.store["Rows"] == "1"
+    assert "PrevDesktopRows" not in fake_kconfig.store
+    i = fake_kconfig.index_of("VirtualDesktopManager", "rows")
+    assert fake_kconfig.calls[i][-1] == "1"
+
+
+def test_revert_unset_desktop_rows_deletes_key(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["PrevDesktopRows"] = "@unset"
+    fake_kconfig.store["Rows"] = "2"
+    assert apply_mod.revert() is True
+    assert "Rows" not in fake_kconfig.store
+    assert "PrevDesktopRows" not in fake_kconfig.store
+    i = fake_kconfig.index_of("VirtualDesktopManager", "rows")
+    assert fake_kconfig.calls[i][-1] == "1"  # KWin default
 
 
 def test_revert_retry_with_only_plasma_marker_succeeds(

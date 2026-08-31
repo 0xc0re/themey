@@ -64,7 +64,12 @@ baselines: each records a themey-CREATED artifact (that panel's
 containment id), so it is overwritten when the recorded panel no longer
 exists (recreate), left alone when it does (idempotent second apply), and
 deleted when :func:`revert` removes the panel. Existing panels are never
-touched beyond the fit-content step.
+touched beyond the fit-content step. The desktop grid is set to one
+column (kwinrc ``[Desktops] Rows = Number`` plus the live D-Bus rows —
+:func:`_set_desktop_grid_column`) so the stacked pager cells fill the
+panel box; ``PrevDesktopRows`` is the record-once baseline and
+:func:`revert` restores it, since this changes desktop-switching
+direction.
 
 Legacy revert path: ``themey apply Breeze`` (which selects
 ``org.kde.breeze``, restores the recorded button layout) or System
@@ -261,6 +266,10 @@ _PAGER_WIDGET = "org.kde.plasma.pager"
 #: Thick enough that two side-by-side cells (a 1x2 desktop grid) land
 #: near E16's ~64px pager cells.
 _PAGER_HEIGHT = 130
+#: Baseline for the desktop-grid change (kwinrc [Desktops] Rows): one
+#: desktop per pager row so the stacked cells fill the panel box.
+_PREV_ROWS_KEY = "PrevDesktopRows"
+_DESKTOPS_GROUP = "Desktops"
 
 
 def _is_panel_id(value: str) -> bool:
@@ -414,6 +423,12 @@ def _panel_script(alignment: str, height: int, widgets: str) -> str:
         f" p.height = {height};"
         " p.hiding = 'none';"
         " p.lengthMode = 'fit';"
+        # A scripted `new Panel` starts with minimumLength == maximumLength
+        # == the full screen dimension, and setting lengthMode='fit' does
+        # NOT clear them — the panel then draws as a full-height column
+        # around a few px of content (verified live 2026-08-31). Only the
+        # minimum needs clearing; fit computes the real length.
+        " p.minimumLength = 0;"
         " try { p.floating = false; } catch (e) {}"
         f"{widgets}"
         " print(p.id);"
@@ -430,7 +445,15 @@ def _furniture_specs() -> tuple[tuple[str, str, str], ...]:
     default pinned launchers.
     """
     pager = _panel_script(
-        "left", _PAGER_HEIGHT, f" p.addWidget('{_PAGER_WIDGET}');"
+        "left",
+        _PAGER_HEIGHT,
+        f" var w = p.addWidget('{_PAGER_WIDGET}');"
+        # Multi-head virtual desktops are ultrawide (two 16:9 screens =
+        # 3.55:1) and squash the cells to slivers; per-screen cells keep
+        # desktop aspect readable (verified live 2026-08-31).
+        " w.currentConfigGroup = ['General'];"
+        " w.writeConfig('showOnlyCurrentScreen', true);"
+        " w.reloadConfig();",
     )
     iconbox = _panel_script(
         "right",
@@ -476,6 +499,48 @@ def _ensure_furniture(kw: str, kr: str) -> None:
                 f"panel id (got {reply!r}) — the {name} was not created"
             )
         _cfg_write(kw, _KDEGLOBALS, _THEMEY_GROUP, key, reply)
+
+
+def _set_live_desktop_rows(rows: str) -> None:
+    """Change KWin's live desktop-grid rows over D-Bus.
+
+    KWin reads kwinrc ``[Desktops] Rows`` only at startup — a config
+    write plus ``reconfigure`` leaves the live layout unchanged (verified
+    live 2026-08-31); the writable ``VirtualDesktopManager.rows`` D-Bus
+    property is what actually reshapes the grid (and the pager).
+    """
+    _run_checked(
+        [
+            _which_qdbus(),
+            "org.kde.KWin",
+            "/VirtualDesktopManager",
+            "org.freedesktop.DBus.Properties.Set",
+            "org.kde.KWin.VirtualDesktopManager",
+            "rows",
+            rows,
+        ],
+        "KWin desktop-rows D-Bus set",
+    )
+
+
+def _set_desktop_grid_column(kw: str, kr: str) -> None:
+    """One desktop per pager row: kwinrc ``[Desktops] Rows = Number``.
+
+    The stacked cells fill the pager panel (whose box cannot shrink below
+    plasmashell's ~130px minimum panel length) at double the width of the
+    side-by-side layout. The previous ``Rows`` is recorded once in
+    ``PrevDesktopRows`` (``@unset`` when absent) and restored by
+    :func:`revert` — this changes desktop-switching direction, so it must
+    be revertible. Skipped when the desktop count is unreadable.
+    """
+    number = _cfg_read(kr, "kwinrc", _DESKTOPS_GROUP, "Number")
+    if number is None or not (number.isascii() and number.isdigit()):
+        return
+    if _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_ROWS_KEY) is None:
+        prev = _cfg_read(kr, "kwinrc", _DESKTOPS_GROUP, "Rows") or _UNSET
+        _cfg_write(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_ROWS_KEY, prev)
+    _cfg_write(kw, "kwinrc", _DESKTOPS_GROUP, "Rows", number)
+    _set_live_desktop_rows(number)
 
 
 def _record_prev_deco(kw: str, kr: str) -> None:
@@ -839,9 +904,12 @@ def apply_full(
     # raises), and the E16 panel feel must not be lost to it.
     _set_panels_fit(kw, kr)
 
-    # Furniture AFTER the fit step (so the created panels never pollute
-    # the PrevPanelLengthModes baseline snapshotted there) and, like it,
-    # before the wallpaper fix-up.
+    # Grid first so the pager panel's fit length is computed against the
+    # final (stacked) desktop layout; then the furniture — AFTER the fit
+    # step (so the created panels never pollute the PrevPanelLengthModes
+    # baseline snapshotted there) and, like it, before the wallpaper
+    # fix-up.
+    _set_desktop_grid_column(kw, kr)
     _ensure_furniture(kw, kr)
 
     tiled_set = False
@@ -913,12 +981,14 @@ def revert() -> bool:
         key: _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, key)
         for key, _name, _script in _furniture_specs()
     }
+    prev_rows = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_ROWS_KEY)
     if (
         prev_deco is None
         and prev_lnf is None
         and prev_colors is None
         and prev_plasma is None
         and prev_panels is None
+        and prev_rows is None
         and all(v is None for v in prev_furniture.values())
     ):
         return False
@@ -1044,6 +1114,28 @@ def revert() -> bool:
         else:
             _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, key)
 
+    # Desktop grid back to the recorded shape — config AND live rows
+    # (see _set_live_desktop_rows); '@unset' deletes the key and restores
+    # KWin's default single row.
+    rows_error: ApplyError | None = None
+    if prev_rows is not None:
+        try:
+            if prev_rows == _UNSET:
+                _cfg_delete(kw, "kwinrc", _DESKTOPS_GROUP, "Rows")
+                _set_live_desktop_rows("1")
+            elif prev_rows.isascii() and prev_rows.isdigit():
+                _cfg_write(kw, "kwinrc", _DESKTOPS_GROUP, "Rows", prev_rows)
+                _set_live_desktop_rows(prev_rows)
+            _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_ROWS_KEY)
+        except ApplyError as exc:
+            rows_error = exc
+            log.warning(
+                "could not restore the previous desktop grid (%s) — "
+                "keeping the marker so a later `themey apply --revert` "
+                "can retry it",
+                exc,
+            )
+
     panels_error: ApplyError | None = None
     if prev_panels is not None:
         try:
@@ -1060,7 +1152,7 @@ def revert() -> bool:
 
     _reconfigure()
 
-    errors = (lnf_error, colors_error, plasma_error, iconbox_error, panels_error)
+    errors = (lnf_error, colors_error, plasma_error, iconbox_error, rows_error, panels_error)
     if any(e is not None for e in errors):
         failed = " and ".join(str(e) for e in errors if e is not None)
         raise ApplyError(

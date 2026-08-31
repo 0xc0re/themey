@@ -174,7 +174,15 @@ PagerPanel`/`IconboxPanel` markers hold the containment ids — artifact
 markers, not
 `Prev*` baselines: overwritten when the recorded panel is gone, skipped
 when alive, deleted when revert removes the panel; placed after the fit
-step so the new panels never pollute `PrevPanelLengthModes`), then the
+step so the new panels never pollute `PrevPanelLengthModes`; creation
+scripts set `p.minimumLength = 0` — a scripted `new Panel` starts with
+min=max=full-screen and `lengthMode='fit'` never clears it — and the
+pager gets `showOnlyCurrentScreen=true` so multi-head cells keep desktop
+aspect). Just before the furniture, `_set_desktop_grid_column` stacks the
+desktops one per row (kwinrc `[Desktops] Rows=Number` AND the writable
+`VirtualDesktopManager.rows` D-Bus property — KWin reads the config key
+only at startup, verified live 2026-08-31; `PrevDesktopRows` baseline,
+restored on revert). Then the
 tiled-wallpaper fix-up, and one `qdbus`
 reconfigure last. The panel steps come BEFORE the wallpaper one on
 purpose: the wallpaper step is the likeliest to raise, and a failed apply
