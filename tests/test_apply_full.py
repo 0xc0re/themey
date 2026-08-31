@@ -384,3 +384,108 @@ def test_revert_retry_with_only_lnf_marker_succeeds(fake_kconfig: FakeKConfig) -
     assert "library" not in fake_kconfig.store
     assert "theme" not in fake_kconfig.store
     assert any(Path(c[0]).name.startswith("qdbus") for c in fake_kconfig.calls)
+
+
+# --- explicit color-scheme apply (plasma-apply-lookandfeel does NOT apply
+# --- colors past an explicit user-layer [General] ColorScheme — verified
+# --- live 2026-08-31 on Plasma 6.6.6) ----------------------------------
+
+
+def _install_fake_colors(name: str = "e13") -> Path:
+    scheme = paths.color_schemes() / f"{plugin_id(name)}.colors"
+    scheme.parent.mkdir(parents=True, exist_ok=True)
+    scheme.write_text("[General]\nColorScheme=" + plugin_id(name) + "\n")
+    return scheme
+
+
+def _install_full(name: str = "e13") -> None:
+    _install_fake_deco(name)
+    _install_fake_lnf(name)
+    _install_fake_colors(name)
+
+
+def test_apply_full_records_prev_colorscheme_and_applies_scheme(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_full("e13")
+    fake_kconfig.store["ColorScheme"] = "MacVenturaDark"
+    apply_mod.apply_full("e13")
+    assert fake_kconfig.store["PrevColorScheme"] == "MacVenturaDark"
+    i_lnf = fake_kconfig.index_of("plasma-apply-lookandfeel")
+    i_colors = fake_kconfig.index_of("plasma-apply-colorscheme")
+    assert i_colors > i_lnf
+    assert fake_kconfig.calls[i_colors][-1] == "themey_e13"
+
+
+def test_apply_full_no_colorscheme_installed_skips_scheme_apply(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    apply_mod.apply_full("e13")
+    assert "PrevColorScheme" not in fake_kconfig.store
+    with pytest.raises(AssertionError):
+        fake_kconfig.index_of("plasma-apply-colorscheme")
+
+
+def test_apply_full_prev_colorscheme_unset_sentinel(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_full("e13")
+    apply_mod.apply_full("e13")
+    assert fake_kconfig.store["PrevColorScheme"] == "@unset"
+
+
+def test_apply_full_colorscheme_marker_written_once(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_full("e13")
+    fake_kconfig.store["ColorScheme"] = "MacVenturaDark"
+    apply_mod.apply_full("e13")
+    fake_kconfig.store["ColorScheme"] = "themey_e13"
+    apply_mod.apply_full("e13")
+    assert fake_kconfig.store["PrevColorScheme"] == "MacVenturaDark"
+
+
+def test_apply_full_colorscheme_failure_raises_apply_error(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_full("e13")
+    fake_kconfig.fail_on["plasma-apply-colorscheme"] = "no such scheme"
+    with pytest.raises(apply_mod.ApplyError, match="plasma-apply-colorscheme"):
+        apply_mod.apply_full("e13")
+
+
+def test_revert_restores_prev_colorscheme_and_clears_marker(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["PrevColorScheme"] = "MacVenturaDark"
+    assert apply_mod.revert() is True
+    i = fake_kconfig.index_of("plasma-apply-colorscheme")
+    assert fake_kconfig.calls[i][-1] == "MacVenturaDark"
+    assert "PrevColorScheme" not in fake_kconfig.store
+
+
+def test_revert_colorscheme_unset_deletes_user_key(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["PrevColorScheme"] = "@unset"
+    fake_kconfig.store["ColorScheme"] = "themey_e13"
+    assert apply_mod.revert() is True
+    assert "ColorScheme" not in fake_kconfig.store
+    assert "PrevColorScheme" not in fake_kconfig.store
+    with pytest.raises(AssertionError):
+        fake_kconfig.index_of("plasma-apply-colorscheme")
+
+
+def test_revert_colorscheme_failure_keeps_marker_restores_rest(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["PrevColorScheme"] = "MacVenturaDark"
+    fake_kconfig.store["ThemeyPrevDeco"] = "org.kde.breeze|Breeze|@unset"
+    fake_kconfig.fail_on["plasma-apply-colorscheme"] = "scheme gone"
+    with pytest.raises(apply_mod.ApplyError, match="plasma-apply-colorscheme"):
+        apply_mod.revert()
+    assert fake_kconfig.store["PrevColorScheme"] == "MacVenturaDark"
+    assert fake_kconfig.store["theme"] == "Breeze"
+    assert "ThemeyPrevDeco" not in fake_kconfig.store

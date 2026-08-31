@@ -71,6 +71,8 @@ GROUP = "org.kde.kdecoration2"
 _KDEGLOBALS = "kdeglobals"
 _KDE_GROUP = "KDE"
 _LOOKANDFEEL_PACKAGE_KEY = "LookAndFeelPackage"
+_GENERAL_GROUP = "General"
+_COLORSCHEME_KEY = "ColorScheme"
 #: themey's own kdeglobals group for its one marker key.
 _THEMEY_GROUP = "Themey"
 
@@ -203,6 +205,7 @@ def _restore_buttons(kw: str, kr: str) -> None:
 
 _PREV_LNF_KEY = "PrevLookAndFeelPackage"
 _PREV_DECO_KEY = "ThemeyPrevDeco"
+_PREV_COLORS_KEY = "PrevColorScheme"
 
 
 def _record_prev_lookandfeel(kw: str, kr: str) -> None:
@@ -212,6 +215,24 @@ def _record_prev_lookandfeel(kw: str, kr: str) -> None:
         return
     prev = _cfg_read(kr, _KDEGLOBALS, _KDE_GROUP, _LOOKANDFEEL_PACKAGE_KEY) or _UNSET
     _cfg_write(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_LNF_KEY, prev)
+
+
+def _record_prev_colorscheme(kw: str, kr: str) -> None:
+    """Snapshot the user-layer kdeglobals ``[General] ColorScheme`` once,
+    before the first ``apply_full`` overwrites it via
+    ``plasma-apply-colorscheme`` — the color half of the revert baseline.
+
+    Needed because ``plasma-apply-lookandfeel -a`` does NOT apply the
+    bundle's color scheme past an explicit user-layer ``ColorScheme``
+    (verified live on Plasma 6.6.6, 2026-08-31: it updated kcminputrc's
+    cursor theme but left both the user layer and even
+    ``~/.config/kdedefaults/kdeglobals`` on the old scheme), so
+    ``apply_full`` must write the user layer itself — and therefore must
+    record what it is about to overwrite."""
+    if _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_COLORS_KEY) is not None:
+        return
+    prev = _cfg_read(kr, _KDEGLOBALS, _GENERAL_GROUP, _COLORSCHEME_KEY) or _UNSET
+    _cfg_write(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_COLORS_KEY, prev)
 
 
 def _record_prev_deco(kw: str, kr: str) -> None:
@@ -388,7 +409,10 @@ def apply_full(
     Order (see module docstring): verify both the Look-and-Feel bundle and
     the QML decoration package are installed → record the pre-themey
     baselines (once) → ``plasma-apply-lookandfeel -a themey_<slug>`` (NEVER
-    ``--resetLayout``, which would blow away unrelated layout state) → the
+    ``--resetLayout``, which would blow away unrelated layout state) →
+    ``plasma-apply-colorscheme themey_<slug>`` when the scheme is installed
+    (REQUIRED: the LnF apply does not touch an explicit user-layer
+    ``[General] ColorScheme`` — see :func:`_record_prev_colorscheme`) → the
     same decoration write :func:`apply` uses (REQUIRED even though the LnF
     apply already wrote deco defaults: those land in the
     ``~/.config/kdedefaults/`` layer, and only an explicit user-layer write
@@ -430,11 +454,27 @@ def apply_full(
             f"under {paths.kwin_decorations()} — run `themey convert` first"
         )
 
+    scheme_file = paths.color_schemes() / f"{pkg_id}.colors"
+    has_colors = scheme_file.is_file()
+
     _record_prev_lookandfeel(kw, kr)
     _record_prev_deco(kw, kr)
+    if has_colors:
+        _record_prev_colorscheme(kw, kr)
 
     plasma_apply_lnf = _which("plasma-apply-lookandfeel")
     _run_checked([plasma_apply_lnf, "-a", pkg_id], f"plasma-apply-lookandfeel -a {pkg_id}")
+
+    if has_colors:
+        # plasma-apply-lookandfeel leaves an explicit user-layer
+        # ColorScheme in place (see _record_prev_colorscheme) — the scheme
+        # must be applied explicitly, and this also broadcasts the change
+        # to running apps.
+        plasma_apply_colors = _which("plasma-apply-colorscheme")
+        _run_checked(
+            [plasma_apply_colors, pkg_id],
+            f"plasma-apply-colorscheme {pkg_id}",
+        )
 
     _write_deco(
         name, kw, kr,
@@ -461,7 +501,10 @@ def revert() -> bool:
     """``themey apply --revert``: restore the pre-``apply_full`` state.
 
     Reads the markers :func:`_record_prev_lookandfeel`/
-    :func:`_record_prev_deco` left behind, reapplies the recorded
+    :func:`_record_prev_deco`/:func:`_record_prev_colorscheme` left behind
+    (the color scheme restore mirrors the Look-and-Feel one: ``@unset`` →
+    delete the user-layer key; a failure keeps ``PrevColorScheme`` so a
+    later revert retries it), reapplies the recorded
     Look-and-Feel package (no special-casing here — a real user's baseline
     is typically a third-party theme, e.g.
     ``com.github.vinceliuice.MacVentura-Dark``, not Breeze), restores the
@@ -494,7 +537,8 @@ def revert() -> bool:
 
     prev_deco = _kread(kr, _PREV_DECO_KEY)
     prev_lnf = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_LNF_KEY)
-    if prev_deco is None and prev_lnf is None:
+    prev_colors = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_COLORS_KEY)
+    if prev_deco is None and prev_lnf is None and prev_colors is None:
         return False
 
     lnf_error: ApplyError | None = None
@@ -531,12 +575,40 @@ def revert() -> bool:
         _restore_buttons(kw, kr)
         _kdelete(kw, _PREV_DECO_KEY)
 
+    colors_error: ApplyError | None = None
+    if prev_colors is not None:
+        if prev_colors == _UNSET:
+            # No explicit user-layer scheme before themey: delete the key
+            # we wrote so the (restored) Look-and-Feel's kdedefaults layer
+            # takes over again.
+            _cfg_delete(kw, _KDEGLOBALS, _GENERAL_GROUP, _COLORSCHEME_KEY)
+            _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_COLORS_KEY)
+        else:
+            plasma_apply_colors = _which("plasma-apply-colorscheme")
+            try:
+                _run_checked(
+                    [plasma_apply_colors, prev_colors],
+                    f"plasma-apply-colorscheme {prev_colors}",
+                )
+                _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_COLORS_KEY)
+            except ApplyError as exc:
+                colors_error = exc
+                log.warning(
+                    "could not reapply the previous color scheme %r (%s) — "
+                    "keeping the marker so a later `themey apply --revert` "
+                    "can retry it",
+                    prev_colors, exc,
+                )
+
     _reconfigure()
 
-    if lnf_error is not None:
+    if lnf_error is not None or colors_error is not None:
+        failed = " and ".join(
+            str(e) for e in (lnf_error, colors_error) if e is not None
+        )
         raise ApplyError(
-            "decoration and button layout restored, but the previous "
-            f"global theme could not be reapplied: {lnf_error} — run "
-            "`themey apply --revert` again to retry the global theme restore"
+            "everything else was restored, but part of the previous state "
+            f"could not be reapplied: {failed} — run "
+            "`themey apply --revert` again to retry it"
         )
     return True
