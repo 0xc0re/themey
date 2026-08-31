@@ -49,6 +49,8 @@ _STATE_ATTRS: tuple[tuple[str, str], ...] = (
     ("hilited_active", "hilited_active"),
     ("clicked", "clicked"),
     ("clicked_active", "clicked_active"),
+    ("normal_sticky", "normal_sticky"),
+    ("normal_active_sticky", "normal_active_sticky"),
 )
 
 # Runtime image slot → E16 state fallback chain (first existing wins).
@@ -59,6 +61,17 @@ _SLOT_CHAINS: dict[str, tuple[str, ...]] = {
     "hoverActive": ("hilited_active", "hilited", "normal_active", "normal"),
     "pressed": ("clicked", "normal"),
     "pressedActive": ("clicked_active", "clicked", "normal_active", "normal"),
+    # Toggle buttons (stick/shade): sticky art first, then clicked so themes
+    # whose sticky art is absent still show a visibly pressed-in toggle.
+    "toggled": ("normal_sticky", "clicked", "normal"),
+    "toggledActive": (
+        "normal_active_sticky",
+        "normal_sticky",
+        "clicked_active",
+        "clicked",
+        "normal_active",
+        "normal",
+    ),
 }
 _BUTTON_SLOTS = tuple(_SLOT_CHAINS)
 _CHROME_SLOTS = ("normal", "normalActive")
@@ -206,6 +219,13 @@ def build_theme_data(
             theme.notes.append(
                 f"qmldeco: part '{part.iclass_name}' has no usable image "
                 "— rendered as empty space"
+            )
+        if kind == "shade":
+            theme.notes.append(
+                f"qmldeco: shade button '{part.iclass_name}' generated; "
+                "KWin may not support shading on Wayland — the button "
+                "disables itself (degrades to drag) when the window is "
+                "not shadeable"
             )
 
         tl_origin, br_origin = part.tl_origin, part.br_origin
