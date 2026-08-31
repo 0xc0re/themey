@@ -62,3 +62,56 @@ def test_upscale_rejects_invalid_scale(bad_scale: int):
     img = Image.new("RGBA", (4, 4))
     with pytest.raises(ValueError):
         upscale_nearest(img, bad_scale)
+
+
+# ---------------------------------------------------------------------------
+# upscale_part — the QML backend's part-art entry point (fractional +
+# quality aware; targets scale_px dims so BorderImage insets match).
+
+def test_upscale_part_nearest_int_matches_upscale_nearest():
+    from themey.images.upscale import upscale_part
+
+    img = _make_2x2_corners()
+    assert upscale_part(img, 2, "nearest").tobytes() == upscale_nearest(img, 2).tobytes()
+
+
+def test_upscale_part_nearest_fractional_dims_follow_scale_px():
+    from themey.generate.qmldeco.resolver import scale_px
+    from themey.images.upscale import upscale_part
+
+    img = Image.new("RGBA", (13, 30))
+    out = upscale_part(img, 1.5, "nearest")
+    assert out.size == (scale_px(13, 1.5), scale_px(30, 1.5)) == (20, 45)
+
+
+def test_upscale_part_quality_int_uses_hqx():
+    from themey.images.hqx import hqx
+    from themey.images.upscale import upscale_part
+
+    img = _make_2x2_corners()
+    assert upscale_part(img, 2, "quality").tobytes() == hqx(img, 2).tobytes()
+    assert upscale_part(img, 3, "quality").tobytes() == hqx(img, 3).tobytes()
+
+
+def test_upscale_part_quality_scale_1_is_identity():
+    from themey.images.upscale import upscale_part
+
+    img = _make_2x2_corners()
+    out = upscale_part(img, 1, "quality")
+    assert out.tobytes() == img.tobytes()
+
+
+def test_upscale_part_quality_fractional_dims_follow_scale_px():
+    from themey.generate.qmldeco.resolver import scale_px
+    from themey.images.upscale import upscale_part
+
+    img = Image.new("RGBA", (13, 30), (10, 20, 30, 255))
+    out = upscale_part(img, 1.5, "quality")
+    assert out.size == (scale_px(13, 1.5), scale_px(30, 1.5))
+
+
+def test_upscale_part_rejects_unknown_mode():
+    from themey.images.upscale import upscale_part
+
+    with pytest.raises(ValueError, match="mode"):
+        upscale_part(Image.new("RGBA", (2, 2)), 2, "bicubic")

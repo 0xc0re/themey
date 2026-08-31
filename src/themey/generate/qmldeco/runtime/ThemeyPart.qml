@@ -21,7 +21,8 @@ Item {
     required property int index
     readonly property var part: modelData
     readonly property int partIndex: index
-    readonly property int outScale: root.themeData.scale
+    // May be fractional (e.g. 1.5) — pad offsets Math.round at the end.
+    readonly property real outScale: root.themeData.scale
 
     readonly property var geo: {
         // Dependencies (frame size, measured caption widths, font state)
@@ -49,6 +50,9 @@ Item {
 
     readonly property bool hovered: buttonLoader.item ? buttonLoader.item.hovered === true : false
     readonly property bool pressed: buttonLoader.item ? buttonLoader.item.pressed === true : false
+    // DecorationButton binds `toggled` for OnAllDesktops/Shade — without
+    // this the toggle buttons work but give no visual feedback.
+    readonly property bool toggled: buttonLoader.item ? buttonLoader.item.toggled === true : false
     readonly property var textCfg: partItem.part && partItem.part.text ? partItem.part.text : null
 
     BorderImage {
@@ -63,6 +67,10 @@ Item {
                 return Qt.resolvedUrl(a && imgs.pressedActive ? imgs.pressedActive : (imgs.pressed || imgs.normal));
             if (partItem.hovered)
                 return Qt.resolvedUrl(a && imgs.hoverActive ? imgs.hoverActive : (imgs.hover || imgs.normal));
+            // `|| imgs.pressed` keeps a stale installed theme.js (no
+            // toggled slots) degrading to clicked art instead of blank.
+            if (partItem.toggled)
+                return Qt.resolvedUrl(a && imgs.toggledActive ? imgs.toggledActive : (imgs.toggled || imgs.pressed || imgs.normal));
             return Qt.resolvedUrl(a && imgs.normalActive ? imgs.normalActive : imgs.normal);
         }
         border.left: partItem.part ? partItem.part.insets.left : 0
@@ -78,14 +86,16 @@ Item {
     Text {
         id: captionText
         visible: partItem.textCfg !== null && !partItem.part.vertical
-        x: partItem.part ? partItem.part.padLeft * partItem.outScale : 0
+        x: partItem.part ? Math.round(partItem.part.padLeft * partItem.outScale) : 0
         width: partItem.part
                ? Math.max(0, partItem.width
-                          - (partItem.part.padLeft + partItem.part.padRight) * partItem.outScale)
+                          - Math.round((partItem.part.padLeft + partItem.part.padRight)
+                                       * partItem.outScale))
                : 0
         anchors.verticalCenter: parent.verticalCenter
         anchors.verticalCenterOffset: partItem.part
-            ? (partItem.part.padTop - partItem.part.padBottom) * partItem.outScale / 2
+            ? Math.round((partItem.part.padTop - partItem.part.padBottom)
+                         * partItem.outScale / 2)
             : 0
         text: root.clientCaption
         elide: Text.ElideRight

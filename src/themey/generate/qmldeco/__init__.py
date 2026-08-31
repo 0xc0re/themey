@@ -25,11 +25,12 @@ from . import package
 from .theme_js import build_theme_data, render_theme_js
 
 
-def write(theme: Theme, pkg_dir: Path) -> list[Path]:
+def write(theme: Theme, pkg_dir: Path, *, upscale: str = "nearest") -> list[Path]:
     """Write the full QML decoration package under ``pkg_dir``.
 
     Must be called inside the ``with extract(...)`` block: part images and
-    TTFs are read from ``theme.asset_root``.
+    TTFs are read from ``theme.asset_root``. ``upscale`` selects the part
+    art scaler: ``"nearest"`` (default) or ``"quality"`` (hqx).
     """
     pkg_dir.mkdir(parents=True, exist_ok=True)
     data, manifest, font_sources = build_theme_data(theme)
@@ -37,7 +38,9 @@ def write(theme: Theme, pkg_dir: Path) -> list[Path]:
     files: list[Path] = []
     files.append(package.write_metadata_json(theme, pkg_dir))
     files.extend(package.copy_runtime(pkg_dir))
-    files.extend(package.export_images(manifest, pkg_dir, theme.scale))
+    files.extend(
+        package.export_images(manifest, pkg_dir, theme.scale, upscale)
+    )
     files.extend(package.copy_fonts(font_sources, pkg_dir))
 
     ui_dir = pkg_dir / "contents" / "ui"

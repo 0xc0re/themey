@@ -499,7 +499,7 @@ def capped_border_extents(
     the System Settings border bracket, so keeping them small avoids a
     squashed frame.
     """
-    s = theme.scale
+    s = int(theme.scale)  # SVG backend is integer-scale by contract
     if max_side_output is None:
         max_side_output = max_border_output
     cap_top = max(2, max_border_output // s)
@@ -849,7 +849,13 @@ def compose_region(
     Returns:
         PNG bytes of the composited region at output (scaled) size.
     """
-    scale = theme.scale
+    # The SVG backend's pixel math is integer-only; fractional scale is
+    # QML-backend-only and the pipeline rejects it before reaching here.
+    if theme.scale != int(theme.scale):
+        raise ValueError(
+            f"SVG compositing requires an integer scale (got {theme.scale})"
+        )
+    scale = int(theme.scale)
     rx0, ry0, rx1, ry1 = region_bbox_reference(
         theme, region, max_border_output, max_side_output
     )
@@ -999,7 +1005,7 @@ def button_geometry(theme: Theme) -> dict[str, tuple[int, int]]:
     part share the max fitted size (legacy iclass-scan fallback when the
     theme has no usable button parts at all).
     """
-    s = theme.scale
+    s = theme.scale  # may be fractional (preview at QML-only scales)
     zones = declared_zone_extents(theme)
     bboxes = resolve_parts(theme.border.parts, REFERENCE_W, REFERENCE_H)
 
@@ -1050,11 +1056,14 @@ def button_geometry(theme: Theme) -> dict[str, tuple[int, int]]:
     # Fit under the (opaque-trimmed) title band, leaving a 1-ref margin so
     # the title-bar edge stays visible. Scale uniformly down, never up.
     title_ref = _fitted_title_height_ref(theme)
-    cap_h = max(2 * s, (title_ref - 1) * s) if title_ref > 0 else 0
+    cap_h = (
+        max(round(2 * s), round((title_ref - 1) * s)) if title_ref > 0 else 0
+    )
     fitted: dict[str, tuple[int, int]] = {}
     scaled_codes: list[str] = []
     for code, (w_ref, h_ref) in raw.items():
-        w, h = w_ref * s, h_ref * s
+        # round(): identical to plain multiplication at integer scales.
+        w, h = round(w_ref * s), round(h_ref * s)
         if cap_h and h > cap_h:
             if code in BUTTON_CODE_TO_RC_SUFFIX:
                 scaled_codes.append(
@@ -1200,7 +1209,7 @@ def button_layout(theme: Theme) -> dict[str, int]:
     ``4 x scale`` for the inter-button gap when the parts list has no
     interactive entries.
     """
-    s = theme.scale
+    s = int(theme.scale)  # SVG backend is integer-scale by contract
     btn_w, btn_h = button_dims(theme)
     # Find interactive parts and their vertical positions to derive
     # ButtonMarginTop and ButtonSpacing.
