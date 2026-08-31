@@ -148,7 +148,7 @@ def apply(
     legacy_plugin: bool = False,
     border_size: str | None = None,
     keep_buttons: bool = False,
-    backend: str = "svg",
+    backend: str = "qml",
 ) -> None:
     """Point the live KWin at an installed theme.
 

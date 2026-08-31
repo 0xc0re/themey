@@ -101,7 +101,7 @@ def test_e13_rc_and_svg_button_widths_agree(fake_home: Path) -> None:
     """ButtonWidth<Suffix> in the rc == the SVG canvas width, per code."""
     from themey.pipeline import convert
 
-    result = convert(FIXTURES / "e13.etheme", scale=2)
+    result = convert(FIXTURES / "e13.etheme", scale=2, backend="svg")
     layout = _rc_layout(result.installed_dir / "e13rc")
     for fname, code in _FILE_TO_CODE.items():
         svg_path = result.installed_dir / fname
@@ -118,7 +118,7 @@ def test_e13_rc_per_code_widths_differ(fake_home: Path) -> None:
     """e13's per-code widths must not collapse to one shared value."""
     from themey.pipeline import convert
 
-    result = convert(FIXTURES / "e13.etheme", scale=2)
+    result = convert(FIXTURES / "e13.etheme", scale=2, backend="svg")
     layout = _rc_layout(result.installed_dir / "e13rc")
     close_w = int(layout["ButtonWidthClose"])
     min_w = int(layout["ButtonWidthMinimize"])
@@ -140,7 +140,7 @@ def test_menu_glyph_outline_with_transparent_interior(fake_home: Path) -> None:
     """menu.svg's fallback glyph is an outline, not a filled white block."""
     from themey.pipeline import convert
 
-    result = convert(FIXTURES / "e13.etheme", scale=2)
+    result = convert(FIXTURES / "e13.etheme", scale=2, backend="svg")
     png = _embedded_png(result.installed_dir / "menu.svg")
     w, h = png.size
     centre = png.getpixel((w // 2, h // 2))

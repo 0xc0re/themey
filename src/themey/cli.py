@@ -96,11 +96,11 @@ def convert_cmd(
         typer.Option(
             "--backend",
             help=(
-                "Decoration backend: 'qml' (E16-faithful QML package), "
-                "'svg' (Aurorae SVG theme), or 'both'"
+                "Decoration backend: 'qml' (E16-faithful QML package, "
+                "default), 'svg' (Aurorae SVG theme), or 'both'"
             ),
         ),
-    ] = "svg",
+    ] = "qml",
     verbose: Annotated[
         int,
         typer.Option(
@@ -231,9 +231,9 @@ def apply_cmd(
         str,
         typer.Option(
             "--backend",
-            help="'qml' (QML decoration package) or 'svg' (Aurorae SVG theme)",
+            help="'qml' (QML decoration package, default) or 'svg' (Aurorae SVG theme)",
         ),
-    ] = "svg",
+    ] = "qml",
 ) -> None:
     """Point the live KWin session at an installed theme (writes kwinrc, reconfigures)."""
     from . import apply
