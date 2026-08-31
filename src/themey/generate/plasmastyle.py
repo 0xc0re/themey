@@ -373,10 +373,19 @@ def _emit_set(
     edge = spec.edge_scaling
     if edge_override is not None:
         edge = edge_override(edge, src_w, src_h)
+    fitted = _fit_caps(edge, src_w, src_h)
+    if fitted is not None:
+        theme.notes.append(
+            f"plasmastyle: {spec.name} edge_scaling {edge} exceeds its "
+            f"{path.name} image; caps shrunk to {fitted} (E16 overlapping-"
+            "cap art)"
+        )
+        edge = fitted
     caps = _scaled_caps(edge, src_w, src_h, theme.scale)
     try:
         _frame_group(canvas, prefix, img, caps)
     except ValueError:
+        # Last resort only — _fit_caps should have prevented this.
         theme.notes.append(
             f"plasmastyle: {spec.name} edge_scaling {spec.edge_scaling} "
             f"exceeds its {path.name} image; whole image stretched instead"
@@ -391,6 +400,32 @@ def _source_size(path: Path) -> tuple[int, int]:
     """Header-only (width, height) of the source image."""
     with Image.open(path) as im:
         return im.size
+
+
+def _fit_caps(
+    edge: tuple[int, int, int, int], w: int, h: int
+) -> tuple[int, int, int, int] | None:
+    """Shrink caps that exceed the image proportionally, or None if they fit.
+
+    E16 tolerates overlapping caps — e13's dragbar declares ``__EDGE_SCALING
+    70 70 5 5`` on a 121-px-wide image and still renders the E-logo cap at
+    natural size — so degrading to a whole-image stretch smears the cap art
+    across the panel (verified live 2026-08-31). Shrinking both caps by the
+    same factor keeps the cap art pinned and crisp. Caps that sum to
+    EXACTLY the image size are left alone: that is authored cap-only art
+    (the middle legitimately has zero source pixels).
+    """
+    left, right, top, bottom = edge
+    changed = False
+    if left + right > w:
+        f = w / (left + right)
+        left, right = int(left * f), int(right * f)
+        changed = True
+    if top + bottom > h:
+        f = h / (top + bottom)
+        top, bottom = int(top * f), int(bottom * f)
+        changed = True
+    return (left, right, top, bottom) if changed else None
 
 
 # --------------------------------------------------------------------- #

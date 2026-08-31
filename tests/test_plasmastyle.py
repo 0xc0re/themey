@@ -139,18 +139,39 @@ def test_horizontal_only_edges_drop_top_bottom_row(tmp_path: Path) -> None:
     assert _ids(svg) == {"left", "center", "right"}
 
 
-def test_oversized_caps_degrade_to_center_only_with_note(tmp_path: Path) -> None:
-    png = _png(tmp_path, "tt.png", size=(16, 16))
+def test_oversized_caps_shrink_to_fit_with_note(tmp_path: Path) -> None:
+    """E16 tolerates overlapping caps (e13's dragbar: 70 70 5 5 on a
+    121-px image) — shrink proportionally, never stretch the whole image
+    (a stretched cap smears its baked-in art across the panel)."""
+    png = _png(tmp_path, "bar.png", size=(121, 16))
     theme = _theme(tmp_path, {
-        "TT_MAIN": _iclass("TT_MAIN", edge=(20, 20, 0, 0), normal=png),
+        "DESKTOP_DRAGBUTTON_HORIZ": _iclass(
+            "DESKTOP_DRAGBUTTON_HORIZ", edge=(70, 70, 5, 5), normal=png
+        ),
+    })
+    svg = plasmastyle.build_panel_background(theme)
+    assert svg is not None
+    ids = _ids(svg)
+    assert {"topleft", "left", "center", "right", "bottomright"} <= ids
+    left = next(
+        e for e in svg.iter() if e.get("id") == "left"
+    )
+    assert next(iter(left)).get("width") == "60"  # int(70 * 121/140)
+    assert any("caps shrunk" in n for n in theme.notes)
+
+
+def test_exact_fit_caps_stay_cap_only(tmp_path: Path) -> None:
+    """Caps summing to exactly the image size are authored cap-only art —
+    no middle is emitted and no shrink note fires."""
+    png = _png(tmp_path, "base.png", size=(8, 8))
+    theme = _theme(tmp_path, {
+        "TT_MAIN": _iclass("TT_MAIN", edge=(4, 4, 0, 0), normal=png),
     })
     svg = plasmastyle.build_tooltip(theme)
     assert svg is not None
-    assert "center" in _ids(svg)
-    assert not ({"left", "right"} & _ids(svg))
-    assert any(
-        n.startswith("plasmastyle:") and "exceeds" in n for n in theme.notes
-    )
+    assert "center" not in _ids(svg)
+    assert {"left", "right"} <= _ids(svg)
+    assert not any("caps shrunk" in n for n in theme.notes)
 
 
 def test_never_emits_tile_center_hint(tmp_path: Path) -> None:
