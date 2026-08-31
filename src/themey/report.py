@@ -65,6 +65,20 @@ def write(theme: Theme, out_path: Path, backend: str = "svg") -> Path:
         f"'{theme.display_name} (themey)' — pick it under System "
         "Settings -> Colors. Sources are listed below."
     )
+    if theme.wallpaper_specs:
+        tiled = sum(1 for w in theme.wallpaper_specs if w.fill_mode == "tiled")
+        scaled = len(theme.wallpaper_specs) - tiled
+        lines.append(
+            f"- Wallpaper: {len(theme.wallpaper_specs)} background image(s) "
+            f"installed as Plasma wallpaper packages ({tiled} tiled, "
+            f"{scaled} scaled) — pick one under System Settings -> "
+            "Wallpaper; the largest becomes the Look-and-Feel default."
+        )
+    else:
+        lines.append(
+            "- Wallpaper: no background images found in desktops.cfg; "
+            "the desktop wallpaper is left alone."
+        )
     lines.append("")
 
     # ------------------------------------------------------------------ #
@@ -92,7 +106,9 @@ def write(theme: Theme, out_path: Path, backend: str = "svg") -> Path:
     # Surface layout-decision notes (aurorae_rc:, colors:, composite:,
     # qmldeco:) BEFORE the truncated-state-drop bucket so they don't get
     # buried past line 20.
-    _layout_prefixes = ("aurorae_rc:", "colors:", "composite:", "qmldeco:")
+    _layout_prefixes = (
+        "aurorae_rc:", "colors:", "composite:", "qmldeco:", "wallpaper:",
+    )
     layout_notes = [n for n in theme.notes if n.startswith(_layout_prefixes)]
     state_notes = [n for n in theme.notes if not n.startswith(_layout_prefixes)]
     for note in layout_notes:
@@ -131,15 +147,6 @@ def write(theme: Theme, out_path: Path, backend: str = "svg") -> Path:
         "stay Breeze stock: tinting them to the theme would make them "
         "misreport meaning."
     )
-    if theme.wallpapers:
-        lines.append(
-            f"- Wallpaper: {len(theme.wallpapers)} background image(s) "
-            "found in desktops.cfg; install deferred to Phase 2."
-        )
-    else:
-        lines.append(
-            "- Wallpaper: deferred to later phase (WALLPAPER-01 / Phase 2)."
-        )
     if theme.cursors:
         lines.append(
             f"- XCursor pointer theme: {len(theme.cursors)} __CURSOR "

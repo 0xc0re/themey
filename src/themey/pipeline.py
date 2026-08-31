@@ -31,10 +31,12 @@ from .etheme.parse import parse_tree
 from .generate import qmldeco
 from .generate.aurorae import write as write_aurorae
 from .generate.colors import scheme_stem, write_colors
+from .generate.wallpaper import WallpaperError
+from .generate.wallpaper import write_package as write_wallpaper_package
 from .images.upscale import UPSCALE_MODES
 from .preview import render as render_preview
 from .report import write as write_report
-from .slug import plugin_id, slugify
+from .slug import plugin_id, slugify, wallpaper_id
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +61,10 @@ class ConvertResult:
     """KPlugin Id / kwinrc theme= value for the QML package."""
     color_scheme_path: Path | None = None
     """Installed ``themey_<slug>.colors`` (or the copy under ``output_dir``)."""
+    wallpaper_dirs: tuple[Path, ...] = ()
+    """One installed wallpaper package dir per convertible background image
+    (or the copies under ``output_dir``). Images that fail to convert are
+    skipped with a ``wallpaper:`` note rather than failing the convert."""
 
 
 def convert(
@@ -91,7 +97,8 @@ def convert(
         when the SVG backend ran, else the QML package dir;
         ``qml_installed_dir``/``qml_plugin_id`` are set whenever the QML
         backend ran. ``color_scheme_path`` is the ``.colors`` file, which
-        both backends share.
+        both backends share. ``wallpaper_dirs`` holds one entry per
+        installed wallpaper package.
 
     Raises:
         ValueError: If ``scale`` or ``backend`` is invalid.
@@ -150,6 +157,7 @@ def convert(
         installed: Path | None = None
         qml_installed: Path | None = None
         colors_path: Path | None = None
+        wallpaper_dirs: list[Path] = []
 
         if output_dir is not None:
             # Non-installing mode: write straight into output_dir.
@@ -168,6 +176,20 @@ def convert(
                 log.info("wrote QML decoration package to %s", qml_installed)
             colors_path = write_colors(theme, output_dir / colors_name)
             log.info("wrote color scheme to %s", colors_path)
+            for spec in theme.wallpaper_specs:
+                wp_id = wallpaper_id(theme_name, spec.path.stem)
+                wp_out = output_dir / wp_id
+                if wp_out.exists():
+                    shutil.rmtree(wp_out)
+                try:
+                    write_wallpaper_package(theme, spec, wp_out)
+                except WallpaperError as exc:
+                    theme.notes.append(
+                        f"wallpaper: skipped {spec.path.name}: {exc}"
+                    )
+                    continue
+                wallpaper_dirs.append(wp_out)
+                log.info("wrote wallpaper package to %s", wp_out)
             previews = output_dir
         else:
             # Stage outputs under XDG_DATA_HOME so os.replace can rename
@@ -202,6 +224,21 @@ def convert(
                     colors_name, stage_colors, target_root=paths.color_schemes()
                 )
                 log.info("installed color scheme to %s", colors_path)
+                for spec in theme.wallpaper_specs:
+                    wp_id = wallpaper_id(theme_name, spec.path.stem)
+                    stage_wp_dir = stage / wp_id
+                    try:
+                        write_wallpaper_package(theme, spec, stage_wp_dir)
+                    except WallpaperError as exc:
+                        theme.notes.append(
+                            f"wallpaper: skipped {spec.path.name}: {exc}"
+                        )
+                        continue
+                    installed_wp = install.deploy(
+                        wp_id, stage_wp_dir, target_root=paths.wallpapers()
+                    )
+                    wallpaper_dirs.append(installed_wp)
+                    log.info("installed wallpaper package to %s", installed_wp)
             previews = paths.themey_previews()
 
         # Report and preview MUST run inside the extract block: they call
@@ -225,4 +262,5 @@ def convert(
         qml_installed_dir=qml_installed,
         qml_plugin_id=pkg_id if want_qml else None,
         color_scheme_path=colors_path,
+        wallpaper_dirs=tuple(wallpaper_dirs),
     )
