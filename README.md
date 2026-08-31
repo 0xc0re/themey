@@ -16,6 +16,40 @@ frame, colors, panel, wallpaper, and cursor together.
 inside a real headless KWin session — that biomechanical frame is E16
 border art drawing an actual Plasma 6 window.*
 
+### Four more, same pipeline
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/e13-kwin-render.png" alt="The E16 theme e13 rendered as a Plasma 6 window" width="100%"></td>
+    <td width="50%"><img src="docs/images/olde-kwin-render.png" alt="The E16 theme OldE rendered as a Plasma 6 window" width="100%"></td>
+  </tr>
+  <tr>
+    <td><b>e13</b> — a title plaque that floats <i>detached</i> above the
+    frame, sized to its own text, with controls sunk into the left border.</td>
+    <td><b>OldE</b> — corroded metal, a vertical button stack down the left
+    edge, and a separate resize grip hanging off the bottom bar.</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/images/obsidian-kwin-render.png" alt="The E16 theme Obsidian rendered as a Plasma 6 window" width="100%"></td>
+    <td width="50%"><img src="docs/images/bluesteel-kwin-render.png" alt="The E16 theme BlueSteel rendered as a Plasma 6 window" width="100%"></td>
+  </tr>
+  <tr>
+    <td><b>Obsidian</b> — glossy black with two round buttons, the closest
+    of the four to a conventional titlebar.</td>
+    <td><b>BlueSteel</b> — brushed steel, with the theme's own bundled
+    <code>vixar.ttf</code> drawing the titlebar text.</td>
+  </tr>
+</table>
+
+None of those layouts is expressible as a stock Plasma titlebar, which is
+why the default backend is a QML decoration that replays E16's part model
+rather than an SVG theme clamped to KWin's border brackets.
+
+All five images are `themey render --plugin qml` output. The window pixels
+are untouched; the only edit is compositing each transparent render onto a
+flat background and cropping to content, so they stay legible in both light
+and dark themes.
+
 ```
 $ themey Aliens.etheme
 Installed:       /home/you/.local/share/kwin/decorations/themey_Aliens
