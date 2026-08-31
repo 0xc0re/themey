@@ -23,15 +23,26 @@ from themey.slug import plugin_id
 
 
 class FakeKConfig:
-    """Records every subprocess call; serves kreadconfig values back."""
+    """Records every subprocess call; serves kreadconfig values back.
+
+    ``fail_on`` lets a test make a specific external tool (by basename,
+    e.g. ``"plasma-apply-lookandfeel"``) fail with a non-zero exit and
+    given stderr, to exercise the typed-``ApplyError`` wrapping around
+    those subprocess calls.
+    """
 
     def __init__(self) -> None:
         self.store: dict[str, str] = {}
         self.calls: list[list[str]] = []
+        self.fail_on: dict[str, str] = {}
 
     def run(self, cmd, **kwargs):
         self.calls.append(list(cmd))
         prog = Path(cmd[0]).name
+        if prog in self.fail_on:
+            return subprocess.CompletedProcess(
+                cmd, 1, stdout="", stderr=self.fail_on[prog]
+            )
         if prog.startswith("kwriteconfig"):
             key = cmd[cmd.index("--key") + 1]
             if "--delete" in cmd:
@@ -262,3 +273,85 @@ def test_revert_restores_button_layout_too(fake_kconfig: FakeKConfig) -> None:
     assert fake_kconfig.store["ButtonsOnLeft"] == "MS"
     assert fake_kconfig.store["ButtonsOnRight"] == "IAX"
     assert apply_mod._PREV_BUTTONS_KEY not in fake_kconfig.store
+
+
+# --- fix round 1: Breeze on the default path -----------------------------
+
+
+def test_apply_full_breeze_routes_to_breeze_special_case(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """themey apply Breeze (no --deco-only) must behave exactly like
+    apply()'s Breeze special case: no LnF/deco install check, no baseline
+    recording, no plasma-apply-lookandfeel call — just the legacy revert."""
+    fake_kconfig.store["ButtonsOnLeft"] = "M"
+    fake_kconfig.store["ButtonsOnRight"] = "IAX"
+    apply_mod.apply_full("Breeze")
+    assert fake_kconfig.store["library"] == "org.kde.breeze"
+    assert fake_kconfig.store["theme"] == "Breeze"
+    assert not any("plasma-apply-lookandfeel" in c[0] for c in fake_kconfig.calls)
+    assert apply_mod._PREV_LNF_KEY not in fake_kconfig.store
+    assert apply_mod._PREV_DECO_KEY not in fake_kconfig.store
+
+
+def test_apply_full_breeze_restores_buttons_like_apply(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store[apply_mod._PREV_BUTTONS_KEY] = "MS|IAX"
+    apply_mod.apply_full("Breeze")
+    assert fake_kconfig.store["ButtonsOnLeft"] == "MS"
+    assert fake_kconfig.store["ButtonsOnRight"] == "IAX"
+    assert apply_mod._PREV_BUTTONS_KEY not in fake_kconfig.store
+
+
+# --- fix round 1: typed errors on plasma-apply-* subprocess failures -----
+
+
+def test_apply_full_lookandfeel_failure_raises_apply_error(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.fail_on["plasma-apply-lookandfeel"] = "no such package themey_e13"
+    with pytest.raises(apply_mod.ApplyError, match="plasma-apply-lookandfeel"):
+        apply_mod.apply_full("e13")
+
+
+def test_apply_full_wallpaper_failure_raises_apply_error(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tiled")
+    _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
+    fake_kconfig.fail_on["plasma-apply-wallpaperimage"] = "bad fill mode"
+    with pytest.raises(apply_mod.ApplyError, match="plasma-apply-wallpaperimage"):
+        apply_mod.apply_full("e13")
+
+
+def test_revert_lookandfeel_failure_still_restores_deco_and_buttons(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """A real-world revert failure: the recorded baseline theme is no
+    longer installed. plasma-apply-lookandfeel fails, but the deco triple,
+    the button layout, and both markers must still be restored/cleared —
+    the recovery command must not abandon the rest of the recovery."""
+    fake_kconfig.store[apply_mod._PREV_LNF_KEY] = (
+        "com.github.vinceliuice.MacVentura-Dark"
+    )
+    fake_kconfig.store[apply_mod._PREV_DECO_KEY] = "org.kde.breeze|Breeze|Normal"
+    fake_kconfig.store[apply_mod._PREV_BUTTONS_KEY] = "MS|IAX"
+    fake_kconfig.fail_on["plasma-apply-lookandfeel"] = "package not found"
+
+    with pytest.raises(apply_mod.ApplyError, match="plasma-apply-lookandfeel"):
+        apply_mod.revert()
+
+    assert fake_kconfig.store["library"] == "org.kde.breeze"
+    assert fake_kconfig.store["theme"] == "Breeze"
+    assert fake_kconfig.store["BorderSize"] == "Normal"
+    assert fake_kconfig.store["ButtonsOnLeft"] == "MS"
+    assert fake_kconfig.store["ButtonsOnRight"] == "IAX"
+    assert apply_mod._PREV_BUTTONS_KEY not in fake_kconfig.store
+    assert apply_mod._PREV_DECO_KEY not in fake_kconfig.store
+    assert apply_mod._PREV_LNF_KEY not in fake_kconfig.store
+    # Reconfigure still ran despite the LnF failure.
+    assert any(Path(c[0]).name.startswith("qdbus") for c in fake_kconfig.calls)
