@@ -79,23 +79,44 @@ def _ids(svg: ET.Element) -> set[str]:
 # ------------------------------------------------------------------ #
 
 
-def test_panel_background_ids_and_fallback_chain(tmp_path: Path) -> None:
-    png = _png(tmp_path, "dragbar.png")
+def test_panel_background_is_flat_translucent_tint(tmp_path: Path) -> None:
+    png = _png(tmp_path, "dragbar.png")  # solid (200, 60, 60)
     theme = _theme(tmp_path, {
         "DESKTOP_DRAGBUTTON_HORIZ": _iclass(
             "DESKTOP_DRAGBUTTON_HORIZ", edge=(2, 2, 2, 2), normal=png
         ),
     })
     svg = plasmastyle.build_panel_background(theme)
-    assert svg is not None
     ids = _ids(svg)
     assert {"topleft", "top", "topright", "left", "center", "right",
             "bottomleft", "bottom", "bottomright"} <= ids
-    assert not any(i.startswith("east-") or i.startswith("west-") for i in ids)
-    assert any("DESKTOP_DRAGBUTTON_HORIZ" in n for n in theme.notes)
+    assert {"hint-left-margin", "hint-right-margin", "hint-top-margin",
+            "hint-bottom-margin"} <= ids
+    # A tint, not art: no embedded images anywhere.
+    assert not any(e.tag.endswith("image") for e in svg.iter())
+    center = next(e for e in svg.iter() if e.get("id") == "center")
+    style = center.get("style", "")
+    assert "fill:#c83c3c" in style  # dominant of the (200, 60, 60) art
+    assert "opacity:0.85" in style
+    assert any(
+        "translucent tint" in n and "DESKTOP_DRAGBUTTON_HORIZ" in n
+        for n in theme.notes
+    )
 
 
-def test_panel_background_east_west_from_vertical_art(tmp_path: Path) -> None:
+def test_panel_background_scheme_fallback_without_art(tmp_path: Path) -> None:
+    from themey.analyze.colors import default_scheme
+
+    theme = _theme(tmp_path, {})
+    svg = plasmastyle.build_panel_background(theme)
+    assert svg is not None  # never skipped — colors-only themes get a tint
+    r, g, b = default_scheme().window.background_normal
+    center = next(e for e in svg.iter() if e.get("id") == "center")
+    assert f"fill:#{r:02x}{g:02x}{b:02x}" in center.get("style", "")
+    assert any("the sampled color scheme" in n for n in theme.notes)
+
+
+def test_panel_background_drops_east_west_sets(tmp_path: Path) -> None:
     h = _png(tmp_path, "h.png")
     v = _png(tmp_path, "v.png")
     theme = _theme(tmp_path, {
@@ -103,16 +124,11 @@ def test_panel_background_east_west_from_vertical_art(tmp_path: Path) -> None:
         "ICONBOX_VERTICAL": _iclass("ICONBOX_VERTICAL", normal=v),
     })
     svg = plasmastyle.build_panel_background(theme)
-    assert svg is not None
     ids = _ids(svg)
-    assert {"center", "east-center", "west-center"} <= ids
-    # north/south fall back to the unprefixed set — never emitted.
-    assert not any(i.startswith(("north-", "south-")) for i in ids)
-
-
-def test_panel_background_skipped_without_source_art(tmp_path: Path) -> None:
-    theme = _theme(tmp_path, {})
-    assert plasmastyle.build_panel_background(theme) is None
+    # A flat tint has no orientation; every prefix falls back to unprefixed.
+    assert not any(
+        i.startswith(("north-", "south-", "east-", "west-")) for i in ids
+    )
 
 
 def test_zero_edge_scaling_is_center_only(tmp_path: Path) -> None:
@@ -128,13 +144,11 @@ def test_zero_edge_scaling_is_center_only(tmp_path: Path) -> None:
 def test_horizontal_only_edges_drop_top_bottom_row(tmp_path: Path) -> None:
     """Aliens-dragbar shape: L R 0 0 → left/center/right only (FrameSvg then
     reports 0 top/bottom borders, which is correct)."""
-    png = _png(tmp_path, "bar.png")
+    png = _png(tmp_path, "menu.png")
     theme = _theme(tmp_path, {
-        "DESKTOP_DRAGBUTTON_HORIZ": _iclass(
-            "DESKTOP_DRAGBUTTON_HORIZ", edge=(6, 3, 0, 0), normal=png
-        ),
+        "MENU_BG": _iclass("MENU_BG", edge=(6, 3, 0, 0), normal=png),
     })
-    svg = plasmastyle.build_panel_background(theme)
+    svg = plasmastyle.build_dialog_background(theme)
     assert svg is not None
     assert _ids(svg) == {"left", "center", "right"}
 
@@ -142,14 +156,12 @@ def test_horizontal_only_edges_drop_top_bottom_row(tmp_path: Path) -> None:
 def test_oversized_caps_shrink_to_fit_with_note(tmp_path: Path) -> None:
     """E16 tolerates overlapping caps (e13's dragbar: 70 70 5 5 on a
     121-px image) — shrink proportionally, never stretch the whole image
-    (a stretched cap smears its baked-in art across the panel)."""
-    png = _png(tmp_path, "bar.png", size=(121, 16))
+    (a stretched cap smears its baked-in art across the surface)."""
+    png = _png(tmp_path, "menu.png", size=(121, 16))
     theme = _theme(tmp_path, {
-        "DESKTOP_DRAGBUTTON_HORIZ": _iclass(
-            "DESKTOP_DRAGBUTTON_HORIZ", edge=(70, 70, 5, 5), normal=png
-        ),
+        "MENU_BG": _iclass("MENU_BG", edge=(70, 70, 5, 5), normal=png),
     })
-    svg = plasmastyle.build_panel_background(theme)
+    svg = plasmastyle.build_dialog_background(theme)
     assert svg is not None
     ids = _ids(svg)
     assert {"topleft", "left", "center", "right", "bottomright"} <= ids
@@ -346,13 +358,11 @@ def test_margin_hints_scale_with_theme_scale(tmp_path: Path, scale: float) -> No
 
 def test_caps_and_middle_sum_exactly_at_fractional_scale(tmp_path: Path) -> None:
     """Edge-based cap rounding: left' + center' + right' == scaled width."""
-    png = _png(tmp_path, "bar.png", size=(21, 9))
+    png = _png(tmp_path, "menu.png", size=(21, 9))
     theme = _theme(tmp_path, {
-        "DESKTOP_DRAGBUTTON_HORIZ": _iclass(
-            "DESKTOP_DRAGBUTTON_HORIZ", edge=(5, 7, 0, 0), normal=png
-        ),
+        "MENU_BG": _iclass("MENU_BG", edge=(5, 7, 0, 0), normal=png),
     }, scale=1.5)
-    svg = plasmastyle.build_panel_background(theme)
+    svg = plasmastyle.build_dialog_background(theme)
     assert svg is not None
     widths = {
         e.get("id"): int(next(iter(e)).get("width"))
@@ -462,6 +472,94 @@ def test_style_scheme_button_fg_fallback_chain(tmp_path: Path) -> None:
 
 
 # ------------------------------------------------------------------ #
+# Pager
+# ------------------------------------------------------------------ #
+
+_PAGER_CELLS = (
+    "topleft", "top", "topright", "left", "center", "right",
+    "bottomleft", "bottom", "bottomright",
+)
+
+
+def _wallpaper(tmp_path: Path, size=(128, 96)) -> Path:
+    return _png(tmp_path, "wall.png", size=size, color=(20, 80, 140, 255))
+
+
+def test_pager_skipped_without_wallpaper(tmp_path: Path) -> None:
+    theme = _theme(tmp_path, {})
+    assert plasmastyle.build_pager(theme, None) is None
+    assert any("no wallpaper to miniature" in n for n in theme.notes)
+
+
+def test_pager_ids_three_state_sets(tmp_path: Path) -> None:
+    theme = _theme(tmp_path, {})
+    svg = plasmastyle.build_pager(theme, _wallpaper(tmp_path))
+    assert svg is not None
+    ids = _ids(svg)
+    for prefix in ("normal-", "active-", "hover-"):
+        for cell in _PAGER_CELLS:
+            assert f"{prefix}{cell}" in ids
+    assert not any("tile-center" in i for i in ids)
+    assert not any("margin" in i for i in ids)
+
+
+def test_pager_centers_embed_distinct_brightness_thumbs(tmp_path: Path) -> None:
+    theme = _theme(tmp_path, {})
+    svg = plasmastyle.build_pager(theme, _wallpaper(tmp_path))
+    assert svg is not None
+    uris = {}
+    for prefix in ("normal-", "active-", "hover-"):
+        g = next(e for e in svg.iter() if e.get("id") == f"{prefix}center")
+        uris[prefix] = next(iter(g)).get(XLINK)
+    assert uris["normal-"] != uris["active-"]
+    assert uris["hover-"] != uris["active-"]
+
+
+def test_pager_thumb_downscaled_not_upscaled(tmp_path: Path) -> None:
+    big = _png(tmp_path, "big.png", size=(1024, 512))
+    theme = _theme(tmp_path, {})
+    svg = plasmastyle.build_pager(theme, big)
+    assert svg is not None
+    g = next(e for e in svg.iter() if e.get("id") == "active-center")
+    assert next(iter(g)).get("width") == "256"
+
+    small = _png(tmp_path, "small.png", size=(64, 48))
+    theme = _theme(tmp_path, {})
+    svg = plasmastyle.build_pager(theme, small)
+    assert svg is not None
+    g = next(e for e in svg.iter() if e.get("id") == "active-center")
+    assert next(iter(g)).get("width") == "64"
+
+
+def test_pager_active_frame_from_pager_sel_art(tmp_path: Path) -> None:
+    sel = _png(tmp_path, "sel.png", size=(12, 12))
+    theme = _theme(tmp_path, {
+        "PAGER_SEL": _iclass("PAGER_SEL", edge=(2, 2, 2, 2), normal=sel),
+    })
+    svg = plasmastyle.build_pager(theme, _wallpaper(tmp_path))
+    assert svg is not None
+    tl = next(e for e in svg.iter() if e.get("id") == "active-topleft")
+    assert next(iter(tl)).tag.endswith("image")
+    # No PAGER_BACKGROUND art → the normal frame is a rect stroke.
+    ntl = next(e for e in svg.iter() if e.get("id") == "normal-topleft")
+    assert ntl.tag.endswith("rect")
+    assert any("iclass PAGER_SEL art" in n for n in theme.notes)
+
+
+def test_pager_frame_color_fallback_on_zero_edge(tmp_path: Path) -> None:
+    """PAGER_SEL stretched whole (edge 0 0 0 0) → color-stroke frames."""
+    sel = _png(tmp_path, "sel.png", size=(12, 12))
+    theme = _theme(tmp_path, {
+        "PAGER_SEL": _iclass("PAGER_SEL", edge=(0, 0, 0, 0), normal=sel),
+    })
+    svg = plasmastyle.build_pager(theme, _wallpaper(tmp_path))
+    assert svg is not None
+    tl = next(e for e in svg.iter() if e.get("id") == "active-topleft")
+    assert tl.tag.endswith("rect")
+    assert any("a scheme-color stroke" in n for n in theme.notes)
+
+
+# ------------------------------------------------------------------ #
 # write()
 # ------------------------------------------------------------------ #
 
@@ -502,16 +600,44 @@ def test_write_layout_and_mirrors(tmp_path: Path) -> None:
     plasmarc = (out / "plasmarc").read_text()
     assert "[AdaptiveTransparency]" in plasmarc
     assert "[ContrastEffect]" in plasmarc
-    assert "enabled=false" in plasmarc
+    assert "enabled=true" in plasmarc
+    assert "contrast=1.0" in plasmarc
+    assert "saturation=1.5" in plasmarc
+    assert "enabled=false" not in plasmarc
 
+    # Byte-identical mirrors for everything EXCEPT the panel, whose
+    # solid/opaque variants are re-rendered opaque.
     for rel in style.shipped:
         original = (out / rel).read_bytes()
-        assert (out / "solid" / rel).read_bytes() == original
-        assert (out / "opaque" / rel).read_bytes() == original
+        for variant in ("solid", "opaque"):
+            mirrored = (out / variant / rel).read_bytes()
+            if rel == plasmastyle.PANEL_SVG:
+                assert mirrored != original
+            else:
+                assert mirrored == original
 
     colors = (out / "colors").read_text()
     assert "[Colors:Window]" in colors
     assert "ColorScheme=themey_TestStyle" in colors
+
+
+def test_write_panel_variants(tmp_path: Path) -> None:
+    """Base panel is translucent; solid/ and opaque/ are genuinely opaque
+    (AdaptiveTransparency swaps to solid/ when a window touches the panel)."""
+    theme = _rich_theme(tmp_path)
+    out = tmp_path / "out" / "themey_TestStyle"
+    plasmastyle.write(theme, out)
+    def center_style(path: Path) -> str:
+        root = ET.parse(path).getroot()
+        return next(e for e in root.iter() if e.get("id") == "center").get(
+            "style", ""
+        )
+
+    assert "opacity:0.85" in center_style(out / plasmastyle.PANEL_SVG)
+    for variant in ("solid", "opaque"):
+        style = center_style(out / variant / plasmastyle.PANEL_SVG)
+        assert "opacity" not in style
+        assert style.startswith("fill:#")
 
 
 def test_write_rejects_wrong_basename(tmp_path: Path) -> None:
@@ -520,11 +646,13 @@ def test_write_rejects_wrong_basename(tmp_path: Path) -> None:
         plasmastyle.write(theme, tmp_path / "out" / "wrong-name")
 
 
-def test_write_colors_only_package_is_legitimate(tmp_path: Path) -> None:
+def test_write_artless_theme_ships_scheme_tint_panel_only(tmp_path: Path) -> None:
+    """No iclass art → still a valid package: the panel tint (scheme
+    fallback) plus the colors file; everything else falls back to Breeze."""
     theme = _theme(tmp_path, {})
     out = tmp_path / "out" / "themey_TestStyle"
     style = plasmastyle.write(theme, out)
-    assert style.shipped == ()
+    assert style.shipped == (plasmastyle.PANEL_SVG,)
     assert (out / "colors").is_file()
     assert (out / "metadata.json").is_file()
 

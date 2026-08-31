@@ -22,6 +22,7 @@ ALIENS_EXPECTED_SVGS = {
     plasmastyle.VIEWITEM_SVG,
     plasmastyle.SCROLLBAR_SVG,
     plasmastyle.ARROWS_SVG,
+    plasmastyle.PAGER_SVG,  # Aliens ships wallpapers → pager minis
 }
 
 
@@ -42,11 +43,17 @@ def test_output_dir_mode_writes_style_under_desktoptheme(fake_home, tmp_path):
         if p.relative_to(style_dir).parts[0] not in ("solid", "opaque")
     }
     assert shipped == ALIENS_EXPECTED_SVGS
-    # Mirrors: every shipped SVG is byte-identical under solid/ + opaque/.
+    # Mirrors: every shipped SVG is byte-identical under solid/ + opaque/
+    # EXCEPT the panel, whose variants are re-rendered opaque.
     for rel in shipped:
         original = (style_dir / rel).read_bytes()
-        assert (style_dir / "solid" / rel).read_bytes() == original
-        assert (style_dir / "opaque" / rel).read_bytes() == original
+        for variant in ("solid", "opaque"):
+            mirrored = (style_dir / variant / rel).read_bytes()
+            if rel == plasmastyle.PANEL_SVG:
+                assert b"opacity:0.85" in original
+                assert b"opacity:0.85" not in mirrored
+            else:
+                assert mirrored == original
 
 
 def test_output_dir_defaults_reference_the_style(fake_home, tmp_path):
@@ -69,10 +76,23 @@ def test_install_mode_deploys_style_to_xdg(fake_home):
     assert (expected / "colors").is_file()
 
 
+def test_no_wallpaper_theme_ships_no_pager(fake_home, tmp_path):
+    """OPENSTEP carries no backgrounds: the pager is left to the Breeze
+    fallback, while the panel tint still ships (it needs no art)."""
+    out = tmp_path / "out"
+    result = convert(
+        FIXTURES / "OPENSTEP.etheme", scale=2, backend="qml", output_dir=out
+    )
+    style_dir = out / "desktoptheme" / plugin_id("OPENSTEP")
+    assert result.desktop_theme_dir == style_dir
+    assert not (style_dir / plasmastyle.PAGER_SVG).exists()
+    assert (style_dir / plasmastyle.PANEL_SVG).is_file()
+
+
 def test_style_failure_is_non_fatal_with_note(fake_home, tmp_path, monkeypatch):
     from themey import pipeline
 
-    def boom(theme, out_dir):
+    def boom(theme, out_dir, **kwargs):
         raise plastyle_err
 
     plastyle_err = plasmastyle.PlasmaStyleError("style exploded")
