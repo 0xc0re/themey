@@ -225,6 +225,68 @@ def test_adjacent_parts_share_edges_at_fractional_scale():
     assert (ax, aw, bw) == (0, 15, 15)
 
 
+# ------------------------------------------------------------------ #
+# titleBandItem union — Python replica of main.qml's height binding
+# (QML can't execute under pytest). The installed title item is the
+# union bounding box of the full-width top band and every visible
+# button part's rect; KWin's sectionUnderMouse() gives that rect the
+# arrow cursor and titlebar drag semantics.
+# ------------------------------------------------------------------ #
+
+
+def _title_union_height(data, frame_w, frame_h, tw, *, maximized=False):
+    bottom = data["borders"]["top"]
+    for i, p in enumerate(data["parts"]):
+        if p["button"] is None:
+            continue
+        if maximized and p["hideWhenMaximized"]:
+            continue
+        _x, y, _w, h = part_geometry(data, i, frame_w, frame_h, tw)
+        bottom = max(bottom, y + h)
+    return bottom
+
+
+@needs_e13
+def test_e13_title_union_covers_button_stack(e13_data):
+    # Band 92; button bottoms KILL 76 / ICONIFY 166 / SHADE 208 /
+    # STICK 284 → the lowest button wins.
+    assert _title_union_height(e13_data, FRAME_W, FRAME_H, _tw) == 284
+
+
+@needs_e13
+def test_e13_title_union_ignores_chrome_parts(e13_data):
+    # WIN_BOTTOM reaches the frame bottom — if chrome (button is None)
+    # parts entered the union, the whole frame would become titleBar
+    # and no resize section would survive.
+    i = _index(e13_data, "WIN_BOTTOM")
+    _x, y, _w, h = part_geometry(e13_data, i, FRAME_W, FRAME_H, _tw)
+    assert y + h > 284
+    assert _title_union_height(e13_data, FRAME_W, FRAME_H, _tw) == 284
+
+
+@needs_e13
+def test_e13_title_union_collapses_when_maximized(e13_data):
+    # Below-band buttons are hideWhenMaximized; KILL (bottom 76) fits
+    # inside the 92px band, so the union collapses to borders.top
+    # exactly (== maximizedBorders.top).
+    assert (
+        _title_union_height(e13_data, FRAME_W, FRAME_H, _tw, maximized=True)
+        == 92
+    )
+
+
+@needs_e13
+def test_e13_title_union_at_fractional_scale(e13_data):
+    # e13_data was emitted at scale 2 (borders pre-scaled); rebuild the
+    # display-only band for 1.5: scale_px(46, 1.5) = 69.
+    data = dict(
+        e13_data, scale=1.5,
+        borders=dict(e13_data["borders"], top=69),
+    )
+    # STICK bottom 213 vs band 69 → union 213.
+    assert _title_union_height(data, FRAME_W_15, FRAME_H_15, _tw) == 213
+
+
 def test_scale_multiplies_after_ref_math():
     """Ref-space math xscale — output-space math would shift this part."""
     data1 = {"scale": 1, "parts": [_mk_part(brXA=40, brYA=38, maxW=40, maxH=38)]}

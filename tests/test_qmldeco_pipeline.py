@@ -27,7 +27,8 @@ def test_convert_backend_qml_installs_package(fake_home):
     assert not (paths.aurorae_themes() / "e13").exists()
     report = result.report_path.read_text()
     assert "Backend: qml" in report
-    assert "resize shape over side-border buttons" in report
+    assert "arrow over every themed button" in report
+    assert "resize shape over side-border" not in report
     assert "org.kde.kwin.aurorae" in report
 
 
