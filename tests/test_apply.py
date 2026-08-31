@@ -125,3 +125,63 @@ def test_apply_theme_without_binning_leaves_buttons_alone(
     apply_mod.apply("plain", backend="svg")
     assert "ButtonsOnLeft" not in fake_kconfig.store
     assert "ThemeyPrevButtons" not in fake_kconfig.store
+
+
+# --- E1: baseline recorders -------------------------------------------------
+
+
+def test_record_prev_lookandfeel_snapshots_current_package(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["LookAndFeelPackage"] = "com.github.vinceliuice.MacVentura-Dark"
+    kw, kr = "/usr/bin/kwriteconfig6", "/usr/bin/kreadconfig6"
+    apply_mod._record_prev_lookandfeel(kw, kr)
+    assert (
+        fake_kconfig.store[apply_mod._PREV_LNF_KEY]
+        == "com.github.vinceliuice.MacVentura-Dark"
+    )
+    call = next(
+        c for c in fake_kconfig.calls if apply_mod._PREV_LNF_KEY in c
+    )
+    assert "kdeglobals" in call
+    assert "Themey" in call
+
+
+def test_record_prev_lookandfeel_unset_sentinel(fake_kconfig: FakeKConfig) -> None:
+    kw, kr = "/usr/bin/kwriteconfig6", "/usr/bin/kreadconfig6"
+    apply_mod._record_prev_lookandfeel(kw, kr)
+    assert fake_kconfig.store[apply_mod._PREV_LNF_KEY] == "@unset"
+
+
+def test_record_prev_lookandfeel_written_once(fake_kconfig: FakeKConfig) -> None:
+    fake_kconfig.store["LookAndFeelPackage"] = "org.kde.breeze.desktop"
+    kw, kr = "/usr/bin/kwriteconfig6", "/usr/bin/kreadconfig6"
+    apply_mod._record_prev_lookandfeel(kw, kr)
+    fake_kconfig.store["LookAndFeelPackage"] = "themey_e13"  # simulated apply
+    apply_mod._record_prev_lookandfeel(kw, kr)
+    assert fake_kconfig.store[apply_mod._PREV_LNF_KEY] == "org.kde.breeze.desktop"
+
+
+def test_record_prev_deco_snapshots_current_triple(fake_kconfig: FakeKConfig) -> None:
+    fake_kconfig.store["library"] = "org.kde.breeze"
+    fake_kconfig.store["theme"] = "Breeze"
+    fake_kconfig.store["BorderSize"] = "Normal"
+    kw, kr = "/usr/bin/kwriteconfig6", "/usr/bin/kreadconfig6"
+    apply_mod._record_prev_deco(kw, kr)
+    assert fake_kconfig.store[apply_mod._PREV_DECO_KEY] == "org.kde.breeze|Breeze|Normal"
+
+
+def test_record_prev_deco_unset_sentinel(fake_kconfig: FakeKConfig) -> None:
+    kw, kr = "/usr/bin/kwriteconfig6", "/usr/bin/kreadconfig6"
+    apply_mod._record_prev_deco(kw, kr)
+    assert fake_kconfig.store[apply_mod._PREV_DECO_KEY] == "@unset|@unset|@unset"
+
+
+def test_record_prev_deco_written_once(fake_kconfig: FakeKConfig) -> None:
+    fake_kconfig.store["library"] = "org.kde.breeze"
+    fake_kconfig.store["theme"] = "Breeze"
+    kw, kr = "/usr/bin/kwriteconfig6", "/usr/bin/kreadconfig6"
+    apply_mod._record_prev_deco(kw, kr)
+    fake_kconfig.store["library"] = "org.kde.kwin.aurorae"  # simulated apply
+    apply_mod._record_prev_deco(kw, kr)
+    assert fake_kconfig.store[apply_mod._PREV_DECO_KEY] == "org.kde.breeze|Breeze|@unset"
