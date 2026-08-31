@@ -49,7 +49,11 @@ inside a ``Plasma/Theme`` KPackage under
   (``scale_px``, the same rounding the QML deco uses) so the panel chrome
   and the pre-scaled window chrome stay coherent; FrameSvg treats SVG
   units as logical px, so unscaled 2-4 px caps would render as hairlines.
-  Middles are never pre-stretched — FrameSvg stretches at runtime.
+  Middles are never pre-stretched — FrameSvg stretches at runtime. The
+  ONE scaling exception: art whose caps sum past
+  ``SURFACE_MAX_REF_CHROME`` per axis renders at source scale (see that
+  constant — giant frame art like HandOfGod's tooltip cloud must not be
+  doubled on top of Plasma-sized content).
 
 State map (whole module): E16 ``normal`` → ``normal``, ``hilited`` →
 ``hover``, ``clicked`` → ``pressed``/``selected``; a missing state reuses
@@ -175,6 +179,18 @@ _GRID = (
     ("left", "center", "right"),
     ("bottomleft", "bottom", "bottomright"),
 )
+
+#: Ref-px ceiling for a surface's fixed chrome per axis (cap sums, after
+#: ``_fit_caps``). Art whose caps already sum past this at SOURCE size is
+#: "the art IS the surface" chrome — HandOfGod's 249x126 tooltip cloud
+#: declares 20-25 ref-px caps, so its frame alone is ~40-47 px per axis
+#: before any content. E16 rendered such art at 1x around tiny text;
+#: multiplying it by ``theme.scale`` doubled an already-imposing frame
+#: around Plasma's much larger tooltip content (live HandOfGod tooltip,
+#: 2026-08-31). Such art (and its margins) renders at source scale
+#: instead; it is never downscaled below 1x — a giant frame at 1x is the
+#: theme's authored look. Pixel-art chrome (a few ref px) is unaffected.
+SURFACE_MAX_REF_CHROME = 32
 
 #: Ref-px ceiling for the scrollbar track thickness (``hint-scrollbar-size``).
 #: E16 stretched knob art INTO a slim configured track — the image's own
@@ -438,7 +454,6 @@ def _emit_set(
     path = _state_image(spec, state)
     if path is None:
         return False
-    img = _load_scaled(path, theme.scale)
     src_w, src_h = _source_size(path)
     edge = spec.edge_scaling
     if edge_override is not None:
@@ -451,7 +466,9 @@ def _emit_set(
             "cap art)"
         )
         edge = fitted
-    caps = _scaled_caps(edge, src_w, src_h, theme.scale)
+    scale = _surface_scale(theme, spec, edge)
+    img = _load_scaled(path, scale)
+    caps = _scaled_caps(edge, src_w, src_h, scale)
     try:
         _frame_group(canvas, prefix, img, caps)
     except ValueError:
@@ -462,8 +479,32 @@ def _emit_set(
         )
         _frame_group(canvas, prefix, img, (0, 0, 0, 0))
     if hints:
-        _margin_hints(canvas, prefix, spec.padding, theme.scale)
+        _margin_hints(canvas, prefix, spec.padding, scale)
     return True
+
+
+def _surface_scale(
+    theme: Theme, spec: IClassSpec, edge: tuple[int, int, int, int]
+) -> float:
+    """``theme.scale``, or 1.0 for art with dominating chrome.
+
+    See ``SURFACE_MAX_REF_CHROME``. The note is deduplicated because
+    multi-state builders emit one set per prefix from the same art.
+    """
+    left, right, top, bottom = edge
+    if left + right <= SURFACE_MAX_REF_CHROME and top + bottom <= SURFACE_MAX_REF_CHROME:
+        return theme.scale
+    if theme.scale <= 1:
+        return theme.scale
+    note = (
+        f"plasmastyle: {spec.name} caps ({left}+{right} h, {top}+{bottom} v "
+        f"ref px) dominate the surface; art kept at source scale instead of "
+        f"{theme.scale:g}x (E16 drew this frame at source size around far "
+        "smaller content)"
+    )
+    if note not in theme.notes:
+        theme.notes.append(note)
+    return 1.0
 
 
 def _source_size(path: Path) -> tuple[int, int]:

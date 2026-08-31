@@ -19,11 +19,14 @@ def _cursor_block(
     bg: tuple[int, int, int] = (0, 0, 0),
     hot_x: int | None = None,
     hot_y: int | None = None,
+    native_id: str | None = None,
 ) -> Block:
     """Build an AST __CURSOR block of the form found in Aliens cursors.cfg."""
     children: list[KeyVal] = [_kv("__NAME", name)]
     if xbm is not None:
         children.append(_kv("__XBM_FILE", xbm))
+    if native_id is not None:
+        children.append(_kv("__NATIVE_ID", native_id))
     children.append(_kv("__FG_COLOR", *fg))
     children.append(_kv("__BG_COLOR", *bg))
     if hot_x is not None:
@@ -60,6 +63,22 @@ def test_extract_cursors_with_hotspot(tmp_path: Path) -> None:
     cursors = extract_cursors(nodes, tmp_path)
     assert cursors[0].hot_x == 4
     assert cursors[0].hot_y == 8
+
+
+def test_extract_cursors_parses_native_id(tmp_path: Path) -> None:
+    """Obsidian-style blocks: no __XBM_FILE, an X11 cursor-font glyph name
+    plus theme colors. native_id must survive into the spec so the
+    emitter can explain WHY the shape was skipped."""
+    nodes = [_cursor_block("DEFAULT", xbm=None, native_id="XC_LEFT_PTR")]
+    cursors = extract_cursors(nodes, tmp_path)
+    assert cursors[0].xbm_path is None
+    assert cursors[0].native_id == "XC_LEFT_PTR"
+
+
+def test_extract_cursors_native_id_defaults_to_none(tmp_path: Path) -> None:
+    nodes = [_cursor_block("MOVE")]
+    cursors = extract_cursors(nodes, tmp_path)
+    assert cursors[0].native_id is None
 
 
 def test_extract_cursors_rejects_path_traversal(tmp_path: Path) -> None:

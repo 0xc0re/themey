@@ -269,6 +269,31 @@ def test_write_theme_returns_none_when_xcursorgen_is_missing(
 
 
 @needs_xcursorgen
+def test_write_theme_notes_native_id_cursor(tmp_path: Path):
+    """Obsidian declares only __NATIVE_ID cursors (X11 cursor-font glyphs
+    recolored by the cfg). The note must say that — not the misleading
+    'no readable __XBM_FILE' — so the report explains what was skipped."""
+    from dataclasses import replace
+
+    with _theme("Aliens") as raw:
+        theme = build_theme(
+            raw.asset_root, parse_tree(raw.asset_root),
+            name="Aliens", display_name="Aliens", scale=2,
+        )
+        theme = replace(theme, cursors=(
+            CursorSpec(
+                name="DEFAULT", xbm_path=None, hot_x=0, hot_y=0,
+                fg_rgb=(7, 59, 91), bg_rgb=(197, 212, 220),
+                native_id="XC_LEFT_PTR",
+            ),
+        ))
+        out = tmp_path / cursor_theme_dir("Aliens")
+        assert write_theme(theme, out) is None
+    assert any("XC_LEFT_PTR" in n and "native" in n for n in theme.notes)
+    assert not any("no readable __XBM_FILE" in n for n in theme.notes)
+
+
+@needs_xcursorgen
 def test_write_theme_skips_a_cursor_whose_xbm_is_unreadable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

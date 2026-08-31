@@ -193,11 +193,15 @@ class CursorSpec:
     """One ``__CURSOR`` block: an XBM cursor with its hotspot and fg/bg colors.
 
     E16 cursors.c parses __CURSOR blocks with optional __NAME, __XBM_FILE,
-    __HOT_X, __HOT_Y, __FG_COLOR, __BG_COLOR. Hotspots default to 0 when
-    the cfg omits them. Foreground/background default to white/black (the
-    E16 source default). xbm_path is None when the cfg references a file
-    outside asset_root or that doesn't exist on disk — emission code is
-    responsible for handling that case.
+    __NATIVE_ID, __HOT_X, __HOT_Y, __FG_COLOR, __BG_COLOR. Hotspots
+    default to 0 when the cfg omits them. Foreground/background default to
+    white/black (the E16 source default). xbm_path is None when the cfg
+    references a file outside asset_root or that doesn't exist on disk —
+    emission code is responsible for handling that case. native_id carries
+    an X11 cursor-font glyph name (``XC_LEFT_PTR``) for blocks that
+    recolor a stock cursor instead of shipping XBM art (Obsidian's whole
+    pointer set); the emitter cannot convert those (no cursor-font
+    rasterizer) but must report them truthfully.
     """
 
     name: str  # E16 cursor name (e.g. "DEFAULT", "MOVE", "RESIZE_BR")
@@ -206,6 +210,7 @@ class CursorSpec:
     hot_y: int
     fg_rgb: tuple[int, int, int]
     bg_rgb: tuple[int, int, int]
+    native_id: str | None = None
 
 
 @dataclass(frozen=True)

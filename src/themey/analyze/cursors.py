@@ -5,6 +5,8 @@ E16 ``cursors.c:267-340`` defines the __CURSOR block grammar:
     __CURSOR __BGN
       __NAME <ident>
       __XBM_FILE "path/relative/to/asset_root.xbm"
+      __NATIVE_ID XC_<glyph>         (alternative to __XBM_FILE: recolor
+                                      an X11 cursor-font glyph — Obsidian)
       __FG_COLOR <r> <g> <b>
       __BG_COLOR <r> <g> <b>
       __HOT_X <int>                  (optional, defaults to 0)
@@ -68,6 +70,7 @@ def extract_cursors(
         if name is None:
             continue
         xbm_path: Path | None = None
+        native_id: str | None = None
         hot_x = 0
         hot_y = 0
         fg_rgb: tuple[int, int, int] = (255, 255, 255)
@@ -86,6 +89,8 @@ def extract_cursors(
                     xbm_path = full
                 else:
                     xbm_path = None
+            elif k == "__NATIVE_ID":
+                native_id = str(child.values[0])
             elif k == "__HOT_X":
                 hot_x = _to_int(child.values[0])
             elif k == "__HOT_Y":
@@ -102,6 +107,7 @@ def extract_cursors(
                 hot_y=hot_y,
                 fg_rgb=fg_rgb,
                 bg_rgb=bg_rgb,
+                native_id=native_id,
             )
         )
     return tuple(cursors)
