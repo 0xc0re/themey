@@ -154,6 +154,9 @@ def convert_cmd(
     if result.color_scheme_path is not None:
         verb = "Installed" if result.installed else "Wrote"
         typer.echo(f"{verb} (colors): {result.color_scheme_path}")
+    if result.cursor_theme_dir is not None:
+        verb = "Installed" if result.installed else "Wrote"
+        typer.echo(f"{verb} (cursors): {result.cursor_theme_dir}")
     typer.echo(f"Preview:   {result.preview_path}")
     typer.echo(f"Report:    {result.report_path}")
     if result.installed:
@@ -165,6 +168,11 @@ def convert_cmd(
             typer.echo(
                 f"Colors:    pick '{result.theme_name} (themey)' under "
                 "System Settings - Colors"
+            )
+        if result.cursor_theme_dir is not None:
+            typer.echo(
+                f"Cursors:   pick '{result.theme_name} (themey)' under "
+                "System Settings - Cursors"
             )
 
     if no_open:

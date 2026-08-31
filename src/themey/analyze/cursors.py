@@ -11,8 +11,10 @@ E16 ``cursors.c:267-340`` defines the __CURSOR block grammar:
       __HOT_Y <int>                  (optional, defaults to 0)
     __END
 
-This module ONLY parses the blocks into a frozen ``CursorSpec`` tuple —
-XCursor emission is deferred to Phase 3 per the plan.
+This module ONLY parses the blocks into a frozen ``CursorSpec`` tuple.
+``generate/cursors.py`` turns them into the XCursor theme — including the
+sibling ``<file>.xbm.mask`` and the XBM's embedded hotspot, neither of
+which the ``__CURSOR`` grammar carries.
 
 Path policy mirrors ``iclasses.py``: paths that resolve outside
 ``asset_root`` (T-05-01) are set to ``None``; missing files keep their
