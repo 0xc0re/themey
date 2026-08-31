@@ -45,6 +45,8 @@ class XcursorImage:
     height: int
     hot_x: int
     hot_y: int
+    pixels: tuple[int, ...]
+    """Packed ARGB, one uint32 per pixel, row-major (0x00000000 = clear)."""
 
 
 def parse_xcursor(path: Path) -> list[XcursorImage]:
@@ -76,7 +78,10 @@ def parse_xcursor(path: Path) -> list[XcursorImage]:
         assert inner_subtype == subtype, "toc subtype must match the chunk's"
         # The pixel payload must actually be present, not truncated.
         assert offset + 36 + width * height * 4 <= len(data)
-        images.append(XcursorImage(subtype, width, height, hot_x, hot_y))
+        pixels = struct.unpack_from(f"<{width * height}I", data, offset + 36)
+        images.append(
+            XcursorImage(subtype, width, height, hot_x, hot_y, pixels)
+        )
     return images
 
 
@@ -132,6 +137,38 @@ def test_aliens_hotspot_comes_from_the_xbm_and_scales(tmp_path: Path):
     _, out, _ = _emit("Aliens", tmp_path)
     images = parse_xcursor(out / "cursors" / "default")
     assert [(i.hot_x, i.hot_y) for i in images] == [(1, 1), (2, 2), (3, 3)]
+
+
+def test_aliens_default_pixels_are_fg_bg_and_transparent(tmp_path: Path):
+    """The polarity chain, end to end, on real fixture art.
+
+    test_cursors_xbm.py pins the rasterizer against synthetic bitmaps, but
+    if E16's sibling ``.xbm.mask`` convention ran opposite to
+    XCreatePixmapCursor, every one of those tests would still pass while
+    every shipped pointer came out a solid bg_rgb rectangle. So: read the
+    ARGB payload back out of the file xcursorgen wrote and require all
+    three states to be present. Aliens' DEFAULT block declares
+    __FG_COLOR 255 255 255 and __BG_COLOR 0 0 0, so a correct arrow is
+    white fill, black outline, transparent surround — and nothing else.
+    """
+    _, out, _ = _emit("Aliens", tmp_path)
+    x1 = parse_xcursor(out / "cursors" / "default")[0]
+    assert (x1.width, x1.height) == (16, 16)
+    clear, fg, bg = 0x00000000, 0xFFFFFFFF, 0xFF000000
+    assert clear in x1.pixels, "no transparent pixel — the mask was dropped"
+    assert fg in x1.pixels, "no foreground pixel — image polarity is inverted"
+    assert bg in x1.pixels, "no background pixel — the outline is missing"
+    assert set(x1.pixels) == {clear, fg, bg}
+
+    # Presence alone does not pin WHICH color goes where — a fg/bg swap
+    # leaves the same three values in the image. So check two pixels,
+    # derived by hand from cursor.xbm/.mask rather than from our own
+    # output. Row 0 is image 0xf8,0xff over mask 0x07,0x00; row 1 is
+    # 0xe6,0xff over 0x1f,0x00. Bits are LSB-first, so at (0,0) the mask
+    # bit is set and the image bit is clear -> background, and at (1,1)
+    # both are set -> foreground.
+    assert x1.pixels[0] == bg, "(0,0) should be the outline, not the fill"
+    assert x1.pixels[1 * x1.width + 1] == fg, "(1,1) should be the fill"
 
 
 def test_aliens_skips_e16_only_shapes(tmp_path: Path):
