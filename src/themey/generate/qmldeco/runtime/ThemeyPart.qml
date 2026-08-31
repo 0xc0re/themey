@@ -132,4 +132,15 @@ Item {
             kind: partItem.part && partItem.part.button ? partItem.part.button : ""
         }
     }
+
+    // Capability-disabled buttons (e.g. shade — KWin removed shading in
+    // Plasma 6) must absorb clicks, not fall through to the decoration
+    // beneath: in a side-border stack that fallthrough is a resize
+    // handle. A disabled Item's children can't receive events, so the
+    // absorber sits here, above the Loader; while the button is enabled
+    // this MouseArea is disabled and fully transparent to events.
+    MouseArea {
+        anchors.fill: parent
+        enabled: buttonLoader.item ? buttonLoader.item.enabled === false : false
+    }
 }
