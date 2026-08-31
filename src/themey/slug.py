@@ -48,3 +48,13 @@ def plugin_id(name: str) -> str:
     and a single-token identifier avoids any KPackage id quoting concerns.
     """
     return "themey_" + slugify(name).replace("-", "_")
+
+
+def wallpaper_id(name: str, stem: str) -> str:
+    """KPlugin Id for one wallpaper package: ``themey_<slug>_<stem-slug>``.
+
+    Unlike :func:`plugin_id`, hyphens are left as-is — wallpaper package
+    ids are never used as QML/JS identifiers, only as directory names and
+    ``KPlugin.Id`` values, so there's no reason to mangle them further.
+    """
+    return f"themey_{slugify(name)}_{slugify(stem)}"
