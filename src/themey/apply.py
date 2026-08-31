@@ -67,12 +67,12 @@ from __future__ import annotations
 import configparser
 import json
 import logging
-import os
 import shutil
 import subprocess
 from pathlib import Path
 
 from . import paths
+from .install import clear_style_cache
 from .kwin import BORDER_SIZES, PLUGINS, recommended_border_size
 from .slug import plugin_id
 
@@ -284,29 +284,6 @@ def _record_prev_plasmatheme(kw: str, kr: str) -> None:
         return
     prev = _cfg_read(kr, _PLASMARC, _PLASMA_THEME_GROUP, _PLASMA_NAME_KEY) or _UNSET
     _cfg_write(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PLASMA_KEY, prev)
-
-
-def _clear_style_cache(pkg_id: str) -> None:
-    """Delete plasmashell's rendered-SVG caches for the themey style.
-
-    The ``plasma_theme_<name>[_v<version>].kcache`` files are keyed by the
-    package metadata ``Version``, which a re-convert never bumps — without
-    this, re-converting a theme and re-applying it would keep painting the
-    PREVIOUS conversion's panel art forever. Environment is read at call
-    time (not import time) so tests can monkeypatch it, mirroring
-    ``paths.py``."""
-    cache_home = os.environ.get("XDG_CACHE_HOME")
-    cache_root = (
-        Path(cache_home)
-        if cache_home
-        else Path(os.environ.get("HOME", "/")) / ".cache"
-    )
-    for cache in cache_root.glob(f"plasma_theme_{pkg_id}*.kcache"):
-        try:
-            cache.unlink()
-            log.debug("removed stale style cache %s", cache)
-        except OSError as exc:
-            log.warning("could not remove style cache %s: %s", cache, exc)
 
 
 def _evaluate_plasma_script(script: str, what: str) -> str:
@@ -672,7 +649,7 @@ def apply_full(
     (REQUIRED: the LnF apply does not touch an explicit user-layer
     ``[General] ColorScheme`` — see :func:`_record_prev_colorscheme`) →
     when the Plasma Style package is installed, clear its Version-keyed SVG
-    cache (:func:`_clear_style_cache`) then ``plasma-apply-desktoptheme
+    cache (:func:`themey.install.clear_style_cache`) then ``plasma-apply-desktoptheme
     themey_<slug>`` (explicit for the same user-layer-shadowing reason —
     see :func:`_record_prev_plasmatheme`) → the
     same decoration write :func:`apply` uses (REQUIRED even though the LnF
@@ -757,7 +734,7 @@ def apply_full(
         # apply is required, not belt-and-braces. The cache clear must come
         # first: plasmashell would otherwise repaint from the stale
         # Version-keyed kcache of a previous conversion.
-        _clear_style_cache(pkg_id)
+        clear_style_cache(pkg_id)
         plasma_apply_style = _which("plasma-apply-desktoptheme")
         _run_checked(
             [plasma_apply_style, pkg_id],

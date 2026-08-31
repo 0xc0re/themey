@@ -400,6 +400,11 @@ def convert(
                         pkg_id, stage_style_dir,
                         target_root=paths.desktop_themes(),
                     )
+                    # The kcache is keyed by the package Version, which a
+                    # re-convert never bumps — clear it here too so a
+                    # re-convert WITHOUT a re-apply refreshes the panel art
+                    # (apply clears it again before repainting).
+                    install.clear_style_cache(pkg_id)
                     style_id = style.id
                     log.info("installed Plasma Style to %s", style_dir)
 

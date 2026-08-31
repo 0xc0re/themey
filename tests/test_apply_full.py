@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from themey import apply as apply_mod
+from themey import install as install_mod
 from themey import paths
 from themey.generate.desktop_writer import write_desktop
 from themey.slug import plugin_id
@@ -633,7 +634,7 @@ def test_clear_style_cache_respects_xdg_cache_home(
     other = cache_dir / "plasma_theme_Otto.kcache"
     other.write_bytes(b"keep")
     monkeypatch.setenv("XDG_CACHE_HOME", str(cache_dir))
-    apply_mod._clear_style_cache("themey_e13")
+    install_mod.clear_style_cache("themey_e13")
     assert not stale.exists()
     assert other.exists()  # other themes' caches are left alone
 
