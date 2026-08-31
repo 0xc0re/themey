@@ -105,6 +105,7 @@ def convert(
     output_dir: Path | None = None,
     backend: str = "qml",
     upscale: str = "nearest",
+    shade_button: str = "maximize",
 ) -> ConvertResult:
     """Convert one .etheme to an installed KWin decoration + preview + report.
 
@@ -122,6 +123,13 @@ def convert(
             an escape hatch), or ``"both"``.
         upscale: Part-art scaler for the QML package: ``"nearest"``
             (default) or ``"quality"`` (hqx). Quality is QML-backend-only.
+        shade_button: QML-backend-only remap for E16's shade button
+            (KWin removed window shading in Plasma 6): one of
+            ``qmldeco.SHADE_BUTTON_MODES`` — ``"maximize"`` (default),
+            ``"keepAbove"``, ``"keepBelow"``, ``"menu"``, ``"hide"``, or
+            ``"none"`` (today's inert disabled button). The SVG backend
+            never consumes this flag, so any value is accepted regardless
+            of ``backend``.
 
     Returns:
         A :class:`ConvertResult`. ``installed_dir`` is the SVG theme dir
@@ -159,6 +167,11 @@ def convert(
         raise ValueError(
             f"backend {backend!r} requires upscale 'nearest' "
             f"(got {upscale!r}); --upscale quality is QML-backend-only"
+        )
+    if shade_button not in qmldeco.SHADE_BUTTON_MODES:
+        raise ValueError(
+            f"shade_button must be one of {qmldeco.SHADE_BUTTON_MODES} "
+            f"(got {shade_button!r})"
         )
 
     # Theme name comes from the archive filename, never from cfg content.
@@ -218,7 +231,10 @@ def convert(
                 qml_installed = output_dir / pkg_id
                 if qml_installed.exists():
                     shutil.rmtree(qml_installed)
-                qmldeco.write(theme, qml_installed, upscale=upscale)
+                qmldeco.write(
+                    theme, qml_installed, upscale=upscale,
+                    shade_button=shade_button,
+                )
                 log.info("wrote QML decoration package to %s", qml_installed)
             colors_path = write_colors(theme, output_dir / colors_name)
             log.info("wrote color scheme to %s", colors_path)
@@ -293,7 +309,10 @@ def convert(
                     log.info("installed SVG theme to %s", installed)
                 if want_qml:
                     stage_pkg_dir = stage / pkg_id
-                    qmldeco.write(theme, stage_pkg_dir, upscale=upscale)
+                    qmldeco.write(
+                        theme, stage_pkg_dir, upscale=upscale,
+                        shade_button=shade_button,
+                    )
                     log.debug("wrote QML package to %s", stage_pkg_dir)
                     qml_installed = install.deploy(
                         pkg_id, stage_pkg_dir,

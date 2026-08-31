@@ -197,3 +197,56 @@ def test_convert_rejects_unknown_upscale(tmp_path):
 
     with pytest.raises(ValueError, match="upscale"):
         convert(E13, scale=2, output_dir=tmp_path / "o", upscale="bicubic")
+
+
+# ---------------------------------------------------------------------------
+# --shade-button remap (Phase F / Task 6)
+
+@needs_e13
+def test_convert_shade_button_threaded_to_qml_package(tmp_path):
+    from themey.pipeline import convert
+
+    out = tmp_path / "out"
+    convert(E13, scale=2, output_dir=out, backend="qml", shade_button="keepAbove")
+    data = _theme_js(out / "themey_e13")
+    by_id = {p["id"]: p for p in data["parts"]}
+    assert by_id["BUTTON_SHADE"]["button"] == "keepAbove"
+
+
+@needs_e13
+def test_convert_shade_button_default_is_maximize(tmp_path):
+    from themey.pipeline import convert
+
+    out = tmp_path / "out"
+    convert(E13, scale=2, output_dir=out, backend="qml")
+    data = _theme_js(out / "themey_e13")
+    by_id = {p["id"]: p for p in data["parts"]}
+    assert by_id["BUTTON_SHADE"]["button"] == "maximizeRestore"
+
+
+@needs_e13
+def test_convert_rejects_unknown_shade_button(tmp_path):
+    from themey.pipeline import convert
+
+    with pytest.raises(ValueError, match="shade_button"):
+        convert(
+            E13, scale=2, output_dir=tmp_path / "o", shade_button="bogus"
+        )
+
+
+@needs_e13
+def test_convert_shade_button_svg_backend_untouched(tmp_path):
+    """The flag is QML-backend-only: an svg-only convert must not error on
+    any --shade-button value, and the SVG theme output is identical
+    regardless of the flag (it never consumes it)."""
+    from themey.pipeline import convert
+
+    out_default = tmp_path / "default"
+    out_hide = tmp_path / "hide"
+    convert(E13, scale=2, output_dir=out_default, backend="svg")
+    convert(
+        E13, scale=2, output_dir=out_hide, backend="svg", shade_button="hide"
+    )
+    default_rc = (out_default / "e13" / "e13rc").read_text()
+    hide_rc = (out_hide / "e13" / "e13rc").read_text()
+    assert default_rc == hide_rc

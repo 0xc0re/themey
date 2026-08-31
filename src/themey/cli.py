@@ -13,6 +13,10 @@ Flags (convert):
     --output DIR  write the theme tree + report + preview under DIR instead
                   of installing to ~/.local/share (nothing outside DIR is touched)
     --upscale M   part-art scaler: nearest (default) or quality (QML-only hqx)
+    --shade-button ACTION
+                  QML-backend-only remap for E16's dead shade button
+                  (Plasma 6 removed window shading): maximize (default),
+                  keepAbove, keepBelow, menu, hide, or none
     --no-open     do not launch the HTML preview in a browser
     -v / -vv      increase verbosity (DEBUG, default INFO)
     -q            quiet (WARNING+ only)
@@ -115,6 +119,18 @@ def convert_cmd(
             ),
         ),
     ] = "qml",
+    shade_button: Annotated[
+        str,
+        typer.Option(
+            "--shade-button",
+            help=(
+                "QML-backend-only remap for E16's shade button (Plasma 6 "
+                "removed window shading): 'maximize' (default), "
+                "'keepAbove', 'keepBelow', 'menu', 'hide', or 'none' "
+                "(today's inert disabled button)"
+            ),
+        ),
+    ] = "maximize",
     verbose: Annotated[
         int,
         typer.Option(
@@ -138,7 +154,7 @@ def convert_cmd(
     try:
         result = convert(
             theme, scale=scale, output_dir=output, backend=backend,
-            upscale=upscale,
+            upscale=upscale, shade_button=shade_button,
         )
     except Exception as exc:
         logging.getLogger(__name__).error("conversion failed: %s", exc)
