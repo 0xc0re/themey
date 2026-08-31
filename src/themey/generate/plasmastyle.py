@@ -29,7 +29,11 @@ inside a ``Plasma/Theme`` KPackage under
   emitted (FrameSvg then reports a 0 border, which is correct — the Aliens
   dragbar's ``133 28 0 0`` edge yields a left/center/right-only set).
   ``hint-tile-center`` is NEVER emitted — E16 stretches middles, and that
-  hint would switch FrameSvg to tiling.
+  hint would switch FrameSvg to tiling. The same E16 rule covers borders:
+  FrameSvg tiles border elements by DEFAULT, so every file containing a
+  sliced-art frame set carries one unprefixed ``hint-stretch-borders``
+  (gradient edge art visibly repeats when tiled — live HandOfGod pager,
+  2026-08-31); flat-rect sets are stretch/tile invariant and skip it.
 * Margin hints (``hint-<side>-margin``) come from the iclass ``__PADDING``
   and are emitted per non-zero side only.
 * The package ``plasmarc`` enables AdaptiveTransparency and the contrast
@@ -249,12 +253,33 @@ class _Canvas:
         self.root = ET.Element(f"{{{SVG_NS}}}svg", {"version": "1.1"})
         self.y = 0
         self.w = 0
+        #: Set by art-frame emitters; finish() then adds the file-global
+        #: hint-stretch-borders. FrameSvg TILES border elements by default,
+        #: and E16 always stretched — gradient edge art visibly repeats
+        #: when tiled (live HandOfGod pager, 2026-08-31). Unprefixed, like
+        #: Breeze's own hints in prefixed files. Flat-rect sets skip the
+        #: flag (stretch/tile invariant), keeping those files minimal.
+        self.stretch_borders = False
 
     def advance(self, width: int, height: int) -> None:
         self.w = max(self.w, width)
         self.y += height + _GAP
 
     def finish(self) -> ET.Element:
+        if self.stretch_borders:
+            ET.SubElement(
+                self.root,
+                f"{{{SVG_NS}}}rect",
+                {
+                    "id": "hint-stretch-borders",
+                    "x": "0",
+                    "y": str(self.y),
+                    "width": "1",
+                    "height": "1",
+                    "style": "opacity:0",
+                },
+            )
+            self.advance(1, 1)
         self.root.set("width", str(max(1, self.w)))
         self.root.set("height", str(max(1, self.y)))
         return self.root
@@ -325,6 +350,8 @@ def _frame_group(
     guard) — the caller degrades to center-only with a note.
     """
     left, right, top, bottom = caps
+    if caps != (0, 0, 0, 0):  # center-only sets have no borders to stretch
+        canvas.stretch_borders = True
     regions = slice_9patch(img, left, right, top, bottom)
     center_w = img.width - left - right
     center_h = img.height - top - bottom
@@ -776,6 +803,7 @@ def _pager_set(
             edge = fitted
         left, right, top, bottom = _scaled_caps(edge, src_w, src_h, theme.scale)
         if (left, right, top, bottom) != (0, 0, 0, 0):
+            canvas.stretch_borders = True
             regions = slice_9patch(img, left, right, top, bottom)
             by_name = {
                 "topleft": regions.topleft, "top": regions.top,
