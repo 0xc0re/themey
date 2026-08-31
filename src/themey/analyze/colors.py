@@ -87,11 +87,12 @@ DEFAULT_TINT: RGB = (128, 128, 128)
 DEFAULT_WM_ACTIVE_BG: RGB = (64, 64, 64)
 DEFAULT_WM_INACTIVE_BG: RGB = (128, 128, 128)
 
-# Background luminance ladder, as steps AWAY from mid-grey relative to the
-# sampled base. View is the reading surface and sits at the far end; Window
-# sits on the sampled luminance itself; Header steps back toward mid-grey.
-# Mirrors how Breeze Light (View 255 > Window 239 > Header 222) and Breeze
-# Dark (View 20 < Window 32) are laid out.
+# Background ladder, as steps AWAY from mid-grey relative to the sampled
+# base, in PERCEPTUAL lightness (see _lightness). View is the reading
+# surface and sits at the far end; Window sits on the sampled value itself;
+# Header steps back toward mid-grey. The step sizes are Breeze's own:
+# Breeze Light runs View 255 > Window 239 > Header 222 and Breeze Dark runs
+# View 22 < Window 35, both ~0.05-0.07 apart in this space.
 _LADDER: dict[str, float] = {
     "view": 0.07,
     "tooltip": 0.045,
@@ -103,17 +104,20 @@ _LADDER: dict[str, float] = {
 
 # Alternate-row background: one step toward mid-grey from its own group.
 # (Breeze Light View 255 -> 247; Breeze Dark View 20 -> 29.)
-_ALTERNATE_STEP: float = 0.02
+_ALTERNATE_STEP: float = 0.025
 
 # Complementary is a flat inversion, not a ladder step — Breeze Light's
 # Complementary background is 42,46,50 against a 239 window.
-_COMPLEMENTARY_DARK: float = 0.03
-_COMPLEMENTARY_LIGHT: float = 0.93
+_COMPLEMENTARY_DARK: float = 0.12
+_COMPLEMENTARY_LIGHT: float = 0.90
 
-# Backgrounds never reach pure black or white: the ladder needs headroom on
-# both sides or adjacent groups collapse onto each other.
-_LUMA_FLOOR: float = 0.02
-_LUMA_CEIL: float = 0.98
+# Backgrounds never reach pure black or white, and the sampled base is
+# pulled inside these bounds by the full ladder span before the rungs are
+# computed — otherwise an all-black theme (OPENSTEP's BORDER_PIXEL) clamps
+# View, Window and Button onto the same value and the groups vanish.
+_LIGHT_FLOOR: float = 0.02
+_LIGHT_CEIL: float = 0.98
+_LADDER_SPAN: float = max(abs(step) for step in _LADDER.values())
 
 # How far ForegroundInactive is dimmed toward its background before the
 # contrast guard walks it back.
@@ -167,15 +171,28 @@ def _mix(a: RGB, b: RGB, t: float) -> RGB:
     )
 
 
-def _at_luminance(base: RGB, target: float) -> RGB:
-    """Return *base* mixed toward black or white until it hits *target* luma.
+def _lightness(rgb: RGB) -> float:
+    """Perceptual lightness in 0..1 — Rec. 709 weights on gamma-ENCODED sRGB.
 
-    Solved by bisection rather than algebra: mixing happens in gamma-encoded
-    sRGB (that is what keeps the hue looking like the source art) while
-    luminance is measured in linear light, so there is no closed form.
+    Deliberately not :func:`relative_luminance`. Linear luminance is the
+    right space for a contrast ratio and the wrong one for a ladder: near
+    black it compresses so hard that a 0.07 step lands 40 RGB values away,
+    so an all-black theme's View/Window/Button either collapse onto the
+    floor or blow out to mid-grey. Gamma-encoded lightness steps evenly, and
+    Breeze's own ladder is evenly spaced in it.
+    """
+    return (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255.0
+
+
+def _at_lightness(base: RGB, target: float) -> RGB:
+    """Return *base* mixed toward black or white until it hits *target*.
+
+    Bisection rather than algebra: the Rec. 709 weights mean no single
+    channel scale hits the target, and mixing toward a corner is what keeps
+    the source art's hue recognizable.
     """
     target = min(max(target, 0.0), 1.0)
-    current = relative_luminance(base)
+    current = _lightness(base)
     if abs(current - target) < 1e-4:
         return base
     toward: RGB = (255, 255, 255) if target > current else (0, 0, 0)
@@ -184,7 +201,7 @@ def _at_luminance(base: RGB, target: float) -> RGB:
     for _ in range(20):
         mid = (lo + hi) / 2
         mixed = _mix(base, toward, mid)
-        if (relative_luminance(mixed) < target) == (target > current):
+        if (_lightness(mixed) < target) == (target > current):
             lo = mid
         else:
             hi = mid
@@ -347,12 +364,12 @@ def _first_image(spec: IClassSpec, states: tuple[str, ...]) -> tuple[Path, str] 
 
 
 def _group(base: RGB, target: float, accent: RGB, text: RGB | None) -> ColorGroup:
-    """One [Colors:*] group at *target* luminance, tinted from *base*."""
-    background = _at_luminance(base, min(max(target, _LUMA_FLOOR), _LUMA_CEIL))
-    background_luma = relative_luminance(background)
-    toward_mid = _ALTERNATE_STEP if background_luma < 0.5 else -_ALTERNATE_STEP
-    alternate = _at_luminance(
-        base, min(max(background_luma + toward_mid, _LUMA_FLOOR), _LUMA_CEIL)
+    """One [Colors:*] group at *target* lightness, tinted from *base*."""
+    background = _at_lightness(base, min(max(target, _LIGHT_FLOOR), _LIGHT_CEIL))
+    background_light = _lightness(background)
+    toward_mid = _ALTERNATE_STEP if background_light < 0.5 else -_ALTERNATE_STEP
+    alternate = _at_lightness(
+        base, min(max(background_light + toward_mid, _LIGHT_FLOOR), _LIGHT_CEIL)
     )
     foreground = _legible(
         text if text is not None else (255, 255, 255), background
@@ -378,16 +395,20 @@ def _compose(
     text_inactive: RGB | None,
 ) -> ColorScheme:
     """Build the full 8-group scheme + [WM] pair from the sampled inputs."""
-    base_luma = relative_luminance(tint)
+    base_light = _lightness(tint)
     # Direction "away from mid-grey": a dark theme's View goes darker still,
     # a light theme's View goes lighter. See _LADDER.
-    away = 1.0 if base_luma >= 0.5 else -1.0
+    away = 1.0 if base_light >= 0.5 else -1.0
+    # Pull the anchor far enough inside [floor, ceil] that no rung clamps.
+    anchor = min(
+        max(base_light, _LIGHT_FLOOR + _LADDER_SPAN), _LIGHT_CEIL - _LADDER_SPAN
+    )
 
     def rung(name: str) -> ColorGroup:
-        return _group(tint, base_luma + away * _LADDER[name], accent, text_active)
+        return _group(tint, anchor + away * _LADDER[name], accent, text_active)
 
     complementary_target = (
-        _COMPLEMENTARY_DARK if base_luma >= 0.5 else _COMPLEMENTARY_LIGHT
+        _COMPLEMENTARY_DARK if base_light >= 0.5 else _COMPLEMENTARY_LIGHT
     )
     selection_bg = accent
     return ColorScheme(
@@ -398,7 +419,7 @@ def _compose(
         header=rung("header"),
         header_inactive=rung("header_inactive"),
         complementary=_group(tint, complementary_target, accent, None),
-        selection=_group(selection_bg, relative_luminance(selection_bg), accent, None),
+        selection=_group(selection_bg, _lightness(selection_bg), accent, None),
         wm_active_background=wm_active_bg,
         wm_active_foreground=_legible(
             text_active if text_active is not None else (255, 255, 255), wm_active_bg

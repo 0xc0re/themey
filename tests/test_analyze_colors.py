@@ -269,6 +269,35 @@ def test_build_scheme_backgrounds_take_the_side_art_cast(tmp_path: Path) -> None
     assert any("BORDER_LEFT" in n for n in notes if n.startswith("colors:"))
 
 
+def test_build_scheme_ladder_survives_black_art(tmp_path: Path) -> None:
+    """An all-black border (OPENSTEP's BORDER_PIXEL) must still separate groups.
+
+    A linear-luminance ladder clamps View/Window/Button onto the floor here;
+    the perceptual-lightness ladder keeps them distinct and still dark.
+    """
+    from themey.analyze.colors import build_scheme
+
+    black = _solid(tmp_path / "black.png", (0, 0, 0, 255))
+    iclasses = {
+        "TITLEBAR": _iclass("TITLEBAR", black, black),
+        "BORDER_PIXEL": _iclass("BORDER_PIXEL", black),
+    }
+    parts = [
+        _part("TITLEBAR", title=True),
+        _part("BORDER_PIXEL", box=(0, 0, 0, 4, 0, 0, 1024, 0)),
+    ]
+    scheme = build_scheme(_border(parts), iclasses, {}, [])
+    rungs = [
+        scheme.view.background_normal,
+        scheme.window.background_normal,
+        scheme.button.background_normal,
+        scheme.header.background_normal,
+    ]
+    assert len(set(rungs)) == len(rungs), f"ladder collapsed: {rungs}"
+    # Still reads as a black theme, not washed out to mid-grey.
+    assert max(scheme.header.background_normal) < 90
+
+
 def test_palette_from_scheme_mirrors_wm_colors(tmp_path: Path) -> None:
     from themey.analyze.colors import build_scheme, palette_from_scheme
 
