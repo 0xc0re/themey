@@ -27,7 +27,7 @@ themey is a local Python CLI that converts Enlightenment DR16 (E16) `.etheme` ar
 | SVG generation | **stdlib `xml.etree.ElementTree`** + explicit namespace registration | Python 3.11+ | HIGH |
 | INI output | **stdlib `configparser.RawConfigParser`** with `optionxform = str` | Python 3.11+ | HIGH |
 | `.desktop` writer | Custom thin writer (NOT `configparser`) | — | HIGH |
-| XBM read | **Pillow** (built-in `XbmImagePlugin`) | 12.2.0 | HIGH |
+| XBM read | **Hand-rolled parser** (`generate/cursors.py`) — NOT Pillow's `XbmImagePlugin` | — | HIGH |
 | XBM → XCursor | **Subprocess to `xcursorgen`** (xorg-xcursorgen package) after rasterising XBM → PNG via Pillow | system pkg | HIGH |
 | CLI framework | **Typer** | 0.25.1 | HIGH |
 | Project / dep manager | **uv** | 0.11.8 | HIGH |
@@ -42,7 +42,7 @@ themey is a local Python CLI that converts Enlightenment DR16 (E16) `.etheme` ar
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
 | Python | 3.11+ (3.12 sweet spot) | Runtime | The system already has 3.11+; 3.12 brings notable `pathlib`/typing speedups; 3.11 is LTS-ish in the Linux distro world. PROJECT.md already locks "Python 3, 3.11+." |
-| Pillow | 12.2.0 (Apr 1 2026) | All raster work: open PNG/XBM, slice 9-patch borders, resize for `--scale`, sample colors, write the cursor PNG frames `xcursorgen` consumes | Pillow is the only mature pure-Python raster library that handles all four input formats we need (PNG, XBM, JPEG fallback for wallpapers, BMP just in case). XBM support is built-in via `PIL.XbmImagePlugin` — exactly what E16's `artwork/cursors/*.xbm` files need. No native build dependencies beyond libjpeg/zlib that wheels already bundle. |
+| Pillow | 12.2.0 (Apr 1 2026) | All raster work: open PNG/JPEG/BMP, slice 9-patch borders, resize for `--scale`, sample colors, rasterize the cursor PNG frames `xcursorgen` consumes | Pillow is the only mature pure-Python raster library that handles the formats we need (PNG, JPEG fallback for wallpapers, BMP just in case) with no native build dependencies beyond libjpeg/zlib that wheels already bundle. **Correction (verified against the fixtures, 2026-08-30): Pillow's `XbmImagePlugin` does NOT read E16's cursor XBMs** — its header regex is anchored at `#define` (GIMP-authored files like Mac3D's start with a `/* Made with GIMP */` comment) and its hotspot sub-pattern `[^_]*_x_hot` cannot match multi-underscore names like `resize_h_x_hot`, which nearly every fixture uses. `generate/cursors.py` parses XBM itself (~40 lines: `#define` regex + `_bits[]` array) rather than losing the hotspot silently. |
 | stdlib `xml.etree.ElementTree` | bundled | Emit `decoration.svg`, per-button SVGs, wallpaper `metadata.json` (no — that's JSON, ignore), preview HTML | See full rationale in "SVG generation" below. The decisive factor: **FrameSvg's contract is element IDs, nothing else**. We are not parsing third-party SVG, we are writing a known-shape document with known IDs. Stdlib is sufficient and removes a transitive dep. |
 | stdlib `configparser.RawConfigParser` | bundled | Emit Aurorae `<name>rc`, KColorScheme `.colors` | INI is a stdlib problem. `RawConfigParser` skips `%`-interpolation (KColorScheme uses `%` in some font names), and `optionxform = str` preserves case (KDE keys are case-sensitive: `BackgroundNormal`, `LeftButtons`, etc.). |
 | stdlib `tarfile` + `gzip` | bundled | Read `.etheme` archives; write the Look-and-Feel `.tar.gz` if we ever ship one (probably not — we install directly to `~/.local/share/...`) | One less dep. Both are battle-tested. |
@@ -84,11 +84,12 @@ themey is a local Python CLI that converts Enlightenment DR16 (E16) `.etheme` ar
 - **win2xcur 0.2.0** (Jan 8 2026) — actively maintained but converts *Windows* `.cur`/`.ani` files, not XBM and not PNG sequences. Wrong tool.
 - **Pillow XCursor support** — does not exist. Pillow can read/write XBM but has no XCursor plugin.
 - **`xcursorgen`** (xorg-xcursorgen system package) — the canonical tool. Reads a config file (`<size> <xhot> <yhot> <png_path> [delay_ms]`) and writes a binary XCursor file. Stable, ubiquitous on Linux distros, present on every KDE workstation.
-# 1. Pillow opens XBM (mode 1, monochrome with optional hotspot)
-# 2. Convert to RGBA, optionally upscale by --scale
-# 3. Write PNG temp file
-# 4. Build xcursorgen config: "32 4 4 /tmp/foo.png"
-# 5. Subprocess
+# As built: 1. hand-rolled XBM parser (image + mask) — see the XBM read
+# correction above; 2. rasterize through Pillow into RGBA, upscale at
+# fixed x1/x2/x3 (NEAREST) — independent of --scale, which is a border/
+# image factor, not a cursor one; 3. write PNG frames per nominal size;
+# 4. build an xcursorgen config: "32 4 4 /tmp/foo.png"; 5. subprocess to
+# xcursorgen
 ### 5. CLI framework — Typer
 - **argparse (stdlib)** — fine but verbose, no auto-help-from-docstrings, no auto-completion shell scripts. A lot of boilerplate for `themey <theme.etheme>` + `themey --all <dir>`.
 - **Click 8.3.3** — the rock-solid choice. Excellent. Decorator-based.
@@ -267,11 +268,79 @@ receives no fidelity work.
 | Package | Role |
 |---------|------|
 | `etheme/` | `archive.py` (validating tar extract), `lex.py`, `parse.py`, `ast.py` — the E16 grammar front end |
-| `analyze/` | AST → frozen `ir.Theme`: iclass resolution, state collapse, button binning, coordinate math, palette, borders, `fonts.py` (__FONTS scan) |
+| `analyze/` | AST → frozen `ir.Theme`: iclass resolution, state collapse, button binning, coordinate math, borders, `fonts.py` (__FONTS scan), `colors.py` (median-cut sampling of the theme's own border art into a full 8-group `ColorScheme` + the 4-field `[WM]` active/inactive background+foreground set, WCAG-AA-guarded) |
 | `images/` | `ninepatch.py`, `opaque.py`, `upscale.py` (`upscale_part`: scale_px-dim targets, nearest/quality modes), `hqx.py` (opt-in quality scaler), `embed.py` — raster primitives, NEAREST default |
-| `generate/qmldeco/` | DEFAULT backend: `theme_js.py` (part model), `resolver.py` (E16 geometry, Python mirror), `actions.py`, `package.py`, `runtime/` (4 verbatim QML/JS files) |
+| `generate/qmldeco/` | DEFAULT backend: `theme_js.py` (part model, `SHADE_BUTTON_MODES`), `resolver.py` (E16 geometry, Python mirror), `actions.py`, `package.py`, `runtime/` (4 verbatim QML/JS files) |
 | `generate/` (rest) | SVG backend: `aurorae.py` orchestrates `decoration_svg.py`, `aurorae_rc.py`, `aurorae_meta.py`, `button_svg.py`, `composite.py` |
-| root modules | `ir.py` (IR), `paths.py` (XDG), `install.py` (atomic deploy), `report.py`, `preview.py`, `kwin.py`, `render.py`, `apply.py`, `external.py`, `slug.py`, `log.py` |
+| `generate/colors.py` | `.colors` writer — the 13-group/12-key Breeze-shaped file census; sampled colors from `analyze/colors.py`, semantic foregrounds + ColorEffects verbatim from Breeze stock |
+| `generate/wallpaper.py` | One Plasma wallpaper package per E16 background image (`WallpaperPackage`); PNG/JPEG/BMP copied through at real dimensions, everything else re-saved as PNG; `pick_default` ranks by area for the bundle |
+| `generate/cursors.py` | E16 `__CURSOR` → XCursor pointer theme via the hand-rolled XBM parser + `xcursorgen`; modern Plasma 6.6 names canonical, legacy X11 names as symlinks |
+| `generate/lookandfeel.py` | Plasma Global Theme (Look-and-Feel) bundle writer — `metadata.json` + `contents/defaults`, one conditional INI group per artifact this conversion actually deployed |
+| root modules | `ir.py` (IR), `paths.py` (XDG install roots), `install.py` (atomic deploy — `deploy` for package dirs, `deploy_file` for single files like `.colors`), `report.py`, `preview.py`, `kwin.py`, `render.py`, `apply.py`, `external.py` (xcursorgen wrapper), `slug.py` (naming contract), `log.py` |
+
+**Naming contract.** Every Global-Theme artifact for one conversion derives
+from `slug.plugin_id(theme.name)` = `themey_<slug>`, deliberately reused
+across namespaces so `themey apply <name>` can resolve any of them: it is
+the QML decoration KPackage dir name AND kwinrc `theme=` value
+(`kwin/decorations/`), the Look-and-Feel bundle's `KPlugin.Id`
+(`plasma/look-and-feel/`), and the `.colors` stem / `[General]
+ColorScheme=` value (`color-schemes/`) — three different namespaces, same
+string, on purpose. `slug.wallpaper_id(name, stem)` widens it to
+`themey_<slug>_<stem-slug>` (one wallpaper package per source image,
+hyphens left alone since these ids are never QML/JS identifiers).
+`slug.cursor_theme_dir(name)` narrows it to `themey_<slug>-cursors` (an
+XCursor theme has no KPlugin id; the directory name itself is the
+`kcminputrc cursorTheme=` value). `paths.py` gained one XDG root per new
+namespace: `color_schemes()`, `wallpapers()`, `icon_themes()` (icons AND
+XCursor themes both live under `icons/`), `look_and_feel()`, alongside the
+existing `aurorae_themes()`/`kwin_decorations()`.
+
+**`apply.py`'s global flow.** `apply_full` (the CLI default) is a superset
+of the original deco-only `apply`: verify both the Look-and-Feel bundle and
+the QML decoration package are installed, snapshot the pre-themey baseline
+once (`kdeglobals [Themey] PrevLookAndFeelPackage` mirrors kdeglobals
+`[KDE] LookAndFeelPackage`; kwinrc `ThemeyPrevDeco` packs
+`library|theme|BorderSize`, both `@unset`-sentineled for an absent key and
+written only the first time so a second `apply` never clobbers the real
+baseline with an already-themey'd one), run `plasma-apply-lookandfeel -a
+themey_<slug>` (never `--resetLayout`), re-assert the decoration keys via
+the same `_write_deco` the deco-only path uses (required even though the
+LnF apply already wrote deco defaults — those land in the
+`~/.config/kdedefaults/` layer, and only an explicit user-layer write is
+guaranteed to win), then `plasma-apply-wallpaperimage -f tile` if the
+bundle's default wallpaper package's `X-Themey-FillMode` is `tiled`
+(Plasma's Image wallpaper plugin doesn't read fill-mode from the package
+itself — the `tile` token itself is `apply.py`'s own
+`_WALLPAPER_TILE_FILL_MODE`, flagged in its source comment as
+provisionally chosen and not yet live-verified against a real Plasma 6.6
+session), and one `qdbus` reconfigure last. `themey apply --revert` reads
+both markers back, reapplies the recorded Look-and-Feel package (no
+Breeze special-case — a real baseline is typically a third-party theme,
+e.g. chris's `com.github.vinceliuice.MacVentura-Dark`), restores the deco
+triple and button layout, then clears the markers it actually restored; a
+failure to reapply the recorded package does NOT abort the rest of the
+restore, and `PrevLookAndFeelPackage` is deliberately kept in that one case
+so a later `--revert` can retry just the theme restore. No markers present
+is a friendly no-op, not an error. `themey apply Breeze` remains the
+older, deco-only revert path (decoration + button layout only), unchanged
+by any of this.
+
+**External-tool pattern (`external.py`).** `xcursorgen` is load-bearing —
+there is no pure-Python XCursor writer — so callers check
+`xcursorgen_available()` first and skip the whole cursor stage with a
+`cursors:` note when it's absent, mirroring the `xdg-open` graceful-skip
+already there for preview auto-open. `run_xcursorgen` doesn't trust the
+return code alone: xcursorgen can exit 0 and write nothing, so it also
+verifies the output file exists and is non-empty before returning, raising
+`XcursorgenError` (stderr tail attached) otherwise. `apply.py`'s
+`_run_checked` follows the same shape for `plasma-apply-lookandfeel` /
+`plasma-apply-wallpaperimage`.
+
+**Report prefixes.** `report.py` categorizes `theme.notes` by string
+prefix into the report's Approximated section: `aurorae_rc:`, `bundle:`,
+`colors:`, `composite:`, `cursors:`, `qmldeco:`, `wallpaper:` are surfaced
+first (layout/subsystem decisions), ahead of the per-state E16-collapse
+notes that have no prefix.
 
 QML-backend contracts:
 
