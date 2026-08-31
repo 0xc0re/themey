@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import configparser
 import json
+import logging
 import shutil
 import subprocess
 from pathlib import Path
@@ -60,6 +61,8 @@ from pathlib import Path
 from . import paths
 from .kwin import BORDER_SIZES, PLUGINS, recommended_border_size
 from .slug import plugin_id
+
+log = logging.getLogger(__name__)
 
 GROUP = "org.kde.kdecoration2"
 
@@ -291,6 +294,22 @@ def _reconfigure() -> None:
     subprocess.run([qdbus, "org.kde.KWin", "/KWin", "reconfigure"], check=False)
 
 
+def _run_checked(argv: list[str], what: str) -> None:
+    """Run *argv*, raising a typed :class:`ApplyError` (stderr tail
+    included) on a non-zero exit instead of letting
+    ``subprocess.CalledProcessError`` escape as an unhandled traceback —
+    the same external-tool-failure shape as ``external.run_xcursorgen``.
+
+    Used for the two ``plasma-apply-*`` calls, which are far likelier to
+    fail (a stale/uninstalled package id, a bad fill-mode token) than the
+    ``kwriteconfig6``/``kreadconfig6`` calls elsewhere in this module.
+    """
+    proc = subprocess.run(argv, capture_output=True, text=True)
+    if proc.returncode != 0:
+        tail = (proc.stderr or "").strip()[-500:]
+        raise ApplyError(f"{what} failed (exit {proc.returncode}): {tail}")
+
+
 def apply(
     name: str,
     *,
@@ -377,7 +396,21 @@ def apply_full(
     ``X-Themey-FillMode: tiled``, ``plasma-apply-wallpaperimage -f tile``
     (Plasma's Image wallpaper plugin does not itself read fill-mode from
     the wallpaper package) → one ``qdbus`` reconfigure, last.
+
+    ``name == "Breeze"`` (case-insensitive) is the one exception: Breeze
+    has no Look-and-Feel bundle to verify or baseline to record — it is
+    the legacy revert path documented in the README and every generated
+    ``report.txt``, so it routes straight through to :func:`apply`'s
+    existing special case, unchanged, on BOTH the default and
+    ``--deco-only`` paths.
     """
+    if name.lower() == "breeze":
+        apply(
+            name,
+            legacy_plugin=legacy_plugin, border_size=border_size,
+            keep_buttons=keep_buttons, backend="qml",
+        )
+        return
     # Validated up front, before any side effect: unlike apply(), this
     # path snapshots markers and runs plasma-apply-lookandfeel before it
     # would otherwise reach _write_deco's own border_size check, and a bad
@@ -401,7 +434,7 @@ def apply_full(
     _record_prev_deco(kw, kr)
 
     plasma_apply_lnf = _which("plasma-apply-lookandfeel")
-    subprocess.run([plasma_apply_lnf, "-a", pkg_id], check=True)
+    _run_checked([plasma_apply_lnf, "-a", pkg_id], f"plasma-apply-lookandfeel -a {pkg_id}")
 
     _write_deco(
         name, kw, kr,
@@ -416,9 +449,9 @@ def apply_full(
             image = _wallpaper_image_path(wallpaper_dir)
             if image is not None:
                 plasma_apply_wp = _which("plasma-apply-wallpaperimage")
-                subprocess.run(
+                _run_checked(
                     [plasma_apply_wp, "-f", _WALLPAPER_TILE_FILL_MODE, str(image)],
-                    check=True,
+                    f"plasma-apply-wallpaperimage -f {_WALLPAPER_TILE_FILL_MODE}",
                 )
 
     _reconfigure()
@@ -440,6 +473,15 @@ def revert() -> bool:
     ``apply_full`` on this machine — so the CLI can print a friendly
     "nothing to revert" message instead of failing. Returns True when a
     revert was actually performed.
+
+    A failure to reapply the recorded Look-and-Feel package (its most
+    plausible cause: the baseline theme was uninstalled since the last
+    ``apply_full``) does NOT abandon the rest of the recovery — the deco
+    triple, the button layout, and both markers are still restored/cleared
+    and ``qdbus`` still reconfigures, so a broken revert never gets stuck
+    half-restored. The failure is still surfaced: it is raised as an
+    :class:`ApplyError` at the end, after everything that could be
+    restored has been.
     """
     kw = _which("kwriteconfig6", "kwriteconfig5")
     kr = _which("kreadconfig6", "kreadconfig5")
@@ -449,9 +491,21 @@ def revert() -> bool:
         return False
 
     prev_lnf = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_LNF_KEY)
+    lnf_error: ApplyError | None = None
     if prev_lnf is not None and prev_lnf != _UNSET:
         plasma_apply_lnf = _which("plasma-apply-lookandfeel")
-        subprocess.run([plasma_apply_lnf, "-a", prev_lnf], check=True)
+        try:
+            _run_checked(
+                [plasma_apply_lnf, "-a", prev_lnf],
+                f"plasma-apply-lookandfeel -a {prev_lnf}",
+            )
+        except ApplyError as exc:
+            lnf_error = exc
+            log.warning(
+                "could not reapply the previous global theme %r (%s) — "
+                "restoring the decoration and button layout anyway",
+                prev_lnf, exc,
+            )
 
     prev_library, prev_theme, prev_border = prev_deco.split("|", 2)
     for key, prev in (
@@ -470,4 +524,10 @@ def revert() -> bool:
     _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_LNF_KEY)
 
     _reconfigure()
+
+    if lnf_error is not None:
+        raise ApplyError(
+            "decoration and button layout restored, but the previous "
+            f"global theme could not be reapplied: {lnf_error}"
+        )
     return True
