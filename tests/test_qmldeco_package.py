@@ -147,11 +147,13 @@ def test_e13_package_specifics(tmp_path):
         == "../images/button_stick_normal_active_sticky.png"
     )
 
-    # Shade is platform-dependent (KWin offers no shading for Wayland-native
-    # windows); the report must warn once per shade button.
+    # KWin removed window shading in Plasma 6 (verified against libkwin
+    # 6.6.6 symbols, 2026-08-30) — the report must say so, once per shade
+    # button, and describe the absorb behavior.
     shade_notes = [n for n in notes if n.startswith("qmldeco: shade")]
     assert len(shade_notes) == 1
-    assert "shadeable" in shade_notes[0]
+    assert "Plasma 6" in shade_notes[0]
+    assert "absorbs clicks" in shade_notes[0]
 
 
 def test_toggled_falls_back_to_clicked_without_sticky_art(tmp_path):
