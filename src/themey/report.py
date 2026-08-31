@@ -26,6 +26,8 @@ def write(
     backend: str = "svg",
     wallpaper_specs: tuple[WallpaperSpec, ...] | None = None,
     cursor_theme: CursorTheme | None = None,
+    lnf_id: str | None = None,
+    lnf_dir: Path | None = None,
 ) -> Path:
     """Write report.txt for *theme* to *out_path*.
 
@@ -38,7 +40,10 @@ def write(
     straight from analysis (no install step ran, so there's nothing to
     have failed). ``cursor_theme`` is the written XCursor theme, or None
     when there was nothing to install — the ``cursors:`` notes say why.
-    Returns *out_path* so callers can chain.
+    ``lnf_id``/``lnf_dir`` are the assembled Look-and-Feel bundle's
+    ``KPlugin.Id`` and install path (Phase D); pass None for a caller that
+    never assembled one (e.g. reporting straight from analysis, no install
+    step ran). Returns *out_path* so callers can chain.
     """
     want_qml = backend in ("qml", "both")
     want_svg = backend in ("svg", "both")
@@ -127,6 +132,14 @@ def write(
             "- Pointer theme: not installed; the system cursor is left "
             "alone — see cursors: notes below."
         )
+    if lnf_id is not None:
+        lines.append(
+            f"- Everything above is bundled as one Plasma Global Theme "
+            f"('{theme.display_name} (themey)', id {lnf_id}) — apply the "
+            f"whole desktop look in one step with `themey apply "
+            f"{theme.name}`, or pick it under System Settings -> "
+            "Appearance -> Global Theme."
+        )
     lines.append("")
 
     # ------------------------------------------------------------------ #
@@ -155,8 +168,8 @@ def write(
     # qmldeco:) BEFORE the truncated-state-drop bucket so they don't get
     # buried past line 20.
     _layout_prefixes = (
-        "aurorae_rc:", "colors:", "composite:", "cursors:", "qmldeco:",
-        "wallpaper:",
+        "aurorae_rc:", "bundle:", "colors:", "composite:", "cursors:",
+        "qmldeco:", "wallpaper:",
     )
     layout_notes = [n for n in theme.notes if n.startswith(_layout_prefixes)]
     state_notes = [n for n in theme.notes if not n.startswith(_layout_prefixes)]
@@ -196,24 +209,29 @@ def write(
         "stay Breeze stock: tinting them to the theme would make them "
         "misreport meaning."
     )
-    lines.append(
-        "- Plasma Look-and-Feel bundle: deferred to later phase "
-        "(BUNDLE-01 / Phase 4)."
-    )
     lines.append("")
 
     # ------------------------------------------------------------------ #
     # Apply
     # ------------------------------------------------------------------ #
     lines.append("## Apply")
+    if lnf_id is not None:
+        lines.append(
+            f"- `themey apply {theme.name}` applies the full Global Theme "
+            f"(id {lnf_id}) in one step: decoration, colors, wallpaper and "
+            "cursors together. Add --deco-only for the old deco-only "
+            "behavior, or `themey apply --revert` to restore whatever "
+            "global theme was active before. Manual equivalent: System "
+            "Settings -> Appearance -> Global Theme."
+        )
     if want_qml:
         lines.append(
-            "- QML backend: installed as a KWin/Decoration package under "
-            "~/.local/share/kwin/decorations/ and loaded by the v1 Aurorae "
-            "plugin (org.kde.kwin.aurorae — legacy but present in Plasma "
-            "master; QML packages are exempt from the v1->v2 migration). "
-            f"Run `themey apply {theme.name}` or pick it in Window "
-            "Decorations. Border sizes come from the theme, unclamped."
+            "- Decoration only (QML backend): installed as a KWin/"
+            "Decoration package under ~/.local/share/kwin/decorations/ and "
+            "loaded by the v1 Aurorae plugin (org.kde.kwin.aurorae — "
+            "legacy but present in Plasma master; QML packages are exempt "
+            "from the v1->v2 migration). Pick it in Window Decorations for "
+            "deco-only control. Border sizes come from the theme, unclamped."
         )
     if want_svg:
         lines.append(
