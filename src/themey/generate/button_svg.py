@@ -33,7 +33,7 @@ from pathlib import Path
 from PIL import Image
 
 from themey.analyze.buttons import ACLASS_TO_BUTTON
-from themey.generate.composite import button_dims
+from themey.generate.composite import button_dims, button_geometry
 from themey.images.embed import embed_png_b64
 from themey.images.upscale import upscale_nearest
 from themey.ir import IClassSpec, Theme
@@ -105,23 +105,32 @@ def _find_iclass_for_code(theme: Theme, code: str) -> IClassSpec | None:
     return None
 
 
-def _placeholder_glyph(theme: Theme, code: str) -> bytes:
-    """PNG for a button with no source art.
+def _placeholder_glyph(theme: Theme, code: str, w: int, h: int) -> bytes:
+    """PNG for a button with no source art, at the code's canvas size.
 
-    ``M`` (menu) gets a small filled square in the theme's active title
-    text colour (three-quarter size, centred) so a kwinrc ``ButtonsOnLeft=M``
-    shows a visible, clickable target. Every other code is transparent.
+    ``M`` (menu) gets a 2-px OUTLINE square in the theme's active title
+    text colour (three-quarter size, centred, transparent interior) so a
+    kwinrc ``ButtonsOnLeft=M`` shows a visible, clickable target — a filled
+    block rendered as an opaque rectangle over e13's title art. Every other
+    code is transparent.
     """
-    w, h = button_dims(theme)
     w, h = max(1, w), max(1, h)
     img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     if code == "M":
         r, g, b = theme.palette.text_active
         inset_x = max(1, w // 4)
         inset_y = max(1, h // 4)
+        stroke = 2
         for y in range(inset_y, h - inset_y):
             for x in range(inset_x, w - inset_x):
-                img.putpixel((x, y), (r, g, b, 255))
+                on_edge = (
+                    x < inset_x + stroke
+                    or x >= w - inset_x - stroke
+                    or y < inset_y + stroke
+                    or y >= h - inset_y - stroke
+                )
+                if on_edge:
+                    img.putpixel((x, y), (r, g, b, 255))
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
@@ -133,12 +142,20 @@ def _build_button_svg(theme: Theme, code: str) -> ET.Element:
     Three FrameSvg-prefixed states: ``active-center`` (idle), ``hover-center``
     (hovered), ``pressed-center`` (pressed). Falls back up the state chain
     when a specific state image is absent.
+
+    The canvas is the code's ``button_geometry`` width x the shared
+    ButtonHeight (Aurorae has one height for all buttons — the same values
+    the rc emits, so KWin never rescales). The art is drawn at its own
+    aspect-true fitted dims, centred vertically; ``preserveAspectRatio``
+    therefore cannot distort it.
     """
     ET.register_namespace("", SVG_NS)
     ET.register_namespace("xlink", XLINK_NS)
 
     ic = _find_iclass_for_code(theme, code)
     scale = theme.scale
+    art_w, art_h = button_geometry(theme)[code]
+    _, btn_h = button_dims(theme)
 
     normal_raw = _png_bytes_from_path(
         ic.normal_active if ic else None, scale
@@ -155,21 +172,21 @@ def _build_button_svg(theme: Theme, code: str) -> ET.Element:
     # Resolve to guaranteed non-None bytes. Fallback: a placeholder glyph
     # for the menu button (no E16 equivalent), transparent otherwise.
     if normal_raw is None:
-        normal_raw = _placeholder_glyph(theme, code)
+        normal_raw = _placeholder_glyph(theme, code, art_w, art_h)
     normal: bytes = normal_raw
     hover: bytes = hover_raw if hover_raw is not None else normal
     pressed: bytes = pressed_raw if pressed_raw is not None else normal
 
-    btn_w, btn_h = button_dims(theme)
     svg = ET.Element(
         f"{{{SVG_NS}}}svg",
         {
-            "width": str(btn_w),
+            "width": str(art_w),
             "height": str(btn_h),
             "version": "1.1",
         },
     )
 
+    art_y = max(0, (btn_h - art_h) // 2)
     # Emit three FrameSvg 9-patch groups: active-center, hover-center, pressed-center.
     for prefix, png_data in (
         ("active", normal),
@@ -177,15 +194,29 @@ def _build_button_svg(theme: Theme, code: str) -> ET.Element:
         ("pressed", pressed),
     ):
         g = ET.SubElement(svg, f"{{{SVG_NS}}}g", {"id": f"{prefix}-center"})
+        # Invisible bounds rect: FrameSvg stretches the center element's
+        # bounding box over the whole button; without this the centred art's
+        # own bbox would be stretched back to full height, re-distorting it.
+        ET.SubElement(
+            g,
+            f"{{{SVG_NS}}}rect",
+            {
+                "x": "0",
+                "y": "0",
+                "width": str(art_w),
+                "height": str(btn_h),
+                "style": "opacity:0",
+            },
+        )
         ET.SubElement(
             g,
             f"{{{SVG_NS}}}image",
             {
                 f"{{{XLINK_NS}}}href": embed_png_b64(png_data),
                 "x": "0",
-                "y": "0",
-                "width": str(btn_w),
-                "height": str(btn_h),
+                "y": str(art_y),
+                "width": str(art_w),
+                "height": str(art_h),
                 "preserveAspectRatio": "none",
             },
         )

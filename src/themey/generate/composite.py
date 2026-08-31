@@ -873,101 +873,6 @@ def compose_region(
     return buf.getvalue()
 
 
-def button_dims(theme: Theme) -> tuple[int, int]:
-    """Return (ButtonWidth, ButtonHeight) for *theme* in output (scaled) pixels.
-
-    Width comes from the max bbox width across the theme's interactive
-    (button) parts that live in the top zone; height from the max bbox
-    height. The bbox is the *rendered* slot the part will occupy — E16
-    source PNGs are often larger sprite sheets, so reading raw image dims
-    would over-estimate.
-
-    Canonical grammar: a "titlebar button" is any part where
-    ``is_interactive(part)`` is True (canonical ``__ACLASS`` → button code
-    mapping, with iclass-pattern fallback for themes that omit __ACLASS)
-    AND whose resolved bbox lies within the top zone (filters out
-    BUTTON_KILL-style iclasses positioned in the left/right border for
-    kill-from-side).
-
-    ButtonHeight is capped at the title-bar height (the vertical span of the
-    title-bearing part, falling back to ``BORDER_SIZE_TOP``). If the buttons
-    are taller than the title bar, Aurorae clips them.
-    """
-    s = theme.scale
-    bst = theme.border.border_size_top
-    bboxes = resolve_parts(theme.border.parts, REFERENCE_W, REFERENCE_H)
-
-    # A real titlebar button is at most a quarter of the reference window
-    # wide; anything wider is a spatial-fallback part (e.g. OPENSTEP's
-    # BORDER_PIXEL iclass spans the full window) and would poison the
-    # max-width search if admitted. Discard those candidates.
-    BUTTON_WIDTH_CAP_REF = REFERENCE_W // 4  # 200 ref → 400 output at scale=2
-
-    # Honor every interactive part's __MAX_WIDTH (when set) as an upper
-    # bound on the ButtonWidth — a theme that says "no button should be
-    # wider than 20 ref px" must not get a 200-px slot from us.
-    part_max_w_cap = 0
-    max_w = 0
-    max_h = 0
-    for idx, part in enumerate(theme.border.parts):
-        if not is_interactive(part):
-            continue
-        bb = bboxes.get(idx)
-        if bb is None:
-            continue
-        x0, y0, x1, y1 = bb
-        # Only count buttons that live within the top zone (title bar).
-        if y0 < 0 or y1 > bst:
-            continue
-        width_ref = x1 - x0
-        if width_ref > BUTTON_WIDTH_CAP_REF:
-            continue
-        max_w = max(max_w, width_ref)
-        max_h = max(max_h, y1 - y0)
-        if part.max_w > 0:
-            part_max_w_cap = (
-                part.max_w
-                if part_max_w_cap == 0
-                else max(part_max_w_cap, part.max_w)
-            )
-    if part_max_w_cap > 0:
-        max_w = min(max_w, part_max_w_cap) if max_w > 0 else max_w
-
-    if max_w == 0 and max_h == 0:
-        # Fallback: scan iclasses referenced by interactive parts. Use the
-        # smallest image, capped at 24 — matches earlier behavior without
-        # name-pattern coupling.
-        seen_iclasses: set[str] = {
-            part.iclass_name for part in theme.border.parts if is_interactive(part)
-        }
-        for name in seen_iclasses:
-            ic = theme.iclasses.get(name)
-            if ic is None:
-                continue
-            p = ic.normal_active or ic.normal
-            if p is None or not p.is_file():
-                continue
-            try:
-                with Image.open(p) as im:
-                    w, h = im.size
-                    max_w = max(max_w, min(w, 24))
-                    max_h = max(max_h, min(h, 24))
-            except Exception:
-                continue
-    if max_w == 0:
-        max_w = 12
-    if max_h == 0:
-        max_h = 12
-
-    # Cap ButtonHeight by title-bar height (the part's resolved span),
-    # leaving a 1-px reference margin so the title-bar edge is still visible.
-    title_h_ref = _title_bar_height_ref(theme)
-    if title_h_ref > 0:
-        max_h = min(max_h, max(2, title_h_ref - 1))
-
-    return (max_w * s, max_h * s)
-
-
 # Aurorae rc key suffix per button code (``ButtonWidth<Suffix>``).
 BUTTON_CODE_TO_RC_SUFFIX: dict[str, str] = {
     "X": "Close",
@@ -982,49 +887,159 @@ BUTTON_CODE_TO_RC_SUFFIX: dict[str, str] = {
     "M": "Menu",
 }
 
+# A real titlebar button is at most a quarter of the reference window
+# wide; anything wider is a spatial-fallback part (e.g. OPENSTEP's
+# BORDER_PIXEL iclass spans the full window) and would poison the
+# max-size search if admitted.
+BUTTON_WIDTH_CAP_REF: int = REFERENCE_W // 4  # 200 ref → 400 output at scale=2
 
-def button_widths_by_code(theme: Theme) -> dict[str, int]:
-    """Per-button ``ButtonWidth<Suffix>`` values in output pixels.
 
-    Each interactive part's resolved bbox width x scale, keyed by Aurorae
-    button code (via ``__ACLASS`` or the iclass-name pattern). Codes with
-    no part fall back to the shared ``ButtonWidth`` from ``button_dims``.
+def _button_code_for_part(part: ButtonPart) -> str | None:
+    """Aurorae button code for a part, via __ACLASS or iclass-name pattern."""
+    if part.aclass is not None and part.aclass in ACLASS_TO_BUTTON:
+        return ACLASS_TO_BUTTON[part.aclass]
+    up = part.iclass_name.upper()
+    for pattern, code in ICLASS_PATTERN_TO_BUTTON:
+        if pattern in up:
+            return code
+    return None
+
+
+def _in_decoration_chrome(
+    bbox: tuple[int, int, int, int], theme: Theme, zones: dict[str, int]
+) -> bool:
+    """True when the bbox lies within the top band or a declared side zone.
+
+    Buttons anywhere in the E16 chrome migrate to the Aurorae title row —
+    e13 stacks ICONIFY/SHADE/STICK down its 40-ref left zone; Aliens has a
+    kill-from-side in its left zone. A part outside every zone is a
+    spatial-fallback artifact, not a button slot.
+    """
+    x0, y0, x1, y1 = bbox
+    if y1 <= theme.border.border_size_top:
+        return True
+    if x1 <= zones["left"] or x0 >= REFERENCE_W - zones["right"]:
+        return True
+    return y0 >= REFERENCE_H - zones["bottom"]
+
+
+def _fitted_title_height_ref(theme: Theme) -> int:
+    """Title height (ref) the buttons must fit under — opaque-trimmed."""
+    title_ref = title_opaque_rows_ref(theme)
+    if title_ref <= 0:
+        title_ref = _title_bar_height_ref(theme)
+    return title_ref
+
+
+def button_geometry(theme: Theme) -> dict[str, tuple[int, int]]:
+    """Per-code aspect-true button art dims in output (scaled) pixels.
+
+    The single source of truth for button sizing — the rc's per-code
+    ``ButtonWidth<Suffix>`` values, the shared ``ButtonWidth/ButtonHeight``
+    (``button_dims``) and each button SVG's canvas all derive from it, so
+    they can never disagree.
+
+    Each interactive part's resolved bbox (its *rendered* E16 slot — source
+    PNGs are often larger sprite sheets) gives its code's candidate dims;
+    candidates must lie within the decoration chrome (top band or a
+    declared side zone) and under ``BUTTON_WIDTH_CAP_REF``. ``__MAX_WIDTH``
+    is honored as a width bound. Art taller than the (opaque-trimmed) title
+    band is scaled DOWN uniformly — never up, never distorted; e13 @2x:
+    Close 63x60, Minimize 43x60, Shade 62x42, Sticky 48x60. Codes with no
+    part share the max fitted size (legacy iclass-scan fallback when the
+    theme has no usable button parts at all).
     """
     s = theme.scale
-    bst = theme.border.border_size_top
-    default_w, _ = button_dims(theme)
+    zones = declared_zone_extents(theme)
     bboxes = resolve_parts(theme.border.parts, REFERENCE_W, REFERENCE_H)
-    widths: dict[str, int] = {}
-    cap_ref = REFERENCE_W // 4
+
+    raw: dict[str, tuple[int, int]] = {}
     for idx, part in enumerate(theme.border.parts):
         if not is_interactive(part):
             continue
-        code: str | None = None
-        if part.aclass is not None and part.aclass in ACLASS_TO_BUTTON:
-            code = ACLASS_TO_BUTTON[part.aclass]
-        else:
-            up = part.iclass_name.upper()
-            for pattern, c in ICLASS_PATTERN_TO_BUTTON:
-                if pattern in up:
-                    code = c
-                    break
+        code = _button_code_for_part(part)
         if code is None:
             continue
         bb = bboxes.get(idx)
         if bb is None:
             continue
         x0, y0, x1, y1 = bb
-        if y0 < 0 or y1 > bst:
+        w_ref, h_ref = x1 - x0, y1 - y0
+        if w_ref <= 0 or h_ref <= 0 or w_ref > BUTTON_WIDTH_CAP_REF:
             continue
-        w = x1 - x0
-        if w <= 0 or w > cap_ref:
+        if not _in_decoration_chrome(bb, theme, zones):
             continue
         if part.max_w > 0:
-            w = min(w, part.max_w)
-        widths[code] = max(widths.get(code, 0), w * s)
+            w_ref = min(w_ref, part.max_w)
+        prev = raw.get(code, (0, 0))
+        raw[code] = (max(prev[0], w_ref), max(prev[1], h_ref))
+
+    if not raw:
+        # Fallback: scan iclasses referenced by interactive parts. Use the
+        # image dims capped at 24 — matches earlier behavior without
+        # name-pattern coupling.
+        fb_w = fb_h = 0
+        seen_iclasses: set[str] = {
+            part.iclass_name for part in theme.border.parts if is_interactive(part)
+        }
+        for name in seen_iclasses:
+            ic = theme.iclasses.get(name)
+            if ic is None:
+                continue
+            p = ic.normal_active or ic.normal
+            if p is None or not p.is_file():
+                continue
+            try:
+                with Image.open(p) as im:
+                    fb_w = max(fb_w, min(im.size[0], 24))
+                    fb_h = max(fb_h, min(im.size[1], 24))
+            except Exception:
+                continue
+        raw["_fallback"] = (fb_w or 12, fb_h or 12)
+
+    # Fit under the (opaque-trimmed) title band, leaving a 1-ref margin so
+    # the title-bar edge stays visible. Scale uniformly down, never up.
+    title_ref = _fitted_title_height_ref(theme)
+    cap_h = max(2 * s, (title_ref - 1) * s) if title_ref > 0 else 0
+    fitted: dict[str, tuple[int, int]] = {}
+    for code, (w_ref, h_ref) in raw.items():
+        w, h = w_ref * s, h_ref * s
+        if cap_h and h > cap_h:
+            w = max(1, (w * cap_h) // h)
+            h = cap_h
+        fitted[code] = (w, h)
+
+    shared = (
+        max(w for w, _ in fitted.values()),
+        max(h for _, h in fitted.values()),
+    )
+    fitted.pop("_fallback", None)
     return {
-        code: widths.get(code, default_w) for code in BUTTON_CODE_TO_RC_SUFFIX
+        code: fitted.get(code, shared) for code in BUTTON_CODE_TO_RC_SUFFIX
     }
+
+
+def button_dims(theme: Theme) -> tuple[int, int]:
+    """Shared (ButtonWidth, ButtonHeight) in output pixels.
+
+    Derived from ``button_geometry``: the max fitted width/height across
+    codes. ButtonHeight is what every button SVG canvas uses (Aurorae has
+    one shared height); narrower/shorter art is centred on that canvas.
+    """
+    geo = button_geometry(theme)
+    return (
+        max(w for w, _ in geo.values()),
+        max(h for _, h in geo.values()),
+    )
+
+
+def button_widths_by_code(theme: Theme) -> dict[str, int]:
+    """Per-button ``ButtonWidth<Suffix>`` values in output pixels.
+
+    Straight projection of ``button_geometry`` widths — the same values the
+    per-button SVG canvases use, so rc and SVG can never disagree.
+    """
+    return {code: w for code, (w, _h) in button_geometry(theme).items()}
 
 
 def _title_bar_height_ref(theme: Theme) -> int:
