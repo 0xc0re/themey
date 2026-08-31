@@ -1,4 +1,4 @@
-"""Tests for themey.install.deploy — atomic install with rollback."""
+"""Tests for themey.install.deploy / deploy_file — atomic install with rollback."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -64,6 +64,93 @@ def test_deploy_rollback_on_failure(fake_home: Path, tmp_path: Path) -> None:
     # OLD content should still be there
     assert result.is_dir()
     assert (result / "marker.txt").read_text() == "OLD"
+
+
+def _make_file(tmp_path: Path, name: str, content: str) -> Path:
+    src = tmp_path / name
+    src.write_text(content, encoding="utf-8")
+    return src
+
+
+def test_deploy_file_fresh_install(fake_home: Path, tmp_path: Path) -> None:
+    from themey import paths
+    from themey.install import deploy_file
+
+    source = _make_file(tmp_path, "src.colors", "CONTENT")
+    result = deploy_file(
+        "themey_Test.colors", source, target_root=paths.color_schemes()
+    )
+    expected = fake_home / ".local" / "share" / "color-schemes" / "themey_Test.colors"
+    assert result == expected
+    assert expected.read_text(encoding="utf-8") == "CONTENT"
+    # The staged source has been renamed away, not copied.
+    assert not source.exists()
+
+
+def test_deploy_file_overwrites_existing(fake_home: Path, tmp_path: Path) -> None:
+    from themey import paths
+    from themey.install import deploy_file
+
+    deploy_file(
+        "themey_Test.colors",
+        _make_file(tmp_path, "old.colors", "OLD"),
+        target_root=paths.color_schemes(),
+    )
+    result = deploy_file(
+        "themey_Test.colors",
+        _make_file(tmp_path, "new.colors", "NEW"),
+        target_root=paths.color_schemes(),
+    )
+    assert result.read_text(encoding="utf-8") == "NEW"
+    # No backup litter left behind.
+    assert not result.with_name("themey_Test.colors.themey-old").exists()
+
+
+def test_deploy_file_rollback_on_failure(fake_home: Path, tmp_path: Path) -> None:
+    from themey import paths
+    from themey.install import InstallError, deploy_file
+
+    result = deploy_file(
+        "themey_Test.colors",
+        _make_file(tmp_path, "keep.colors", "OLD"),
+        target_root=paths.color_schemes(),
+    )
+    with pytest.raises(InstallError):
+        deploy_file(
+            "themey_Test.colors",
+            tmp_path / "nonexistent.colors",
+            target_root=paths.color_schemes(),
+        )
+    assert result.is_file()
+    assert result.read_text(encoding="utf-8") == "OLD"
+
+
+def test_deploy_file_rejects_directory_source(fake_home: Path, tmp_path: Path) -> None:
+    from themey import paths
+    from themey.install import InstallError, deploy_file
+
+    src_dir = tmp_path / "a_dir"
+    src_dir.mkdir()
+    with pytest.raises(InstallError):
+        deploy_file(
+            "themey_Test.colors", src_dir, target_root=paths.color_schemes()
+        )
+
+
+def test_deploy_file_creates_missing_target_root(
+    fake_home: Path, tmp_path: Path
+) -> None:
+    from themey import paths
+    from themey.install import deploy_file
+
+    root = paths.color_schemes()
+    assert not root.exists()
+    deploy_file(
+        "themey_Test.colors",
+        _make_file(tmp_path, "fresh.colors", "X"),
+        target_root=root,
+    )
+    assert root.is_dir()
 
 
 def test_deploy_under_xdg_data_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
