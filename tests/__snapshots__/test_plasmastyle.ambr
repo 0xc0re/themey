@@ -125,7 +125,7 @@
   DecorationFocus=61,174,233
   DecorationHover=61,174,233
   ForegroundActive=255,255,255
-  ForegroundInactive=135,136,139
+  ForegroundInactive=220,220,220
   ForegroundLink=41,128,185
   ForegroundNegative=218,68,83
   ForegroundNeutral=246,116,0
