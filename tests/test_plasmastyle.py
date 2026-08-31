@@ -150,7 +150,7 @@ def test_horizontal_only_edges_drop_top_bottom_row(tmp_path: Path) -> None:
     })
     svg = plasmastyle.build_dialog_background(theme)
     assert svg is not None
-    assert _ids(svg) == {"left", "center", "right"}
+    assert _ids(svg) == {"left", "center", "right", "hint-stretch-borders"}
 
 
 def test_oversized_caps_shrink_to_fit_with_note(tmp_path: Path) -> None:
@@ -544,6 +544,38 @@ def test_pager_active_frame_from_pager_sel_art(tmp_path: Path) -> None:
     ntl = next(e for e in svg.iter() if e.get("id") == "normal-topleft")
     assert ntl.tag.endswith("rect")
     assert any("iclass PAGER_SEL art" in n for n in theme.notes)
+
+
+def test_stretch_borders_hint_in_art_framed_files(tmp_path: Path) -> None:
+    """FrameSvg TILES border elements by default; E16 stretched them, so a
+    gradient edge visibly repeats (live HandOfGod pager, 2026-08-31). Every
+    file with a sliced-art frame set carries one unprefixed
+    hint-stretch-borders (Breeze's own hints are unprefixed file-global)."""
+    sel = _png(tmp_path, "sel.png", size=(12, 12))
+    theme = _theme(tmp_path, {
+        "PAGER_SEL": _iclass("PAGER_SEL", edge=(2, 2, 2, 2), normal=sel),
+    })
+    svg = plasmastyle.build_pager(theme, _wallpaper(tmp_path))
+    assert svg is not None
+    assert "hint-stretch-borders" in _ids(svg)
+
+    menu = _png(tmp_path, "menu.png")
+    theme = _theme(tmp_path, {"MENU_BG": _iclass("MENU_BG", normal=menu)})
+    svg = plasmastyle.build_dialog_background(theme)
+    assert svg is not None
+    assert "hint-stretch-borders" in _ids(svg)
+
+
+def test_stretch_borders_hint_absent_without_art_frames(tmp_path: Path) -> None:
+    """The flat panel tint and rect-stroke pager frames are stretch/tile
+    invariant — no hint needed, keep the files minimal."""
+    theme = _theme(tmp_path, {})
+    assert "hint-stretch-borders" not in _ids(
+        plasmastyle.build_panel_background(theme)
+    )
+    svg = plasmastyle.build_pager(theme, _wallpaper(tmp_path))
+    assert svg is not None
+    assert "hint-stretch-borders" not in _ids(svg)
 
 
 def test_pager_frame_color_fallback_on_zero_edge(tmp_path: Path) -> None:
