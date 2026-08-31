@@ -28,12 +28,15 @@ from . import install, paths
 from .analyze.build_theme import build_theme
 from .etheme.archive import extract
 from .etheme.parse import parse_tree
+from .generate import qmldeco
 from .generate.aurorae import write as write_aurorae
 from .preview import render as render_preview
 from .report import write as write_report
-from .slug import slugify
+from .slug import plugin_id, slugify
 
 log = logging.getLogger(__name__)
+
+BACKENDS = ("svg", "qml", "both")
 
 
 @dataclass(frozen=True)
@@ -48,32 +51,49 @@ class ConvertResult:
     installed: bool = True
     """False when ``output_dir`` was given: ``installed_dir`` is then the
     theme tree under that directory and nothing was written to XDG paths."""
+    qml_installed_dir: Path | None = None
+    """QML decoration package dir (backend 'qml'/'both'); None for 'svg'."""
+    qml_plugin_id: str | None = None
+    """KPlugin Id / kwinrc theme= value for the QML package."""
 
 
 def convert(
-    etheme_path: Path, *, scale: int = 2, output_dir: Path | None = None
+    etheme_path: Path,
+    *,
+    scale: int = 2,
+    output_dir: Path | None = None,
+    backend: str = "svg",
 ) -> ConvertResult:
-    """Convert one .etheme to an installed Aurorae theme + preview + report.
+    """Convert one .etheme to an installed KWin decoration + preview + report.
 
     Args:
         etheme_path: Path to a ``.etheme`` archive (gzipped tar).
         scale: Border/image upscale factor. Must be 1, 2, or 3.
         output_dir: When given, skip the XDG install entirely and write the
-            theme tree to ``output_dir/<name>/`` plus ``<name>.report.txt``
-            and ``<name>.html`` next to it. Nothing under ``~/.local/share``
-            is touched.
+            output tree(s) under ``output_dir`` plus ``<name>.report.txt``
+            and ``<name>.html`` next to them. Nothing under
+            ``~/.local/share`` is touched.
+        backend: ``"svg"`` (the Aurorae SVG theme — current default),
+            ``"qml"`` (the E16-faithful QML decoration package; becomes
+            the default on Phase-5 sign-off), or ``"both"``.
 
     Returns:
-        A :class:`ConvertResult` with paths to the installed theme, preview,
-        and report.
+        A :class:`ConvertResult`. ``installed_dir`` is the SVG theme dir
+        when the SVG backend ran, else the QML package dir;
+        ``qml_installed_dir``/``qml_plugin_id`` are set whenever the QML
+        backend ran.
 
     Raises:
-        ValueError: If ``scale`` is not 1, 2, or 3.
+        ValueError: If ``scale`` or ``backend`` is invalid.
         UnsafeArchiveError: If the archive fails safe-extract validation.
         InstallError: If the atomic install rename fails.
     """
     if scale not in (1, 2, 3):
         raise ValueError(f"scale must be 1, 2, or 3 (got {scale})")
+    if backend not in BACKENDS:
+        raise ValueError(f"backend must be one of {BACKENDS} (got {backend!r})")
+    want_svg = backend in ("svg", "both")
+    want_qml = backend in ("qml", "both")
 
     # Theme name comes from the archive filename, never from cfg content.
     theme_name = slugify(etheme_path.stem)
@@ -98,19 +118,29 @@ def convert(
             len(theme.skipped_borders),
         )
 
+        pkg_id = plugin_id(theme_name)
+        installed: Path | None = None
+        qml_installed: Path | None = None
+
         if output_dir is not None:
-            # Non-installing mode: write straight into output_dir/<name>/.
+            # Non-installing mode: write straight into output_dir.
             output_dir.mkdir(parents=True, exist_ok=True)
-            installed = output_dir / theme_name
-            if installed.exists():
-                shutil.rmtree(installed)
-            write_aurorae(theme, installed)
-            log.info("wrote theme tree to %s", installed)
+            if want_svg:
+                installed = output_dir / theme_name
+                if installed.exists():
+                    shutil.rmtree(installed)
+                write_aurorae(theme, installed)
+                log.info("wrote SVG theme tree to %s", installed)
+            if want_qml:
+                qml_installed = output_dir / pkg_id
+                if qml_installed.exists():
+                    shutil.rmtree(qml_installed)
+                qmldeco.write(theme, qml_installed)
+                log.info("wrote QML decoration package to %s", qml_installed)
             previews = output_dir
         else:
             # Stage outputs under XDG_DATA_HOME so os.replace can rename
-            # atomically into ~/.local/share/aurorae/themes/<name>/ on the
-            # same filesystem.
+            # atomically into their final positions on the same filesystem.
             staging_root = paths.themey_previews().parent / "staging"
             staging_root.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory(
@@ -118,29 +148,43 @@ def convert(
                 dir=str(staging_root),
             ) as stage_str:
                 stage = Path(stage_str)
-                # Generators write into stage/<theme_name>/
-                stage_theme_dir = stage / theme_name
-                write_aurorae(theme, stage_theme_dir)
-                log.debug("wrote Aurorae output to %s", stage_theme_dir)
-                # Atomic install: renames stage_theme_dir into final
-                # position. After this call, stage_theme_dir no longer
-                # exists inside the TemporaryDirectory.
-                installed = install.deploy(theme_name, stage_theme_dir)
-                log.info("installed to %s", installed)
+                if want_svg:
+                    stage_theme_dir = stage / theme_name
+                    write_aurorae(theme, stage_theme_dir)
+                    log.debug("wrote Aurorae output to %s", stage_theme_dir)
+                    # Atomic install: renames stage_theme_dir into final
+                    # position; it no longer exists in the stage afterwards.
+                    installed = install.deploy(theme_name, stage_theme_dir)
+                    log.info("installed SVG theme to %s", installed)
+                if want_qml:
+                    stage_pkg_dir = stage / pkg_id
+                    qmldeco.write(theme, stage_pkg_dir)
+                    log.debug("wrote QML package to %s", stage_pkg_dir)
+                    qml_installed = install.deploy(
+                        pkg_id, stage_pkg_dir,
+                        target_root=paths.kwin_decorations(),
+                    )
+                    log.info("installed QML decoration to %s", qml_installed)
             previews = paths.themey_previews()
 
         # Report and preview MUST run inside the extract block: they call
         # strip_thicknesses, which measures iclass images (opaque-span
         # trims). See lifecycle invariant in module docstring.
         previews.mkdir(parents=True, exist_ok=True)
-        report_path = write_report(theme, previews / f"{theme_name}.report.txt")
+        report_path = write_report(
+            theme, previews / f"{theme_name}.report.txt", backend=backend
+        )
         preview_path = render_preview(theme, previews / f"{theme_name}.html")
 
+    primary = installed if installed is not None else qml_installed
+    assert primary is not None  # at least one backend always runs
     return ConvertResult(
         theme_name=theme_name,
-        installed_dir=installed,
+        installed_dir=primary,
         preview_path=preview_path,
         report_path=report_path,
         notes_count=len(theme.notes),
         installed=output_dir is None,
+        qml_installed_dir=qml_installed,
+        qml_plugin_id=pkg_id if want_qml else None,
     )

@@ -29,18 +29,20 @@ class InstallError(Exception):
     """Atomic install failed; previous install (if any) was restored."""
 
 
-def deploy(theme_name: str, source_dir: Path) -> Path:
-    """Atomically install source_dir as ~/.local/share/aurorae/themes/<theme_name>/.
+def deploy(theme_name: str, source_dir: Path, target_root: Path | None = None) -> Path:
+    """Atomically install source_dir as <target_root>/<theme_name>/.
 
-    Uses stage-then-rename: source_dir is os.replace()'d into final position;
-    if a previous install exists at that path, it is moved aside first. On
+    ``target_root`` defaults to the Aurorae themes dir (preserving existing
+    callers); the QML backend passes ``paths.kwin_decorations()``. Uses
+    stage-then-rename: source_dir is os.replace()'d into final position; if
+    a previous install exists at that path, it is moved aside first. On
     failure, the previous install is restored.
 
     Returns the final installed Path. Raises InstallError on any failure.
     """
     if not source_dir.is_dir():
         raise InstallError(f"source_dir does not exist: {source_dir}")
-    final = paths.aurorae_themes() / theme_name
+    final = (target_root or paths.aurorae_themes()) / theme_name
     final.parent.mkdir(parents=True, exist_ok=True)
     backup = final.with_name(f"{theme_name}.themey-old")
     had_previous = final.exists()

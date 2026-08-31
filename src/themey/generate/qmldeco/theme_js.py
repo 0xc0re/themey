@@ -167,7 +167,7 @@ def _font_index(
     try:
         from PIL import ImageFont
 
-        style = ImageFont.truetype(str(spec.ttf_path)).getname()[1].lower()
+        style = (ImageFont.truetype(str(spec.ttf_path)).getname()[1] or "").lower()
     except OSError:
         pass
     fonts_model.append(

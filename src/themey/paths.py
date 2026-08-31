@@ -32,6 +32,11 @@ def aurorae_themes() -> Path:
     return _xdg_data_home() / "aurorae" / "themes"
 
 
+def kwin_decorations() -> Path:
+    """QML decoration KPackages (KWin/Decoration) — the QML backend's home."""
+    return _xdg_data_home() / "kwin" / "decorations"
+
+
 def themey_previews() -> Path:
     return _xdg_data_home() / "themey" / "previews"
 
