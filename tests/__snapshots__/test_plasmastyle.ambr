@@ -175,10 +175,12 @@
 # name: test_plasmarc_snapshot
   '''
   [AdaptiveTransparency]
-  enabled=false
+  enabled=true
   
   [ContrastEffect]
-  enabled=false
+  enabled=true
+  contrast=1.0
+  saturation=1.5
   
   '''
 # ---

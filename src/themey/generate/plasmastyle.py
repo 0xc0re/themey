@@ -13,7 +13,17 @@ inside a ``Plasma/Theme`` KPackage under
 * Every shipped SVG is mirrored **byte-identically** into ``solid/`` and
   ``opaque/``: ``Panel.qml`` loads ``solid/widgets/panel-background`` for
   opaque panels, and a missing ``solid/`` copy would fall back to
-  *Breeze's* solid art next to our translucency-free chrome.
+  *Breeze's* solid art next to our chrome. The ONE exception is the panel
+  background itself: the base rendition is a translucent flat tint
+  (``PANEL_ALPHA``), so its ``solid/``/``opaque/`` mirrors are re-rendered
+  at alpha 1 — AdaptiveTransparency swaps to ``solid/`` when a window
+  touches the panel, and that variant must be genuinely opaque.
+* The panel background is NOT sourced from E16 art: dragbar/iconbox art
+  carries baked-in wordmarks ("ENLIGHTENMENT", theme logos) exactly in the
+  cap regions, which stretched across a 40 px Plasma panel makes every
+  widget unreadable (verified live 2026-08-31). Instead the panel is a
+  flat translucent tint of the art's dominant color (scheme fallback),
+  letting the wallpaper show through — see :func:`build_panel_background`.
 * 9-part sets use FrameSvg's element names (``topleft`` … ``bottomright``,
   optionally ``<prefix>-``-prefixed); zero-extent slices are simply not
   emitted (FrameSvg then reports a 0 border, which is correct — the Aliens
@@ -22,9 +32,14 @@ inside a ``Plasma/Theme`` KPackage under
   hint would switch FrameSvg to tiling.
 * Margin hints (``hint-<side>-margin``) come from the iclass ``__PADDING``
   and are emitted per non-zero side only.
-* The package ``plasmarc`` disables AdaptiveTransparency and the contrast
-  effect — E16 chrome is opaque pixel art — which also makes the
-  ``translucent/`` variant set unreachable (so it is not shipped).
+* The package ``plasmarc`` enables AdaptiveTransparency and the contrast
+  effect (Breeze's own values) so the translucent panel gets blur/contrast
+  behind it. No ``translucent/`` variant dir is shipped: the base rendition
+  already is the translucent one (exactly Breeze's arrangement, where
+  ``translucent/`` and base are equivalent). The still-opaque E16
+  dialog/tooltip art fully covers its own blur region (the region derives
+  from each surface's alpha mask), so enabling the effects theme-wide only
+  becomes visible behind the panel.
 * Art is upscaled at generate time by ``theme.scale`` (NEAREST via
   ``upscale_part``) and sliced at edge-consistent scaled boundaries
   (``scale_px``, the same rounding the QML deco uses) so the panel chrome
@@ -54,10 +69,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageEnhance
 
 from themey.analyze.colors import (
     MIN_CONTRAST,
+    _at_lightness,
     _dimmed,
     _legible,
     contrast_ratio,
@@ -85,16 +101,47 @@ XLINK_NS = "http://www.w3.org/1999/xlink"
 #: and match how Breeze lays its sets out.
 _GAP = 2
 
-#: Package plasmarc: E16 chrome is opaque pixel art, so both runtime
-#: translucency effects are off. This also makes the ``translucent/``
-#: variant directory unreachable, which is why write() never emits one.
+#: Package plasmarc — Breeze's own values. The contrast/blur region derives
+#: from each surface's FrameSvg alpha mask, so the still-opaque E16
+#: dialog/tooltip art fully covers its blurred region; the effects only
+#: become visible behind the translucent panel. AdaptiveTransparency makes
+#: Plasma swap to ``solid/`` when a window touches the panel, which is why
+#: write() re-renders that variant genuinely opaque.
 _PACKAGE_PLASMARC: dict[str, dict[str, str]] = {
-    "AdaptiveTransparency": {"enabled": "false"},
-    "ContrastEffect": {"enabled": "false"},
+    "AdaptiveTransparency": {"enabled": "true"},
+    "ContrastEffect": {"enabled": "true", "contrast": "1.0", "saturation": "1.5"},
 }
+
+#: Alpha of the base panel tint — Breeze's own panel center opacity
+#: (widgets/panel-background.svgz, verified on this machine 2026-08-31).
+PANEL_ALPHA = 0.85
+
+#: Ref-px content margin for the flat panel (E16 dragbars were flush
+#: strips; 2 px keeps widgets off the very edge without Breeze's chrome).
+PANEL_MARGIN_REF = 2
+
+#: Cell geometry of the flat 3x3 panel grid: 4 px edges, 24 px center
+#: (32 px tile, mirroring Breeze's edge/center proportions; cosmetic —
+#: FrameSvg reads border thickness from the edge cells' size, and a 4 px
+#: flat border is invisible against the identical-color center).
+_PANEL_EDGE, _PANEL_CENTER = 4, 24
+
+#: Pager thumbnail width — crisp at real pager-cell sizes, and three
+#: embedded copies of a 256-px photo PNG stay in the low hundreds of KB.
+#: The single knob if file size ever matters.
+PAGER_THUMB_WIDTH = 256
+
+#: Pillow Brightness factors per pager state: normal desks dimmed, active
+#: full, hover slightly lifted (mirrors E16's pager where only the current
+#: desk reads at full brightness).
+_PAGER_BRIGHTNESS: dict[str, float] = {"normal-": 0.6, "active-": 1.0, "hover-": 1.15}
+
+#: Fallback pager frame stroke, ref px (scaled via scale_px, floor 1).
+PAGER_FRAME_REF = 1
 
 #: Relative SVG paths (also the ``shipped`` vocabulary and the mirror set).
 PANEL_SVG = "widgets/panel-background.svg"
+PAGER_SVG = "widgets/pager.svg"
 DIALOG_SVG = "dialogs/background.svg"
 TOOLTIP_SVG = "widgets/tooltip.svg"
 BUTTON_SVG = "widgets/button.svg"
@@ -182,10 +229,6 @@ def _panel_source(theme: Theme) -> IClassSpec | None:
     return _iclass_with_art(
         theme, "DESKTOP_DRAGBUTTON_HORIZ", "ICONBOX_HORIZONTAL", "DEFAULT_DOCK_BUTTON"
     )
-
-
-def _panel_vertical_source(theme: Theme) -> IClassSpec | None:
-    return _iclass_with_art(theme, "DESKTOP_DRAGBUTTON_VERT", "ICONBOX_VERTICAL")
 
 
 def _dialog_source(theme: Theme) -> IClassSpec | None:
@@ -433,28 +476,82 @@ def _fit_caps(
 # --------------------------------------------------------------------- #
 
 
-def build_panel_background(theme: Theme) -> ET.Element | None:
-    """``widgets/panel-background.svg`` from the dragbar/iconbox/dock art.
+def _hex(rgb: RGB) -> str:
+    return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
 
-    Unprefixed set serves every orientation (``adjustPrefix()`` falls back
-    to unprefixed when a ``north-``/``south-``/… set is absent); ``east-``
-    and ``west-`` sets come from the vertical variant art when the theme
-    has one.
+
+def _panel_tint(theme: Theme) -> tuple[RGB, str]:
+    """(tint rgb, human-readable source) for the flat panel.
+
+    Dominant color of the E16 panel-source art when present (keeps theme
+    character), else the sampled scheme's Window background.
     """
     src = _panel_source(theme)
-    if src is None:
-        return None
+    path = _state_image(src, "normal")
+    if path is not None and src is not None:
+        rgb = extract_dominant(path)
+        if rgb is not None:
+            return rgb, f"iclass {src.name} art"
+    scheme = theme.scheme if theme.scheme is not None else default_scheme()
+    return scheme.window.background_normal, "the sampled color scheme"
+
+
+def _panel_svg(theme: Theme, alpha: float) -> ET.Element:
+    """Flat 3x3 grid of rects, all filled with the tint at *alpha*.
+
+    ``opacity:`` in the rect's ``style`` is the FrameSvg alpha encoding
+    Breeze itself uses (its panel center is ``opacity:0.85;fill:...``);
+    it is omitted entirely at alpha 1, matching Breeze's solid variant
+    byte-shape. The unprefixed set serves every orientation —
+    ``adjustPrefix()`` falls back to unprefixed when a ``north-``/… set
+    is absent — and a flat tint has no orientation to encode.
+    """
+    tint, _ = _panel_tint(theme)
+    fill = f"fill:{_hex(tint)}"
+    if alpha != 1:
+        fill += f";opacity:{alpha}"
     canvas = _Canvas()
-    _emit_set(theme, canvas, "", src, "normal", hints=True)
-    vert = _panel_vertical_source(theme)
-    if vert is not None:
-        _emit_set(theme, canvas, "east-", vert, "normal", hints=True)
-        _emit_set(theme, canvas, "west-", vert, "normal", hints=True)
-    theme.notes.append(
-        f"plasmastyle: panel background from iclass {src.name}"
-        + (f"; vertical panels from {vert.name}" if vert is not None else "")
-    )
+    offsets = (0, _PANEL_EDGE, _PANEL_EDGE + _PANEL_CENTER)
+    sizes = (_PANEL_EDGE, _PANEL_CENTER, _PANEL_EDGE)
+    for row in range(3):
+        for col in range(3):
+            ET.SubElement(
+                canvas.root,
+                f"{{{SVG_NS}}}rect",
+                {
+                    "id": _GRID[row][col],
+                    "x": str(offsets[col]),
+                    "y": str(canvas.y + offsets[row]),
+                    "width": str(sizes[col]),
+                    "height": str(sizes[row]),
+                    "style": fill,
+                },
+            )
+    side = 2 * _PANEL_EDGE + _PANEL_CENTER
+    canvas.advance(side, side)
+    margin = (PANEL_MARGIN_REF, PANEL_MARGIN_REF, PANEL_MARGIN_REF, PANEL_MARGIN_REF)
+    _margin_hints(canvas, "", margin, theme.scale)
     return canvas.finish()
+
+
+def build_panel_background(theme: Theme) -> ET.Element:
+    """``widgets/panel-background.svg`` — a flat translucent tint.
+
+    Deliberately NOT the dragbar/iconbox art: E16 authors baked wordmarks
+    into exactly the cap regions ``_fit_caps`` preserves, and stretched
+    across a Plasma panel they bury every widget (module docstring). The
+    tint keeps the theme's color character while the wallpaper shows
+    through; never returns None — a colors-only theme still gets a
+    scheme-tinted panel.
+    """
+    tint, source = _panel_tint(theme)
+    svg = _panel_svg(theme, PANEL_ALPHA)
+    theme.notes.append(
+        f"plasmastyle: panel background is a translucent tint rgb{tint} "
+        f"(alpha {PANEL_ALPHA}) of {source} — E16 dragbar art carries "
+        "baked-in wordmarks that make panel widgets unreadable"
+    )
+    return svg
 
 
 def build_dialog_background(theme: Theme) -> ET.Element | None:
@@ -650,6 +747,142 @@ def build_arrows(theme: Theme) -> ET.Element | None:
     return canvas.finish()
 
 
+def _pager_set(
+    theme: Theme,
+    canvas: _Canvas,
+    prefix: str,
+    thumb: Image.Image,
+    frame_spec: IClassSpec | None,
+    fallback: RGB,
+) -> str:
+    """One pager 9-part set: a frame around the wallpaper thumbnail.
+
+    The frame comes from *frame_spec*'s art when it has one with non-zero
+    caps (the eight border cells are the art's slices at natural size —
+    FrameSvg only reads per-id bounding boxes, so art-sized edges around a
+    thumb-sized center are legal); a missing spec, missing art, or a
+    ``(0,0,0,0)`` edge (PAGER_SEL is commonly stretched whole) falls back
+    to eight 1-ref-px *fallback*-colored rect strokes. The center cell is
+    always the thumbnail ``<image>``. Returns the human-readable frame
+    source for the caller's note.
+    """
+    path = _state_image(frame_spec, "normal")
+    if path is not None and frame_spec is not None:
+        img = _load_scaled(path, theme.scale)
+        src_w, src_h = _source_size(path)
+        edge = frame_spec.edge_scaling
+        fitted = _fit_caps(edge, src_w, src_h)
+        if fitted is not None:
+            edge = fitted
+        left, right, top, bottom = _scaled_caps(edge, src_w, src_h, theme.scale)
+        if (left, right, top, bottom) != (0, 0, 0, 0):
+            regions = slice_9patch(img, left, right, top, bottom)
+            by_name = {
+                "topleft": regions.topleft, "top": regions.top,
+                "topright": regions.topright, "left": regions.left,
+                "right": regions.right, "bottomleft": regions.bottomleft,
+                "bottom": regions.bottom, "bottomright": regions.bottomright,
+            }
+            art_widths = (left, img.width - left - right, right)
+            art_heights = (top, img.height - top - bottom, bottom)
+            xs = (0, left, left + thumb.width)
+            ys = (0, top, top + thumb.height)
+            for row in range(3):
+                for col in range(3):
+                    if row == 1 and col == 1:
+                        continue
+                    if art_widths[col] <= 0 or art_heights[row] <= 0:
+                        continue
+                    name = _GRID[row][col]
+                    g = ET.SubElement(
+                        canvas.root, f"{{{SVG_NS}}}g", {"id": f"{prefix}{name}"}
+                    )
+                    _embed_image(g, by_name[name], xs[col], canvas.y + ys[row])
+            g = ET.SubElement(
+                canvas.root, f"{{{SVG_NS}}}g", {"id": f"{prefix}center"}
+            )
+            _embed_image(g, thumb, left, canvas.y + top)
+            canvas.advance(left + thumb.width + right, top + thumb.height + bottom)
+            return f"iclass {frame_spec.name} art"
+
+    stroke = max(1, scale_px(PAGER_FRAME_REF, theme.scale))
+    xs = (0, stroke, stroke + thumb.width)
+    ys = (0, stroke, stroke + thumb.height)
+    widths = (stroke, thumb.width, stroke)
+    heights = (stroke, thumb.height, stroke)
+    for row in range(3):
+        for col in range(3):
+            if row == 1 and col == 1:
+                continue
+            ET.SubElement(
+                canvas.root,
+                f"{{{SVG_NS}}}rect",
+                {
+                    "id": f"{prefix}{_GRID[row][col]}",
+                    "x": str(xs[col]),
+                    "y": str(canvas.y + ys[row]),
+                    "width": str(widths[col]),
+                    "height": str(heights[row]),
+                    "style": f"fill:{_hex(fallback)}",
+                },
+            )
+    g = ET.SubElement(canvas.root, f"{{{SVG_NS}}}g", {"id": f"{prefix}center"})
+    _embed_image(g, thumb, stroke, canvas.y + stroke)
+    canvas.advance(2 * stroke + thumb.width, 2 * stroke + thumb.height)
+    return "a scheme-color stroke"
+
+
+def build_pager(theme: Theme, wallpaper_image: Path | None) -> ET.Element | None:
+    """``widgets/pager.svg`` — each desktop cell a wallpaper miniature.
+
+    Real E16 pagers showed the live desk; a static miniature of the theme's
+    default wallpaper is the closest Plasma equivalent. Skipped entirely
+    when the conversion ships no wallpaper — Breeze's pager (re-tinted by
+    this package's ``colors``) beats empty frames. The window rects inside
+    cells come from Kirigami.Theme, which the bundled colors file already
+    governs — no SVG work needed there. No ``hint-tile-center``, no margin
+    hints (cells must stretch, and the applet spaces cells itself).
+    """
+    if wallpaper_image is None:
+        theme.notes.append(
+            "plasmastyle: no wallpaper to miniature; widgets/pager left to "
+            "the Breeze fallback"
+        )
+        return None
+    with Image.open(wallpaper_image) as im:
+        thumb = im.convert("RGB")
+    if thumb.width > PAGER_THUMB_WIDTH:
+        # LANCZOS is the sanctioned wallpaper carve-out (photographic
+        # sources); a smaller source (likely tiled pixel art) is never
+        # upscaled — it embeds at native size.
+        thumb = thumb.resize(
+            (
+                PAGER_THUMB_WIDTH,
+                max(1, round(thumb.height * PAGER_THUMB_WIDTH / thumb.width)),
+            ),
+            Image.Resampling.LANCZOS,
+        )
+    scheme = theme.scheme if theme.scheme is not None else default_scheme()
+    active_art = theme.iclasses.get("PAGER_SEL")
+    normal_art = theme.iclasses.get("PAGER_BACKGROUND")
+    active_fallback = scheme.selection.background_normal
+    normal_fallback = _at_lightness(scheme.window.background_normal, 0.12)
+    canvas = _Canvas()
+    descs: dict[str, str] = {}
+    for prefix, factor in _PAGER_BRIGHTNESS.items():
+        cell = ImageEnhance.Brightness(thumb).enhance(factor)
+        spec = normal_art if prefix == "normal-" else active_art
+        fallback = normal_fallback if prefix == "normal-" else active_fallback
+        descs[prefix] = _pager_set(theme, canvas, prefix, cell, spec, fallback)
+    theme.notes.append(
+        "plasmastyle: pager desktops miniature the default wallpaper "
+        f"{wallpaper_image.name} (normal dimmed, active full brightness); "
+        f"active frame from {descs['active-']}; normal frame from "
+        f"{descs['normal-']}"
+    )
+    return canvas.finish()
+
+
 #: (relative path, builder) in package order. Also the mirror census.
 _BUILDERS: tuple[tuple[str, Callable[[Theme], ET.Element | None]], ...] = (
     (PANEL_SVG, build_panel_background),
@@ -723,12 +956,10 @@ def style_scheme(theme: Theme, *, shipped: frozenset[str]) -> ColorScheme:
     """
     scheme = theme.scheme if theme.scheme is not None else default_scheme()
 
-    panel_bg: RGB | None = None
-    if PANEL_SVG in shipped:
-        src = _panel_source(theme)
-        path = _state_image(src, "normal")
-        if path is not None:
-            panel_bg = extract_dominant(path)
+    # The panel is a flat tint, so the color actually painted IS the tint —
+    # not the raw art's dominant (they agree when art exists, but the tint
+    # falls back to the scheme for colors-only themes).
+    panel_bg: RGB | None = _panel_tint(theme)[0] if PANEL_SVG in shipped else None
 
     # Colors:Window — panel + popup text share this group.
     dialog_src = _dialog_source(theme) if DIALOG_SVG in shipped else None
@@ -860,7 +1091,9 @@ def _write_metadata(theme: Theme, out_dir: Path) -> None:
     )
 
 
-def write(theme: Theme, out_dir: Path) -> PlasmaStyle:
+def write(
+    theme: Theme, out_dir: Path, *, default_wallpaper_image: Path | None = None
+) -> PlasmaStyle:
     """Write the Plasma Style package for *theme* under *out_dir*.
 
     ``out_dir``'s basename MUST be ``slug.plugin_id(theme.name)`` — the
@@ -868,7 +1101,9 @@ def write(theme: Theme, out_dir: Path) -> PlasmaStyle:
     A single SVG whose source art cannot be read skips that one file with
     a ``plasmastyle:`` note; an EMPTY SVG set is legitimate (colors-only
     package, like breeze-dark). Any other failure removes ``out_dir`` and
-    raises :class:`PlasmaStyleError`.
+    raises :class:`PlasmaStyleError`. *default_wallpaper_image* is the
+    already-deployed default wallpaper's image file — the pager miniature
+    source (pager skipped when None).
     """
     pkg_id = plugin_id(theme.name)
     if out_dir.name != pkg_id:
@@ -881,8 +1116,14 @@ def write(theme: Theme, out_dir: Path) -> PlasmaStyle:
         _write_metadata(theme, out_dir)
         write_desktop(out_dir / "plasmarc", _PACKAGE_PLASMARC)
 
+        # Pager rides the builder loop so it inherits the skip-on-bad-image
+        # handling and the solid/opaque mirroring (its content is opaque).
+        builders = (
+            *_BUILDERS,
+            (PAGER_SVG, lambda t: build_pager(t, default_wallpaper_image)),
+        )
         shipped: list[str] = []
-        for rel, builder in _BUILDERS:
+        for rel, builder in builders:
             try:
                 svg = builder(theme)
             except (OSError, ValueError) as exc:
@@ -897,12 +1138,21 @@ def write(theme: Theme, out_dir: Path) -> PlasmaStyle:
 
         # Byte-identical mirrors: Panel.qml loads solid/ for opaque panels
         # (and opaque/ exists as the same contract for other consumers); a
-        # missing mirror would fall back to Breeze's art there.
+        # missing mirror would fall back to Breeze's art there. The ONE
+        # exception: the panel's base rendition is translucent, so its
+        # mirrors are re-rendered at alpha 1 — AdaptiveTransparency swaps
+        # to solid/ when a window touches the panel, and that variant must
+        # be genuinely opaque.
         for rel in shipped:
             for variant in ("solid", "opaque"):
                 dst = out_dir / variant / rel
                 dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(out_dir / rel, dst)
+                if rel == PANEL_SVG:
+                    ET.ElementTree(_panel_svg(theme, 1.0)).write(
+                        dst, xml_declaration=True, encoding="utf-8"
+                    )
+                else:
+                    shutil.copyfile(out_dir / rel, dst)
 
         scheme = style_scheme(theme, shipped=frozenset(shipped))
         write_desktop(
