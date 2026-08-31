@@ -302,8 +302,15 @@ once (`kdeglobals [Themey] PrevLookAndFeelPackage` mirrors kdeglobals
 `[KDE] LookAndFeelPackage`; kwinrc `ThemeyPrevDeco` packs
 `library|theme|BorderSize`, both `@unset`-sentineled for an absent key and
 written only the first time so a second `apply` never clobbers the real
-baseline with an already-themey'd one), run `plasma-apply-lookandfeel -a
-themey_<slug>` (never `--resetLayout`), re-assert the decoration keys via
+baseline with an already-themey'd one; `kdeglobals [Themey] PrevColorScheme`
+snapshots the user-layer `[General] ColorScheme` the same way when a themey
+scheme is installed), run `plasma-apply-lookandfeel -a
+themey_<slug>` (never `--resetLayout`), then `plasma-apply-colorscheme
+themey_<slug>` — REQUIRED, not belt-and-braces: verified live on Plasma
+6.6.6 (2026-08-31) that `plasma-apply-lookandfeel -a` does NOT apply the
+bundle's color scheme past an explicit user-layer `ColorScheme` (it updated
+kcminputrc's cursor but left even `kdedefaults/kdeglobals` on the old
+scheme) — re-assert the decoration keys via
 the same `_write_deco` the deco-only path uses (required even though the
 LnF apply already wrote deco defaults — those land in the
 `~/.config/kdedefaults/` layer, and only an explicit user-layer write is
@@ -314,13 +321,15 @@ itself — the `tile` token itself is `apply.py`'s own
 `_WALLPAPER_TILE_FILL_MODE`, flagged in its source comment as
 provisionally chosen and not yet live-verified against a real Plasma 6.6
 session), and one `qdbus` reconfigure last. `themey apply --revert` reads
-both markers back, reapplies the recorded Look-and-Feel package (no
+the markers back, reapplies the recorded Look-and-Feel package (no
 Breeze special-case — a real baseline is typically a third-party theme,
 e.g. chris's `com.github.vinceliuice.MacVentura-Dark`), restores the deco
 triple and button layout, then clears the markers it actually restored; a
 failure to reapply the recorded package does NOT abort the rest of the
 restore, and `PrevLookAndFeelPackage` is deliberately kept in that one case
-so a later `--revert` can retry just the theme restore. No markers present
+so a later `--revert` can retry just the theme restore (`PrevColorScheme`
+gets the same keep-on-failure treatment; its `@unset` case deletes the
+user-layer key so the restored LnF's kdedefaults takes over). No markers present
 is a friendly no-op, not an error. `themey apply Breeze` remains the
 older, deco-only revert path (decoration + button layout only), unchanged
 by any of this.
