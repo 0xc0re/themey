@@ -24,20 +24,16 @@ border art drawing an actual Plasma 6 window.*
     <td width="50%"><img src="docs/images/olde-kwin-render.png" alt="The E16 theme OldE rendered as a Plasma 6 window" width="100%"></td>
   </tr>
   <tr>
-    <td><b>e13</b> — a title plaque that floats <i>detached</i> above the
-    frame, sized to its own text, with controls sunk into the left border.</td>
-    <td><b>OldE</b> — corroded metal, a vertical button stack down the left
-    edge, and a separate resize grip hanging off the bottom bar.</td>
+    <td align="center"><b>e13</b></td>
+    <td align="center"><b>OldE</b></td>
   </tr>
   <tr>
     <td width="50%"><img src="docs/images/obsidian-kwin-render.png" alt="The E16 theme Obsidian rendered as a Plasma 6 window" width="100%"></td>
     <td width="50%"><img src="docs/images/bluesteel-kwin-render.png" alt="The E16 theme BlueSteel rendered as a Plasma 6 window" width="100%"></td>
   </tr>
   <tr>
-    <td><b>Obsidian</b> — glossy black with two round buttons, the closest
-    of the four to a conventional titlebar.</td>
-    <td><b>BlueSteel</b> — brushed steel, with the theme's own bundled
-    <code>vixar.ttf</code> drawing the titlebar text.</td>
+    <td align="center"><b>Obsidian</b></td>
+    <td align="center"><b>BlueSteel</b></td>
   </tr>
 </table>
 
