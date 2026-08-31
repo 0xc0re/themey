@@ -78,10 +78,14 @@ def test_extract_dominant_solid_color(tmp_path: Path) -> None:
 
 
 def test_extract_dominant_ignores_transparency_bias(tmp_path: Path) -> None:
-    """A half-transparent image must not sample as black.
+    """A half-transparent image must sample as its ART, not as black or mat.
 
     Transparent RGBA pixels commonly carry (0,0,0,0); converting straight to
-    RGB turns half the image into pure black and black wins the count.
+    RGB turns half the image into pure black and black wins the count —
+    and compositing them over the grey mat instead just makes the MAT win
+    (Aliens' 66%-opaque n_menub.png and e13's whole scheme sampled
+    (128,128,128) before per-pixel masking). Fully transparent pixels must
+    not enter the count at all.
     """
     from themey.analyze.colors import extract_dominant
 
@@ -92,8 +96,43 @@ def test_extract_dominant_ignores_transparency_bias(tmp_path: Path) -> None:
     )
     rgb = extract_dominant(p)
     assert rgb is not None
-    assert sum(rgb) > 120, f"sampled near-black {rgb} from a half-transparent image"
-    assert rgb[0] > rgb[1] and rgb[0] > rgb[2]
+    assert rgb[0] > 180 and rgb[1] < 80 and rgb[2] < 90, (
+        f"expected the red art to win outright, got {rgb}"
+    )
+
+
+def test_extract_clusters_excludes_transparent_pixels(tmp_path: Path) -> None:
+    """Pixels at or below the alpha floor never become countable clusters."""
+    from themey.analyze.colors import _ALPHA_FLOOR, extract_clusters
+
+    p = _png(
+        tmp_path / "mostly-clear.png",
+        (16, 16),
+        # 75% fully transparent, 25% blue — the old mat compositing made
+        # grey the biggest cluster by 3:1.
+        lambda x, y: (0, 0, 0, 0) if y < 12 else (20, 90, 200, 255),
+    )
+    clusters = extract_clusters(p)
+    assert clusters
+    assert sum(count for count, _ in clusters) == 16 * 4
+    assert all(rgb != (128, 128, 128) for _, rgb in clusters)
+    assert _ALPHA_FLOOR < 255  # masked, not "only fully opaque"
+
+
+def test_extract_dominant_semitransparent_still_composites_over_mat(
+    tmp_path: Path,
+) -> None:
+    """Pixels ABOVE the floor but below 255 keep the mat blend — partial
+    edges should sample as their seen-on-screen color, not full-strength."""
+    from themey.analyze.colors import extract_dominant
+
+    p = _solid(tmp_path / "ghost-red.png", (220, 30, 40, 128))
+    rgb = extract_dominant(p)
+    assert rgb is not None
+    # ~50/50 blend of (220,30,40) and the (128,128,128) mat.
+    assert 150 < rgb[0] < 200 and 60 < rgb[1] < 100 and 60 < rgb[2] < 105, (
+        f"expected a mat-blended red, got {rgb}"
+    )
 
 
 def test_extract_dominant_prefers_saturated_over_neutral(tmp_path: Path) -> None:

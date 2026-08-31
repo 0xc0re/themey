@@ -29,8 +29,13 @@ Where the colors come from:
 Two sampling pitfalls this module exists to avoid:
 
 1. E16 border art is mostly transparent. Converting RGBA straight to RGB
-   turns every transparent pixel into pure black and black wins the
-   count — hence compositing over a neutral mat first.
+   turns every transparent pixel into pure black and black wins the count —
+   and compositing over a mat merely swaps the winner: in mostly-transparent
+   art the MAT cluster outnumbers the art (Aliens' 66%-opaque n_menub.png
+   and e13's 37%-opaque side borders both sampled as the (128,128,128) mat).
+   Hence per-pixel masking: pixels at or below ``_ALPHA_FLOOR`` are dropped
+   from the count entirely; the rest composite over the neutral mat so
+   partial edges keep their seen-on-screen color.
 2. Median-cut ranks by pixel count alone, so a large neutral field beats
    the small saturated accent that actually characterizes the theme.
    Clusters are therefore ranked by count weighted by saturation.
@@ -235,9 +240,10 @@ def _dimmed(fg: RGB, bg: RGB) -> RGB:
 def extract_clusters(path: Path, k: int = 8) -> tuple[tuple[int, RGB], ...]:
     """Median-cut *path* into at most *k* clusters as ``(pixel_count, rgb)``.
 
-    Transparent pixels are composited over ``NEUTRAL_MAT`` first (pitfall 1
-    in the module docstring). Returns an empty tuple when the file is
-    missing, unreadable, oversized, or has no pixel above ``_ALPHA_FLOOR``.
+    Pixels at or below ``_ALPHA_FLOOR`` are EXCLUDED from the count;
+    pixels above it are composited over ``NEUTRAL_MAT`` (pitfall 1 in the
+    module docstring). Returns an empty tuple when the file is missing,
+    unreadable, oversized, or has no pixel above ``_ALPHA_FLOOR``.
     """
     try:
         with Image.open(path) as im:
@@ -260,7 +266,26 @@ def extract_clusters(path: Path, k: int = 8) -> tuple[tuple[int, RGB], ...]:
 
     mat = Image.new("RGBA", rgba.size, (*NEUTRAL_MAT, 255))
     flat = Image.alpha_composite(mat, rgba).convert("RGB")
-    quantized = flat.quantize(colors=max(1, k), method=Image.Quantize.MEDIANCUT)
+    # Per-pixel alpha mask: fully/nearly transparent pixels are not "grey
+    # art", they are ABSENCE of art — matting them in let the mat cluster
+    # outnumber the real art in mostly-transparent images (Aliens'
+    # 66%-opaque n_menub.png, e13's 37%-opaque side borders: the whole
+    # sampled scheme came out (128,128,128)). Geometry is irrelevant to
+    # median-cut counts, so the surviving pixels go into a flat strip.
+    pixels = cast("tuple[RGB, ...]", flat.get_flattened_data())
+    alphas = cast(
+        "tuple[int, ...]", rgba.getchannel("A").get_flattened_data()
+    )
+    opaque = [
+        px
+        for px, a in zip(pixels, alphas, strict=True)
+        if a > _ALPHA_FLOOR
+    ]
+    if not opaque:
+        return ()  # unreachable past the alpha_max gate, kept as a guard
+    sample = Image.new("RGB", (len(opaque), 1))
+    sample.putdata(opaque)
+    quantized = sample.quantize(colors=max(1, k), method=Image.Quantize.MEDIANCUT)
     palette = quantized.getpalette() or []
     # quantize() always returns mode "P", so getcolors() yields (count,
     # palette_index) pairs — Pillow's stub also allows the (count, RGB) shape
