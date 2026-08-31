@@ -43,6 +43,24 @@ class IClassSpec:
 
 
 @dataclass(frozen=True)
+class FontSpec:
+    """One E16 font alias from ``fonts.theme.cfg`` / ``fonts.cfg``.
+
+    ``ttf_path`` points under asset_root for ``name/size`` TTF entries and is
+    None for XLFD-only entries (no shippable font file). ``family`` is the
+    face's real family name (read from the TTF when possible, else a
+    best-effort guess) — QML ``FontLoader.name`` reports the same family, so
+    consumers can pre-fill it. ``size`` is E16's pixel-ish size; the QML
+    runtime maps it to ``font.pixelSize = size * scale``.
+    """
+
+    alias: str  # e.g. "font-default"
+    ttf_path: Path | None  # under asset_root; None for XLFD entries
+    family: str | None
+    size: int
+
+
+@dataclass(frozen=True)
 class TClassSpec:
     """E16 text class — titlebar text style per state.
 
@@ -60,6 +78,18 @@ class TClassSpec:
     alignment: str | None = None  # "Left" | "Center" | "Right"
     effect: str | None = None  # raw __DRAWING_EFFECT token, e.g. __EFFECT_SHADOW
     effect_color: tuple[int, int, int] | None = None
+    # Raw Q10 __JUSTIFICATION (0 = left, 512 = center, 1024 = right), E16
+    # last-wins semantics across the whole block (E16 keeps one justification
+    # per tclass, not per state). ``alignment`` above stays the normalized
+    # first-seen value the SVG backend has always used.
+    justification_q10: int | None = None
+    # Raw per-state font tokens (e.g. "*font-default" — a '*' prefix
+    # references a __FONTS alias; anything else is a direct font string).
+    font_normal: str | None = None  # value of __NORMAL
+    font_active: str | None = None  # value of __NORMAL_ACTIVE
+    # Alias name (without '*') from font_active or font_normal, when either
+    # is an alias reference. Key into Theme.fonts.
+    font_alias: str | None = None
 
 
 @dataclass(frozen=True)
@@ -153,5 +183,8 @@ class Theme:
     palette: Palette
     cursors: tuple[CursorSpec, ...] = ()
     wallpapers: tuple[Path, ...] = ()
+    # __FONTS aliases (fonts.theme.cfg / fonts.cfg) keyed by alias name.
+    # Defaulted so hand-built Themes in existing tests stay valid.
+    fonts: dict[str, FontSpec] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)  # ONLY mutable accumulator
     skipped_borders: tuple[str, ...] = ()
