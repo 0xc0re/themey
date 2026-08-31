@@ -219,6 +219,7 @@ _PREV_LNF_KEY = "PrevLookAndFeelPackage"
 _PREV_DECO_KEY = "ThemeyPrevDeco"
 _PREV_COLORS_KEY = "PrevColorScheme"
 _PREV_PLASMA_KEY = "PrevPlasmaTheme"
+_PREV_PANELS_KEY = "PrevPanelLengthModes"
 
 
 def _record_prev_lookandfeel(kw: str, kr: str) -> None:
@@ -285,6 +286,89 @@ def _clear_style_cache(pkg_id: str) -> None:
             log.debug("removed stale style cache %s", cache)
         except OSError as exc:
             log.warning("could not remove style cache %s: %s", cache, exc)
+
+
+def _evaluate_plasma_script(script: str, what: str) -> str:
+    """Run *script* through plasmashell's scripting D-Bus; returns stdout.
+
+    Same typed-failure shape as :func:`_run_checked` — plasmashell absent
+    or the script erroring surfaces as an :class:`ApplyError`.
+    """
+    proc = subprocess.run(
+        [
+            _which_qdbus(),
+            "org.kde.plasmashell",
+            "/PlasmaShell",
+            "org.kde.PlasmaShell.evaluateScript",
+            script,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        tail = (proc.stderr or "").strip()[-500:]
+        raise ApplyError(f"{what} failed (exit {proc.returncode}): {tail}")
+    return (proc.stdout or "").strip()
+
+
+def _read_panel_length_modes() -> dict[str, str]:
+    """``{panel_id: lengthMode}`` for every plasmashell panel."""
+    out = _evaluate_plasma_script(
+        "var out = [];"
+        "for (const p of panels()) { out.push(p.id + '=' + p.lengthMode); }"
+        "print(out.join('|'));",
+        "plasmashell panel-length read script",
+    )
+    modes: dict[str, str] = {}
+    for pair in out.split("|"):
+        if "=" in pair:
+            pid, mode = pair.split("=", 1)
+            if pid.strip().isdigit() and mode.strip():
+                modes[pid.strip()] = mode.strip()
+    return modes
+
+
+def _set_panels_fit(kw: str, kr: str) -> None:
+    """Set every panel's length mode to ``fit`` (content-sized), the E16
+    iconbox/dragbar feel, snapshotting the previous modes once.
+
+    The marker mirrors the other ``[Themey]`` baselines: written only on
+    the first themey apply (``id=mode`` pairs joined by ``|``), restored
+    and cleared by :func:`revert`. No panels (plasmashell not running is
+    caught earlier by the read script) means nothing to do.
+    """
+    modes = _read_panel_length_modes()
+    if not modes:
+        return
+    if _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PANELS_KEY) is None:
+        marker = "|".join(f"{pid}={mode}" for pid, mode in sorted(modes.items()))
+        _cfg_write(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PANELS_KEY, marker)
+    _evaluate_plasma_script(
+        "for (const p of panels()) { p.lengthMode = 'fit'; }",
+        "plasmashell panel fit-content script",
+    )
+
+
+def _restore_panel_length_modes(kw: str, marker: str) -> None:
+    """Put the recorded per-panel length modes back (revert path)."""
+    entries = [
+        pair.split("=", 1) for pair in marker.split("|") if "=" in pair
+    ]
+    valid = {
+        pid: mode
+        for pid, mode in entries
+        if pid.isdigit() and mode in ("fill", "fit", "custom")
+    }
+    if not valid:
+        return
+    assignments = "".join(
+        f"if (p.id == {pid}) {{ p.lengthMode = '{mode}'; }}"
+        for pid, mode in sorted(valid.items())
+    )
+    _evaluate_plasma_script(
+        f"for (const p of panels()) {{ {assignments} }}",
+        "plasmashell panel length-mode restore script",
+    )
 
 
 def _record_prev_deco(kw: str, kr: str) -> None:
@@ -518,8 +602,11 @@ def apply_full(
     ``X-Themey-FillMode: tiled``, :func:`_set_wallpaper_tiled` (Plasma's
     Image wallpaper plugin does not itself read fill-mode from the
     wallpaper package, and the apply tool has no tile token — see
-    :data:`_WALLPAPER_TILE_FILL_MODE_INT`) → one ``qdbus`` reconfigure,
-    last.
+    :data:`_WALLPAPER_TILE_FILL_MODE_INT`) → every panel set to
+    fit-content (:func:`_set_panels_fit` — E16's iconbox/dragbar are
+    content-sized, and a full-width bar reads as Plasma, not E16; previous
+    modes recorded once in ``PrevPanelLengthModes``) → one ``qdbus``
+    reconfigure, last.
 
     ``name == "Breeze"`` (case-insensitive) is the one exception: Breeze
     has no Look-and-Feel bundle to verify or baseline to record — it is
@@ -606,6 +693,8 @@ def apply_full(
             if image is not None:
                 _set_wallpaper_tiled(image)
 
+    _set_panels_fit(kw, kr)
+
     _reconfigure()
 
 
@@ -652,11 +741,13 @@ def revert() -> bool:
     prev_lnf = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_LNF_KEY)
     prev_colors = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_COLORS_KEY)
     prev_plasma = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PLASMA_KEY)
+    prev_panels = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PANELS_KEY)
     if (
         prev_deco is None
         and prev_lnf is None
         and prev_colors is None
         and prev_plasma is None
+        and prev_panels is None
     ):
         return False
 
@@ -743,14 +834,25 @@ def revert() -> bool:
                     prev_plasma, exc,
                 )
 
+    panels_error: ApplyError | None = None
+    if prev_panels is not None:
+        try:
+            _restore_panel_length_modes(kw, prev_panels)
+            _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PANELS_KEY)
+        except ApplyError as exc:
+            panels_error = exc
+            log.warning(
+                "could not restore the previous panel length modes (%s) — "
+                "keeping the marker so a later `themey apply --revert` "
+                "can retry it",
+                exc,
+            )
+
     _reconfigure()
 
-    if lnf_error is not None or colors_error is not None or plasma_error is not None:
-        failed = " and ".join(
-            str(e)
-            for e in (lnf_error, colors_error, plasma_error)
-            if e is not None
-        )
+    errors = (lnf_error, colors_error, plasma_error, panels_error)
+    if any(e is not None for e in errors):
+        failed = " and ".join(str(e) for e in errors if e is not None)
         raise ApplyError(
             "everything else was restored, but part of the previous state "
             f"could not be reapplied: {failed} — run "

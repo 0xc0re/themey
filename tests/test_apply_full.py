@@ -35,6 +35,9 @@ class FakeKConfig:
         self.store: dict[str, str] = {}
         self.calls: list[list[str]] = []
         self.fail_on: dict[str, str] = {}
+        #: stdout served for the plasmashell panel-length READ script
+        #: ("" = no panels reported).
+        self.panel_read_reply: str = ""
 
     def run(self, cmd, **kwargs):
         self.calls.append(list(cmd))
@@ -42,6 +45,10 @@ class FakeKConfig:
         if prog in self.fail_on:
             return subprocess.CompletedProcess(
                 cmd, 1, stdout="", stderr=self.fail_on[prog]
+            )
+        if any("evaluateScript" in tok for tok in cmd) and "out.push" in cmd[-1]:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout=self.panel_read_reply + "\n"
             )
         if prog.startswith("kwriteconfig"):
             key = cmd[cmd.index("--key") + 1]
@@ -652,6 +659,61 @@ def test_revert_plasmatheme_failure_keeps_marker_restores_rest(
     assert fake_kconfig.store["PrevPlasmaTheme"] == "Otto"
     assert fake_kconfig.store["theme"] == "Breeze"
     assert "ThemeyPrevDeco" not in fake_kconfig.store
+
+
+def test_apply_full_sets_panels_fit_and_records_modes(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.panel_read_reply = "1058=fill|1060=custom"
+    apply_mod.apply_full("e13")
+    assert fake_kconfig.store["PrevPanelLengthModes"] == "1058=fill|1060=custom"
+    i = fake_kconfig.index_of("p.lengthMode = 'fit'")
+    assert "org.kde.plasmashell" in fake_kconfig.calls[i]
+
+
+def test_apply_full_panel_marker_written_once(fake_kconfig: FakeKConfig) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.panel_read_reply = "1058=fill"
+    apply_mod.apply_full("e13")
+    fake_kconfig.panel_read_reply = "1058=fit"  # already themey'd
+    apply_mod.apply_full("e13")
+    assert fake_kconfig.store["PrevPanelLengthModes"] == "1058=fill"
+
+
+def test_apply_full_no_panels_no_marker_no_fit_script(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    apply_mod.apply_full("e13")  # panel_read_reply defaults to ""
+    assert "PrevPanelLengthModes" not in fake_kconfig.store
+    with pytest.raises(AssertionError):
+        fake_kconfig.index_of("p.lengthMode = 'fit'")
+
+
+def test_revert_restores_panel_modes_and_clears_marker(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["PrevPanelLengthModes"] = "1058=fill|1060=custom"
+    assert apply_mod.revert() is True
+    i = fake_kconfig.index_of("p.id == 1058")
+    script = fake_kconfig.calls[i][-1]
+    assert "p.lengthMode = 'fill'" in script
+    assert "p.id == 1060" in script and "'custom'" in script
+    assert "PrevPanelLengthModes" not in fake_kconfig.store
+
+
+def test_revert_panel_restore_failure_keeps_marker(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["PrevPanelLengthModes"] = "1058=fill"
+    fake_kconfig.fail_on["qdbus6"] = "plasmashell gone"
+    with pytest.raises(apply_mod.ApplyError, match="panel"):
+        apply_mod.revert()
+    assert fake_kconfig.store["PrevPanelLengthModes"] == "1058=fill"
 
 
 def test_revert_retry_with_only_plasma_marker_succeeds(
