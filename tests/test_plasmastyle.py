@@ -251,6 +251,47 @@ def test_scrollbar_ids_and_size_hint(tmp_path: Path) -> None:
     assert any("both orientations" in n for n in theme.notes)
 
 
+def test_scrollbar_size_hint_clamped_for_oversized_knob(tmp_path: Path) -> None:
+    """E16 stretched knob art into a slim track — a 28-px-wide knob image
+    must not become a 56-px-wide Plasma scrollbar (live e13 regression)."""
+    knob = _png(tmp_path, "knob.png", size=(28, 140))
+    theme = _theme(tmp_path, {
+        "ICONBOX_SCROLLBAR_KNOB_VERTICAL": _iclass(
+            "ICONBOX_SCROLLBAR_KNOB_VERTICAL", normal=knob
+        ),
+    }, scale=2)
+    svg = plasmastyle.build_scrollbar(theme)
+    assert svg is not None
+    hint = next(e for e in svg.iter() if e.get("id") == "hint-scrollbar-size")
+    assert hint.get("width") == str(
+        scale_px(plasmastyle.SCROLLBAR_MAX_REF_THICKNESS, 2)
+    )
+    assert any("clamped" in n for n in theme.notes)
+
+
+def test_viewitem_caps_pin_highlight_cross_section() -> None:
+    """Zero declared edge on pill art → caps at the cross-section radius;
+    larger declared caps survive."""
+    assert plasmastyle._viewitem_caps((0, 0, 0, 0), 164, 20) == (9, 9, 9, 9)
+    assert plasmastyle._viewitem_caps((20, 20, 2, 2), 202, 31) == (20, 20, 14, 14)
+    # Tiny art never degenerates below a 1-px cap or above the half-size.
+    assert plasmastyle._viewitem_caps((0, 0, 0, 0), 3, 3) == (1, 1, 1, 1)
+
+
+def test_viewitem_zero_edge_ships_full_nine_part_set(tmp_path: Path) -> None:
+    """MENU_SEL with __EDGE_SCALING 0 0 0 0 (the common case) must NOT be a
+    center-only whole-image stretch — that's the live blurry-glow bug."""
+    hi = _png(tmp_path, "sel.png", size=(24, 12))
+    theme = _theme(tmp_path, {
+        "MENU_SEL": _iclass("MENU_SEL", edge=(0, 0, 0, 0), hilited=hi),
+    })
+    svg = plasmastyle.build_viewitem(theme)
+    assert svg is not None
+    ids = _ids(svg)
+    assert {"hover-topleft", "hover-top", "hover-left", "hover-center",
+            "hover-right", "hover-bottom", "hover-bottomright"} <= ids
+
+
 def test_scrollbar_skipped_without_knob_art(tmp_path: Path) -> None:
     base = _png(tmp_path, "base.png")
     theme = _theme(tmp_path, {

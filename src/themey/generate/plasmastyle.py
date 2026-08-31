@@ -125,6 +125,13 @@ _GRID = (
     ("bottomleft", "bottom", "bottomright"),
 )
 
+#: Ref-px ceiling for the scrollbar track thickness (``hint-scrollbar-size``).
+#: E16 stretched knob art INTO a slim configured track — the image's own
+#: width is NOT the widget width (e13's vertical knob image is ~28 ref px,
+#: which rendered as a 57 px-wide scrollbar column through Kickoff, verified
+#: live 2026-08-31). 12 ref px ≈ Breeze's logical scrollbar thickness.
+SCROLLBAR_MAX_REF_THICKNESS = 12
+
 _ARROW_SOURCES: tuple[tuple[str, str], ...] = (
     ("up-arrow", "ICONBOX_ARROW_UP"),
     ("down-arrow", "ICONBOX_ARROW_DOWN"),
@@ -347,18 +354,26 @@ def _emit_set(
     state: str,
     *,
     hints: bool = False,
+    edge_override: Callable[[tuple[int, int, int, int], int, int], tuple[int, int, int, int]]
+    | None = None,
 ) -> bool:
     """One prefixed 9-part set (+ optional margin hints) for *spec*/*state*.
 
     Returns False when the state resolves to no image at all. Oversized
     caps degrade to a center-only set with a ``plasmastyle:`` note rather
-    than failing (per the mapping contract).
+    than failing (per the mapping contract). ``edge_override`` maps
+    ``(declared_edge, src_w, src_h)`` to the edge actually used — the
+    viewitem builder pins synthetic caps with it.
     """
     path = _state_image(spec, state)
     if path is None:
         return False
     img = _load_scaled(path, theme.scale)
-    caps = _scaled_caps(spec.edge_scaling, *_source_size(path), theme.scale)
+    src_w, src_h = _source_size(path)
+    edge = spec.edge_scaling
+    if edge_override is not None:
+        edge = edge_override(edge, src_w, src_h)
+    caps = _scaled_caps(edge, src_w, src_h, theme.scale)
     try:
         _frame_group(canvas, prefix, img, caps)
     except ValueError:
@@ -456,12 +471,39 @@ def build_button(theme: Theme) -> ET.Element | None:
     return canvas.finish()
 
 
+def _viewitem_caps(
+    edge: tuple[int, int, int, int], w: int, h: int
+) -> tuple[int, int, int, int]:
+    """Synthetic caps for highlight art, in source ref px.
+
+    E16 only ever stretched menu-item art HORIZONTALLY — an item's height
+    equals the art's height — but Plasma paints ``widgets/viewitem`` over
+    grid cells and wide dropdown rows, stretching both axes. A glow pill
+    stretched whole (MENU_SEL commonly declares ``__EDGE_SCALING 0 0 0 0``)
+    smears into a blurry bright blob (verified live on e13's Kickoff,
+    2026-08-31). Pinning caps at roughly the art's cross-section radius
+    keeps the pill's rounded ends and its vertical shading crisp at any
+    rendered size; only the near-uniform middle band stretches. Declared
+    caps larger than the radius are kept.
+    """
+    radius = max(1, (min(w, h) - 2) // 2)
+    left, right, top, bottom = edge
+    return (
+        min(max(left, radius), (w - 1) // 2),
+        min(max(right, radius), (w - 1) // 2),
+        min(max(top, radius), (h - 1) // 2),
+        min(max(bottom, radius), (h - 1) // 2),
+    )
+
+
 def build_viewitem(theme: Theme) -> ET.Element | None:
     """``widgets/viewitem.svg`` from ``MENU_SEL``.
 
     ``normal-`` is emitted only when MENU_SEL has explicit normal art —
     an always-painted normal set would draw menu-row chrome under every
     unhovered list row, which most E16 themes leave to the background.
+    All sets use :func:`_viewitem_caps` in place of the declared edge —
+    see its docstring for why the declared edge cannot be trusted here.
     """
     src = theme.iclasses.get("MENU_SEL")
     if _state_image(src, "hover") is None or src is None:
@@ -471,13 +513,17 @@ def build_viewitem(theme: Theme) -> ET.Element | None:
         src.normal_active is not None and src.normal_active.is_file()
     )
     if has_normal_art:
-        _emit_set(theme, canvas, "normal-", src, "normal")
-    _emit_set(theme, canvas, "hover-", src, "hover")
-    _emit_set(theme, canvas, "selected-", src, "selected")
+        _emit_set(theme, canvas, "normal-", src, "normal", edge_override=_viewitem_caps)
+    _emit_set(theme, canvas, "hover-", src, "hover", edge_override=_viewitem_caps)
+    _emit_set(theme, canvas, "selected-", src, "selected", edge_override=_viewitem_caps)
     # Literal "+" in the id — FrameSvg's combined-state prefix.
-    _emit_set(theme, canvas, "selected+hover-", src, "selected")
+    _emit_set(
+        theme, canvas, "selected+hover-", src, "selected", edge_override=_viewitem_caps
+    )
     theme.notes.append(
-        f"plasmastyle: menu/list selection from iclass {src.name}"
+        f"plasmastyle: menu/list selection from iclass {src.name}; caps "
+        "pinned at the art's cross-section so highlights stay crisp at "
+        "grid-cell sizes (E16 never stretched item height)"
     )
     return canvas.finish()
 
@@ -505,12 +551,21 @@ def build_scrollbar(theme: Theme) -> ET.Element | None:
     if base_h is not None:
         _emit_set(theme, canvas, "background-horizontal-", base_h, "normal")
 
-    # Knob thickness: the across-the-track dimension of the scaled knob art
-    # (width of a vertical knob, height of a horizontal one).
+    # Knob thickness: the across-the-track dimension of the knob art (width
+    # of a vertical knob, height of a horizontal one), CLAMPED to
+    # SCROLLBAR_MAX_REF_THICKNESS — see that constant for why the image's
+    # own dimension cannot be trusted as a widget width.
     knob_path = _state_image(knob, "normal")
     assert knob_path is not None  # _iclass_with_art guarantees it
     src_w, src_h = _source_size(knob_path)
     across = src_w if knob.name.endswith("VERTICAL") else src_h
+    if across > SCROLLBAR_MAX_REF_THICKNESS:
+        theme.notes.append(
+            f"plasmastyle: scrollbar knob art is {across} ref px across; "
+            f"track thickness clamped to {SCROLLBAR_MAX_REF_THICKNESS} "
+            "(E16 stretched knob art into a slim track)"
+        )
+        across = SCROLLBAR_MAX_REF_THICKNESS
     size = max(1, scale_px(across, theme.scale))
     ET.SubElement(
         canvas.root,
