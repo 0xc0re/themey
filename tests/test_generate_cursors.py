@@ -12,16 +12,16 @@ from pathlib import Path
 
 import pytest
 
+from themey.analyze.build_theme import build_theme
 from themey.etheme.archive import extract
 from themey.etheme.parse import parse_tree
-from themey.analyze.build_theme import build_theme
 from themey.generate.cursors import (
     SCALES,
     hotspot_for,
     modern_name,
+    read_xbm,
     write_theme,
 )
-from themey.generate.cursors import read_xbm
 from themey.ir import CursorSpec
 from themey.slug import cursor_theme_dir
 

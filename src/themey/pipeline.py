@@ -31,13 +31,15 @@ from .etheme.parse import parse_tree
 from .generate import qmldeco
 from .generate.aurorae import write as write_aurorae
 from .generate.colors import scheme_stem, write_colors
+from .generate.cursors import CursorTheme
+from .generate.cursors import write_theme as write_cursor_theme
 from .generate.wallpaper import WallpaperError
 from .generate.wallpaper import write_package as write_wallpaper_package
 from .images.upscale import UPSCALE_MODES
 from .ir import WallpaperSpec
 from .preview import render as render_preview
 from .report import write as write_report
-from .slug import plugin_id, slugify, wallpaper_id
+from .slug import cursor_theme_dir, plugin_id, slugify, wallpaper_id
 
 log = logging.getLogger(__name__)
 
@@ -66,6 +68,11 @@ class ConvertResult:
     """One installed wallpaper package dir per convertible background image
     (or the copies under ``output_dir``). Images that fail to convert are
     skipped with a ``wallpaper:`` note rather than failing the convert."""
+    cursor_theme_dir: Path | None = None
+    """Installed ``themey_<slug>-cursors`` XCursor theme (or the copy under
+    ``output_dir``). None when the theme declares no ``__CURSOR`` blocks,
+    xcursorgen is not on PATH, or no pointer could be converted — each
+    leaves a ``cursors:`` note instead of failing the convert."""
 
 
 def convert(
@@ -99,7 +106,8 @@ def convert(
         ``qml_installed_dir``/``qml_plugin_id`` are set whenever the QML
         backend ran. ``color_scheme_path`` is the ``.colors`` file, which
         both backends share. ``wallpaper_dirs`` holds one entry per
-        installed wallpaper package.
+        installed wallpaper package, and ``cursor_theme_dir`` the XCursor
+        pointer theme (None when there was nothing to install).
 
     Raises:
         ValueError: If ``scale`` or ``backend`` is invalid.
@@ -158,6 +166,9 @@ def convert(
         installed: Path | None = None
         qml_installed: Path | None = None
         colors_path: Path | None = None
+        cursor_dir_name = cursor_theme_dir(theme_name)
+        cursor_dir: Path | None = None
+        cursor_theme: CursorTheme | None = None
         wallpaper_dirs: list[Path] = []
         # Subset of theme.wallpaper_specs that actually made it to disk —
         # threaded into write_report so its status line can't overstate
@@ -197,6 +208,13 @@ def convert(
                 wallpaper_dirs.append(wp_out)
                 installed_wallpaper_specs.append(spec)
                 log.info("wrote wallpaper package to %s", wp_out)
+            cursor_out = output_dir / cursor_dir_name
+            if cursor_out.exists():
+                shutil.rmtree(cursor_out)
+            cursor_theme = write_cursor_theme(theme, cursor_out)
+            if cursor_theme is not None:
+                cursor_dir = cursor_out
+                log.info("wrote cursor theme to %s", cursor_dir)
             previews = output_dir
         else:
             # Stage outputs under XDG_DATA_HOME so os.replace can rename
@@ -247,6 +265,14 @@ def convert(
                     wallpaper_dirs.append(installed_wp)
                     installed_wallpaper_specs.append(spec)
                     log.info("installed wallpaper package to %s", installed_wp)
+                stage_cursor_dir = stage / cursor_dir_name
+                cursor_theme = write_cursor_theme(theme, stage_cursor_dir)
+                if cursor_theme is not None:
+                    cursor_dir = install.deploy(
+                        cursor_dir_name, stage_cursor_dir,
+                        target_root=paths.icon_themes(),
+                    )
+                    log.info("installed cursor theme to %s", cursor_dir)
             previews = paths.themey_previews()
 
         # Report and preview MUST run inside the extract block: they call
@@ -258,6 +284,7 @@ def convert(
             previews / f"{theme_name}.report.txt",
             backend=backend,
             wallpaper_specs=tuple(installed_wallpaper_specs),
+            cursor_theme=cursor_theme,
         )
         preview_path = render_preview(theme, previews / f"{theme_name}.html")
 
@@ -274,4 +301,5 @@ def convert(
         qml_plugin_id=pkg_id if want_qml else None,
         color_scheme_path=colors_path,
         wallpaper_dirs=tuple(wallpaper_dirs),
+        cursor_theme_dir=cursor_dir,
     )
