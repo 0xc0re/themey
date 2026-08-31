@@ -88,19 +88,52 @@ Decoration {
         return t ? Math.ceil(t.implicitWidth) : 0;
     }
 
-    // The title band doubles as the drag/double-click region; KWin derives
-    // the titleBar rect from this installed item. It excludes the side
-    // borders (like stock Aurorae) so a corner button such as e13's KILL
-    // is NOT inside the titleBar QRect — keeping the arrow cursor and
-    // button hit-testing correct over it. When maximized the side borders
-    // collapse to 0 and the band spans the full width.
+    // KWin picks the mouse cursor from Decoration::sectionUnderMouse(),
+    // computed from exactly two geometric inputs: the titleBar QRect
+    // (checked first — wins outright: arrow cursor, move-drag,
+    // double-click) and borders() (left/right/top tests → resize
+    // sections). QML has no cursor channel; the only lever an Aurorae v1
+    // theme has is the item handed to decoration.installTitleItem(),
+    // which Aurorae maps to setTitleBar() and re-reads on the item's
+    // x/y/width/height change signals. So this item is the union
+    // bounding box of the full-width top band and every visible button
+    // part's rect — E16-style corner/side buttons (e13's KILL, the
+    // ICONIFY/SHADE/STICK stack) get the arrow cursor, and the border
+    // strips between them act as titlebar. Resize survives on the
+    // bottom border and on side borders below the lowest button. When
+    // maximized the below-band buttons are hideWhenMaximized, so the
+    // height collapses back to borders.top (== maximizedBorders.top).
+    // MUST STAY CHILDLESS: with children present, Aurorae prefers
+    // childrenRect() over the item's own geometry.
     Item {
         id: titleBandItem
-        x: root.clientMaximized ? 0 : root.themeData.borders.left
+        x: 0
         y: 0
-        width: root.width - x
-               - (root.clientMaximized ? 0 : root.themeData.borders.right)
-        height: root.themeData.borders.top
+        width: root.width
+        height: {
+            // Same reactive pattern as ThemeyPart.geo: the resolver and
+            // property reads below register dependencies on
+            // root.width/height, the client state and the caption
+            // measurers, so resize/maximize/caption changes re-fire the
+            // geometry signals Aurorae listens to.
+            var bottom = root.themeData.borders.top;
+            var parts = root.themeData.parts;
+            for (var i = 0; i < parts.length; i++) {
+                var p = parts[i];
+                if (p.button === null)
+                    continue;
+                if (root.clientShaded && !p.keepWhenShaded)
+                    continue;
+                if (root.clientMaximized && p.hideWhenMaximized)
+                    continue;
+                var g = Resolver.partGeometry(
+                    root.themeData, i, root.width, root.height,
+                    function (j) { return root.titleTextWidth(j); });
+                if (g.y + g.h > bottom)
+                    bottom = g.y + g.h;
+            }
+            return bottom;
+        }
     }
 
     // ------------------------------------------------------------------

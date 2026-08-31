@@ -153,9 +153,11 @@ def write(
             "borders are NOT clamped by the KWin Border-size bracket."
         )
         lines.append(
-            "- Cosmetic caveat: the mouse cursor shows a resize shape over "
-            "side-border buttons (KDecoration exposes a single titleBar "
-            "rect); clicks still work."
+            "- Cursor & drag: the cursor is an arrow over every themed "
+            "button (the decoration extends KWin's titleBar rect to cover "
+            "them); border strips hosting buttons act as titlebar for "
+            "drag/double-click; resize stays on the bottom border and on "
+            "side borders below the lowest button."
         )
     if want_svg:
         lines.append(

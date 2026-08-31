@@ -1,9 +1,9 @@
 // themey QML runtime v1 — a DecorationButton positioned by an E16 part.
 // DecorationButton (org.kde.kwin.decoration) is an Item + MouseArea that
 // fires decoration.request*() per buttonType — placeable ANYWHERE in the
-// frame, which is what lets side-border button stacks work. The known
-// cosmetic limit: the cursor shows a resize shape over side-border buttons
-// (kdecoration exposes a single titleBar QRect); clicks still win.
+// frame, which is what lets side-border button stacks work. main.qml's
+// installed title item extends KWin's titleBar rect to cover every button
+// part's rect, so the cursor is an arrow wherever buttons live.
 import QtQuick
 import org.kde.kwin.decoration
 
