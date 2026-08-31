@@ -22,18 +22,28 @@ from pathlib import Path
 from themey.ir import Theme
 
 from . import package
-from .theme_js import build_theme_data, render_theme_js
+from .theme_js import SHADE_BUTTON_MODES, build_theme_data, render_theme_js
+
+__all__ = ["SHADE_BUTTON_MODES", "write"]
 
 
-def write(theme: Theme, pkg_dir: Path, *, upscale: str = "nearest") -> list[Path]:
+def write(
+    theme: Theme,
+    pkg_dir: Path,
+    *,
+    upscale: str = "nearest",
+    shade_button: str = "maximize",
+) -> list[Path]:
     """Write the full QML decoration package under ``pkg_dir``.
 
     Must be called inside the ``with extract(...)`` block: part images and
     TTFs are read from ``theme.asset_root``. ``upscale`` selects the part
     art scaler: ``"nearest"`` (default) or ``"quality"`` (hqx).
+    ``shade_button`` (one of ``SHADE_BUTTON_MODES``, default ``"maximize"``)
+    remaps E16's dead shade button — see ``theme_js.SHADE_BUTTON_MODES``.
     """
     pkg_dir.mkdir(parents=True, exist_ok=True)
-    data, manifest, font_sources = build_theme_data(theme)
+    data, manifest, font_sources = build_theme_data(theme, shade_button=shade_button)
 
     files: list[Path] = []
     files.append(package.write_metadata_json(theme, pkg_dir))
