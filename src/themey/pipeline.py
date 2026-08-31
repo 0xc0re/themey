@@ -358,7 +358,7 @@ def convert(
                 if cursor_theme is not None:
                     cursor_dir = install.deploy(
                         cursor_dir_name, stage_cursor_dir,
-                        target_root=paths.icon_themes(),
+                        target_root=paths.cursor_themes(),
                     )
                     log.info("installed cursor theme to %s", cursor_dir)
 

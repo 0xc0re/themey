@@ -14,7 +14,7 @@ wallpaper, and cursor together.
 $ themey Aliens.etheme
 Installed:       /home/you/.local/share/kwin/decorations/themey_Aliens
 Installed (colors): /home/you/.local/share/color-schemes/themey_Aliens.colors
-Installed (cursors): /home/you/.local/share/icons/themey_Aliens-cursors
+Installed (cursors): /home/you/.icons/themey_Aliens-cursors
 Installed (bundle):  /home/you/.local/share/plasma/look-and-feel/themey_Aliens
 Preview:   /home/you/.local/share/themey/previews/Aliens.html
 Report:    /home/you/.local/share/themey/previews/Aliens.report.txt
@@ -177,7 +177,7 @@ plus the decoration, all named from the same slug via `slug.plugin_id`
 | QML window decoration | `~/.local/share/kwin/decorations/themey_<slug>/` | KPlugin Id = `themey_<slug>`, also the `kwinrc theme=` value |
 | Color scheme | `~/.local/share/color-schemes/themey_<slug>.colors` | `[General] ColorScheme=themey_<slug>` |
 | Wallpaper package(s) | `~/.local/share/wallpapers/themey_<slug>_<image-stem>/` | one per convertible background image; the largest becomes the bundle's default |
-| XCursor pointer theme | `~/.local/share/icons/themey_<slug>-cursors/` | directory name doubles as `kcminputrc cursorTheme=` |
+| XCursor pointer theme | `~/.icons/themey_<slug>-cursors/` (not under `~/.local/share` — libXcursor/System Settings only scan `~/.icons` + `/usr/share/icons` on stock Kubuntu) | directory name doubles as `kcminputrc cursorTheme=` |
 | Global Theme (Look-and-Feel) bundle | `~/.local/share/plasma/look-and-feel/themey_<slug>/` | KPlugin Id = `themey_<slug>` (same string as the deco, different namespace) — this is what `themey apply <name>` and System Settings → Appearance → Global Theme apply |
 
 Any artifact a theme has nothing to offer for — no `__CURSOR` blocks, no
@@ -196,7 +196,7 @@ conversion is fully reversible — delete the named directories/files:
 rm -rf ~/.local/share/kwin/decorations/themey_Aliens \
        ~/.local/share/color-schemes/themey_Aliens.colors \
        ~/.local/share/wallpapers/themey_Aliens_* \
-       ~/.local/share/icons/themey_Aliens-cursors \
+       ~/.icons/themey_Aliens-cursors \
        ~/.local/share/plasma/look-and-feel/themey_Aliens \
        ~/.local/share/themey/previews/Aliens.{html,report.txt}
 ```
