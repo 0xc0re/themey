@@ -91,6 +91,16 @@ def convert_cmd(
         bool,
         typer.Option("--no-open", help="Do not open the HTML preview in a browser"),
     ] = False,
+    backend: Annotated[
+        str,
+        typer.Option(
+            "--backend",
+            help=(
+                "Decoration backend: 'qml' (E16-faithful QML package), "
+                "'svg' (Aurorae SVG theme), or 'both'"
+            ),
+        ),
+    ] = "svg",
     verbose: Annotated[
         int,
         typer.Option(
@@ -109,10 +119,10 @@ def convert_cmd(
         ),
     ] = False,
 ) -> None:
-    """Convert one .etheme to a Plasma 6 Aurorae window decoration."""
+    """Convert one .etheme to a Plasma 6 KWin window decoration."""
     log.setup_logging(verbose=verbose, quiet=quiet)
     try:
-        result = convert(theme, scale=scale, output_dir=output)
+        result = convert(theme, scale=scale, output_dir=output, backend=backend)
     except Exception as exc:
         logging.getLogger(__name__).error("conversion failed: %s", exc)
         raise typer.Exit(code=1) from exc
@@ -121,6 +131,9 @@ def convert_cmd(
         typer.echo(f"Installed: {result.installed_dir}")
     else:
         typer.echo(f"Wrote:     {result.installed_dir}")
+    if result.qml_installed_dir is not None and result.qml_installed_dir != result.installed_dir:
+        verb = "Installed" if result.installed else "Wrote"
+        typer.echo(f"{verb} (QML): {result.qml_installed_dir}")
     typer.echo(f"Preview:   {result.preview_path}")
     typer.echo(f"Report:    {result.report_path}")
     if result.installed:

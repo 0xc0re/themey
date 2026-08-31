@@ -58,7 +58,7 @@ def copy_runtime(pkg_dir: Path) -> list[Path]:
     ui_dir = pkg_dir / "contents" / "ui"
     ui_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
-    runtime_root = resources.files(__package__) / "runtime"
+    runtime_root = resources.files("themey.generate.qmldeco") / "runtime"
     for name in RUNTIME_FILES:
         target = ui_dir / name
         target.write_text((runtime_root / name).read_text(encoding="utf-8"))
