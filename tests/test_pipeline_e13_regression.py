@@ -247,10 +247,15 @@ def test_e13_report_carries_fidelity_notes(tmp_path, monkeypatch):
 
     from themey.pipeline import convert
 
-    report = convert(E13_PATH, scale=2, backend="svg").report_path.read_text()
+    result = convert(E13_PATH, scale=2, backend="svg")
+    report = result.report_path.read_text()
     assert "hosts a button stack; border trimmed" in report, report
     assert "TitleHeight trimmed to the title art's opaque rows" in report
     assert "side-stack button(s) moved to the titlebar" in report
+    # Phase D: e13 also gets a Look-and-Feel bundle referencing whatever
+    # colors/wallpaper/cursors this conversion actually installed.
+    assert result.lnf_id in report
+    assert result.lnf_dir is not None and (result.lnf_dir / "metadata.json").is_file()
 
     mac3d = E13_PATH.parent / "Mac3D.etheme"
     if mac3d.exists():

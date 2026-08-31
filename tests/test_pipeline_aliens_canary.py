@@ -26,6 +26,29 @@ def test_pipeline_convert_aliens_writes_all_artifacts(fake_home):
     assert result.preview_path.is_file()
     assert result.report_path.is_file()
     assert result.notes_count >= 4
+    # Phase D: all four artifact sets (deco, colors, wallpaper, bundle) —
+    # cursors are conditional on xcursorgen, checked separately below.
+    assert result.color_scheme_path is not None and result.color_scheme_path.is_file()
+    assert result.wallpaper_dirs
+    assert result.lnf_dir is not None and result.lnf_dir.is_dir()
+    assert (result.lnf_dir / "metadata.json").is_file()
+    assert (result.lnf_dir / "contents" / "defaults").is_file()
+
+
+def test_pipeline_convert_aliens_bundle_covers_every_installed_artifact(fake_home):
+    """The bundle's contents/defaults must reference every artifact this
+    conversion actually deployed — deco, colors, wallpaper, and (when
+    xcursorgen is available) cursors."""
+    import shutil
+
+    result = convert(FIXTURES / "Aliens.etheme", scale=2, backend="svg")
+    text = (result.lnf_dir / "contents" / "defaults").read_text()
+    assert f"ColorScheme={result.color_scheme_path.stem}" in text
+    assert "[Wallpaper]" in text
+    assert "[kwinrc][org.kde.kdecoration2]" in text
+    if shutil.which("xcursorgen") is not None:
+        assert result.cursor_theme_dir is not None
+        assert f"cursorTheme={result.cursor_theme_dir.name}" in text
 
 
 def test_pipeline_18_framesvg_ids_in_installed_decoration_svg(fake_home):
