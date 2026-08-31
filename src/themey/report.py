@@ -152,8 +152,12 @@ def write(theme: Theme, out_path: Path) -> Path:
         "plugin, which also honours the text-shadow keys)."
     )
     lines.append(
-        "- Button order is global: adjust it under Window Decorations -> "
-        "Titlebar Buttons (kwinrc ButtonsOnLeft/Right)."
+        "- Button order is global kwinrc state; `themey apply` sets it to "
+        f"this theme's E16 binning (Left={theme.left_buttons or '(none)'} "
+        f"Right={theme.right_buttons or '(none)'}), records your previous "
+        "layout, and `themey apply Breeze` restores it. Skip with "
+        "--keep-buttons or adjust under Window Decorations -> Titlebar "
+        "Buttons."
     )
     lines.append("")
 

@@ -151,3 +151,10 @@ def test_menu_glyph_outline_with_transparent_interior(fake_home: Path) -> None:
         png.getpixel((x, ring_y))[3] == 255 for x in range(w)
     )
     assert opaque_on_ring, "menu glyph outline missing"
+    # The outline carries two tones (text colour + contrasting halo) so it
+    # stays visible when the band behind the button is transparent and the
+    # wallpaper matches the text colour (e13: white text, shaped band).
+    opaque_colors = {
+        px for px in list(png.getdata()) if px[3] == 255
+    }
+    assert len(opaque_colors) >= 2, f"menu glyph is single-tone: {opaque_colors}"

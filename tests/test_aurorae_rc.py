@@ -582,6 +582,21 @@ def test_e13_title_height_trimmed_to_opaque_rows(
     assert int(layout["TitleEdgeBottom"]) >= 24, layout["TitleEdgeBottom"]
 
 
+def test_aurorae_rc_persists_button_binning(tmp_path: Path) -> None:
+    """The rc carries the theme's L/R button binning in a [Themey] section.
+
+    KWin's button order is global kwinrc state; ``themey apply`` reads this
+    section to reproduce the E16 layout. Aurorae ignores unknown groups.
+    """
+    theme = _make_minimal_theme(left_buttons="XI", right_buttons="A")
+    from themey.generate.aurorae_rc import write_aurorae_rc
+
+    rc = write_aurorae_rc(theme, tmp_path)
+    cp = _read_rc(rc)
+    assert cp["Themey"]["LeftButtons"] == "XI"
+    assert cp["Themey"]["RightButtons"] == "A"
+
+
 def test_aurorae_rc_text_shadow_from_tclass_effect(tmp_path: Path) -> None:
     """__DRAWING_EFFECT on TEXT1 drives UseTextShadow (read by Aurorae v1)."""
     from themey.generate.aurorae_rc import write_aurorae_rc
