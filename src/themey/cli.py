@@ -390,6 +390,15 @@ def apply_cmd(
             "the last full `themey apply` (NAME is not needed)",
         ),
     ] = False,
+    no_restart_shell: Annotated[
+        bool,
+        typer.Option(
+            "--no-restart-shell",
+            help="Skip the automatic plasmashell restart that makes a tiled "
+            "wallpaper repaint immediately (the config still lands; the "
+            "repaint then waits for the next login)",
+        ),
+    ] = False,
 ) -> None:
     """Point the live KWin session at an installed theme's full Look-and-Feel
     bundle (or, with --deco-only, just its decoration), and reconfigure."""
@@ -434,6 +443,7 @@ def apply_cmd(
                 legacy_plugin=legacy_plugin,
                 border_size=border_size,
                 keep_buttons=keep_buttons,
+                restart_shell=not no_restart_shell,
             )
     except apply.ApplyError as exc:
         logging.getLogger(__name__).error("apply failed: %s", exc)

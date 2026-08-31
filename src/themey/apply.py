@@ -17,7 +17,10 @@ Two applies live here:
   (the LnF apply lands in the ``~/.config/kdedefaults/`` layer, which the
   *explicit* kwinrc write in the user layer overrides), then fixes up a
   tiled default wallpaper (Plasma's Image wallpaper plugin does not read
-  fill-mode from the wallpaper package).
+  fill-mode from the wallpaper package) and — because plasmashell never
+  repaints a scripted fill-mode change — ends a tiled apply with an
+  automatic plasmashell restart (:func:`_restart_plasmashell`,
+  opt-out ``restart_shell=False`` / CLI ``--no-restart-shell``).
 
 Both applies share the decoration-writing logic (``_write_deco``) and the
 button-order snapshot/restore machinery. Button ORDER is global kwinrc
@@ -510,14 +513,47 @@ def _reconfigure() -> None:
     )
 
 
+def _restart_plasmashell() -> None:
+    """Restart plasmashell so a tiled wallpaper actually repaints.
+
+    plasmashell 6.6.6 does NOT repaint fill-mode from any scripting write
+    (verified live 2026-08-31: FillMode alone, +Image rewrite,
+    +reloadConfig, even an Image swap-away-and-back all left the render
+    pixel-identical) — only the first paint after a shell restart or a
+    manual KCM toggle honors the new mode. The theme is fully applied by
+    the time this runs, so a failure (or a machine without systemd) is a
+    logged warning telling the user to restart manually, never a failed
+    apply.
+    """
+    systemctl = shutil.which("systemctl")
+    if systemctl is None:
+        log.warning(
+            "systemctl not found — restart plasmashell manually (or log "
+            "out and back in) for the tiled wallpaper to repaint"
+        )
+        return
+    try:
+        _run_checked(
+            [systemctl, "--user", "restart", "plasma-plasmashell"],
+            "plasmashell restart",
+        )
+    except ApplyError as exc:
+        log.warning(
+            "could not restart plasmashell (%s) — the tiled wallpaper "
+            "repaints after the next login or a manual restart", exc,
+        )
+
+
 def _set_wallpaper_tiled(image: Path) -> None:
     """Set *image* as the wallpaper on all desktops, tiled.
 
     Two steps because ``plasma-apply-wallpaperimage`` cannot express a
     tiled fill (see :data:`_WALLPAPER_TILE_FILL_MODE_INT`): the tool sets
     the image (and broadcasts the change), then a plasmashell scripting
-    call writes ``FillMode`` on every desktop's Image wallpaper config —
-    verified live on Plasma 6.6.6 (2026-08-31) to take effect immediately.
+    call writes ``FillMode`` on every desktop's Image wallpaper config.
+    The CONFIG lands (the KCM shows Tiled) but the live render does not
+    pick it up until plasmashell restarts — see
+    :func:`_restart_plasmashell`, which ``apply_full`` runs last.
     """
     plasma_apply_wp = _which("plasma-apply-wallpaperimage")
     _run_checked(
@@ -637,6 +673,7 @@ def apply_full(
     legacy_plugin: bool = False,
     border_size: str | None = None,
     keep_buttons: bool = False,
+    restart_shell: bool = True,
 ) -> None:
     """Apply the whole installed Look-and-Feel bundle for *name* (the CLI
     default), always via the QML deco backend.
@@ -757,6 +794,7 @@ def apply_full(
     # before the wallpaper fix-up.
     _ensure_iconbox(kw, kr)
 
+    tiled_set = False
     wallpaper_id = _read_default_wallpaper_id(lnf_dir)
     if wallpaper_id is not None:
         wallpaper_dir = paths.wallpapers() / wallpaper_id
@@ -764,8 +802,15 @@ def apply_full(
             image = _wallpaper_image_path(wallpaper_dir)
             if image is not None:
                 _set_wallpaper_tiled(image)
+                tiled_set = True
 
     _reconfigure()
+
+    # Dead last — a shell restart would race any earlier evaluateScript.
+    # Only when a tiled wallpaper was set: nothing else needs the repaint,
+    # and a non-tiled apply should not flicker the desktop.
+    if restart_shell and tiled_set:
+        _restart_plasmashell()
 
 
 def revert() -> bool:

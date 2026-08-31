@@ -185,9 +185,13 @@ Plasma's Image wallpaper plugin doesn't read fill-mode from the package
 either). So: `plasma-apply-wallpaperimage <image>` sets the image, then a
 plasmashell scripting D-Bus call writes `FillMode =
 _WALLPAPER_TILE_FILL_MODE_INT` (3, QML `Image.Tile`) on every desktop's
-Image wallpaper config. The trailing `reloadConfig()` in that script is
-load-bearing — without it the config says tiled while the screen keeps the
-old fill until next login (also verified live 2026-08-31).
+Image wallpaper config. The CONFIG lands (KCM shows Tiled) but plasmashell
+6.6.6 does NOT repaint fill-mode from ANY scripting write (verified live
+2026-08-31 — FillMode alone, +reloadConfig, even an Image swap left the
+render pixel-identical), so a tiled apply ends with
+`systemctl --user restart plasma-plasmashell` (`_restart_plasmashell`,
+dead last so it can't race any evaluateScript; failure = warning, never a
+failed apply; opt-out `--no-restart-shell`).
 
 `themey apply --revert` reads
 the markers back, reapplies the recorded Look-and-Feel package (no

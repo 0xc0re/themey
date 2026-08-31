@@ -921,3 +921,52 @@ def test_revert_retry_with_only_plasma_marker_succeeds(
     assert fake_kconfig.calls[i][-1] == "Otto"
     assert "PrevPlasmaTheme" not in fake_kconfig.store
     assert "library" not in fake_kconfig.store
+
+
+def test_apply_full_tiled_wallpaper_restarts_plasmashell_last(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """plasmashell 6.6.6 never repaints fill-mode from scripting (verified
+    live) — a tiled wallpaper needs a shell restart, dead last so it cannot
+    race any evaluateScript call."""
+    _install_fake_deco("e13")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tiled")
+    _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
+    apply_mod.apply_full("e13")
+    i_restart = fake_kconfig.index_of("systemctl")
+    cmd = fake_kconfig.calls[i_restart]
+    assert cmd[1:] == ["--user", "restart", "plasma-plasmashell"]
+    i_reconf = fake_kconfig.index_of("org.kde.KWin", "reconfigure")
+    assert i_reconf < i_restart
+    assert i_restart == len(fake_kconfig.calls) - 1
+
+
+def test_apply_full_scaled_wallpaper_no_restart(fake_kconfig: FakeKConfig) -> None:
+    _install_fake_deco("e13")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="scaled")
+    _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
+    apply_mod.apply_full("e13")
+    with pytest.raises(AssertionError):
+        fake_kconfig.index_of("systemctl")
+
+
+def test_apply_full_no_restart_shell_opt_out(fake_kconfig: FakeKConfig) -> None:
+    _install_fake_deco("e13")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tiled")
+    _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
+    apply_mod.apply_full("e13", restart_shell=False)
+    with pytest.raises(AssertionError):
+        fake_kconfig.index_of("systemctl")
+
+
+def test_apply_full_restart_failure_only_warns(
+    fake_kconfig: FakeKConfig, caplog,
+) -> None:
+    """The theme is fully applied by restart time — a failed restart is a
+    warning (repaint waits for the next login), never a failed apply."""
+    _install_fake_deco("e13")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tiled")
+    _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
+    fake_kconfig.fail_on["systemctl"] = "unit not loaded"
+    apply_mod.apply_full("e13")  # must not raise
+    assert "restart" in caplog.text.lower()

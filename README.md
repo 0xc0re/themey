@@ -208,9 +208,15 @@ Plasma Style explicitly (`plasma-apply-colorscheme` /
 `plasma-apply-desktoptheme` — the Look-and-Feel apply lands in the
 `~/.config/kdedefaults/` layer and will not displace an explicit user-layer
 setting), re-asserts the decoration keys in the user-layer `kwinrc` for the
-same reason, resizes your panels (below), and finally fixes up a tiled
+same reason, resizes your panels (below), adds the iconbox panel (below),
+and finally fixes up a tiled
 default wallpaper if the theme's default background was tiled in E16.
-`--deco-only` keeps the original behavior: it writes only
+Because plasmashell (through at least 6.6.6) never repaints a fill-mode
+change made by scripting, a tiled-wallpaper apply ends with an automatic
+`systemctl --user restart plasma-plasmashell` — a brief desktop flicker,
+after which the wallpaper is actually tiled. Pass `--no-restart-shell` to
+skip it (the config still lands; the repaint then waits for your next
+login). `--deco-only` keeps the original behavior: it writes only
 `kwinrc [org.kde.kdecoration2]` and asks KWin to reconfigure — nothing else
 on the desktop changes.
 
@@ -220,6 +226,14 @@ are content-sized and a full-width bar reads as Plasma, not E16. This
 visibly rearranges your desktop. The previous per-panel modes are recorded
 once in `kdeglobals [Themey] PrevPanelLengthModes` and put back by
 `themey apply --revert`.
+
+**You get an iconbox.** A full apply also creates a small content-sized
+panel in the bottom-left corner holding an icons-only task manager that
+shows *only minimized windows* — E16's iconbox: iconify a window and its
+icon appears there, restore it and the icon vanishes. Your existing panels
+are not touched (beyond the fit-content step above). The panel's id is
+recorded in `kdeglobals [Themey] IconboxPanel`; a second apply reuses the
+live panel, and `themey apply --revert` removes it.
 
 The first time you run a full `themey apply`, it snapshots your current
 global theme, decoration, color scheme (`[Themey] PrevColorScheme`), Plasma
