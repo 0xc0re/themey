@@ -44,6 +44,9 @@ class FakeKConfig:
         self.iconbox_create_reply: str = "301"
         #: stdout served for the iconbox existence-check script.
         self.iconbox_exists_reply: str = "missing"
+        #: stdout served for the iconbox REMOVAL script ("" = the script
+        #: threw and printed nothing — qdbus still exits 0).
+        self.iconbox_remove_reply: str = "removed"
 
     def run(self, cmd, **kwargs):
         self.calls.append(list(cmd))
@@ -63,6 +66,10 @@ class FakeKConfig:
         if any("evaluateScript" in tok for tok in cmd) and "'exists'" in cmd[-1]:
             return subprocess.CompletedProcess(
                 cmd, 0, stdout=self.iconbox_exists_reply + "\n"
+            )
+        if any("evaluateScript" in tok for tok in cmd) and "'removed'" in cmd[-1]:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout=self.iconbox_remove_reply + "\n"
             )
         if prog.startswith("kwriteconfig"):
             key = cmd[cmd.index("--key") + 1]
@@ -873,6 +880,68 @@ def test_revert_iconbox_removal_failure_keeps_marker(
     with pytest.raises(apply_mod.ApplyError, match="iconbox"):
         apply_mod.revert()
     assert fake_kconfig.store["IconboxPanel"] == "301"
+
+
+def test_revert_iconbox_script_error_keeps_marker(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """qdbus exits 0 even when the removal script throws — the printed
+    sentinel is the real success signal, and without it the marker (the
+    only handle on the created panel) must survive for a retry."""
+    fake_kconfig.store["IconboxPanel"] = "301"
+    fake_kconfig.iconbox_remove_reply = ""
+    with pytest.raises(apply_mod.ApplyError, match="iconbox"):
+        apply_mod.revert()
+    assert fake_kconfig.store["IconboxPanel"] == "301"
+
+
+def test_revert_iconbox_absent_panel_still_clears_marker(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["IconboxPanel"] = "301"
+    fake_kconfig.iconbox_remove_reply = "absent"
+    assert apply_mod.revert() is True
+    assert "IconboxPanel" not in fake_kconfig.store
+
+
+def test_iconbox_non_ascii_digit_marker_never_interpolated(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """str.isdigit() alone accepts superscript digits — those must be
+    treated like any other tampered marker, not interpolated."""
+    weird = "³01"  # "³01": isdigit() is True, not a valid panel id
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["IconboxPanel"] = weird
+    apply_mod.apply_full("e13")
+    assert all(weird not in tok for c in fake_kconfig.calls for tok in c)
+    assert fake_kconfig.store["IconboxPanel"] == "301"
+
+    fake_kconfig.store["IconboxPanel"] = weird
+    assert apply_mod.revert() is True
+    assert all(
+        weird not in c[-1]
+        for c in fake_kconfig.calls
+        if any("evaluateScript" in tok for tok in c)
+    )
+    assert "IconboxPanel" not in fake_kconfig.store
+
+
+def test_apply_full_restart_skipped_when_systemctl_missing(
+    fake_kconfig: FakeKConfig, monkeypatch, caplog,
+) -> None:
+    """No systemd is a graceful skip with a hint, never a failed apply."""
+    monkeypatch.setattr(
+        apply_mod.shutil, "which",
+        lambda n: None if n == "systemctl" else f"/usr/bin/{n}",
+    )
+    _install_fake_deco("e13")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tiled")
+    _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
+    apply_mod.apply_full("e13")  # must not raise
+    with pytest.raises(AssertionError):
+        fake_kconfig.index_of("systemctl")
+    assert "restart plasmashell manually" in caplog.text
 
 
 def test_revert_removes_iconbox_before_panel_mode_restore(

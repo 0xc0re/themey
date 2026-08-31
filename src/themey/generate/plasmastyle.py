@@ -935,7 +935,9 @@ def style_scheme(theme: Theme, *, shipped: frozenset[str]) -> ColorScheme:
     the popup art's background and the panel tint (see :func:`_regroup`'s
     ``guards``). When both backgrounds cannot be satisfied at once (e.g.
     black popups over a white panel) the black/white
-    maximize-the-minimum-contrast pick applies, with a ``forced`` note.
+    maximize-the-minimum-contrast pick applies; a ``forced``
+    ``plasmastyle:`` note records it for ``ForegroundNormal`` (the derived
+    fields adjust silently).
     """
     scheme = theme.scheme if theme.scheme is not None else default_scheme()
 

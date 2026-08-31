@@ -396,7 +396,8 @@ def apply_cmd(
             "--no-restart-shell",
             help="Skip the automatic plasmashell restart that makes a tiled "
             "wallpaper repaint immediately (the config still lands; the "
-            "repaint then waits for the next login)",
+            "repaint then waits for the next login). Full apply only — "
+            "ignored with --deco-only/--revert",
         ),
     ] = False,
 ) -> None:

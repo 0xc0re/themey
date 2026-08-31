@@ -246,6 +246,16 @@ _ICONBOX_ALIGNMENT = "left"
 _ICONBOX_HEIGHT = 44
 
 
+def _is_panel_id(value: str) -> bool:
+    """True when *value* is safe to interpolate into a plasmashell script.
+
+    ``str.isdigit()`` alone accepts non-ASCII digit-property characters
+    ("³01"), which carry no injection risk but would throw inside the
+    script — and a thrown removal script must not read as success.
+    """
+    return value.isascii() and value.isdigit()
+
+
 def _record_prev_lookandfeel(kw: str, kr: str) -> None:
     """Snapshot kdeglobals ``[KDE] LookAndFeelPackage`` once, before the
     first ``apply_full`` overwrites it — the revert baseline."""
@@ -417,7 +427,7 @@ def _ensure_iconbox(kw: str, kr: str) -> None:
     AFTER a successful create so a failed create leaves no stale marker.
     """
     marker = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _ICONBOX_KEY)
-    if marker is not None and marker.isdigit():
+    if marker is not None and _is_panel_id(marker):
         alive = _evaluate_plasma_script(
             f"print(panelById({marker}) ? 'exists' : 'missing');",
             "plasmashell iconbox existence check",
@@ -954,18 +964,27 @@ def revert() -> bool:
                 )
 
     # Iconbox removal BEFORE the panel-mode restore, so the mode-restore
-    # script iterates only surviving panels. A missing panel makes the
-    # script a no-op — still success, marker deleted. A non-digit
+    # script iterates only surviving panels. A missing panel prints
+    # 'absent' — still success, marker deleted. The printed sentinel is
+    # the real success signal (qdbus exits 0 even when the script throws,
+    # and the marker is the ONLY handle on the created panel — deleting it
+    # on a thrown script would leak the panel with no retry). A non-digit
     # (tampered) marker is never interpolated: just dropped.
     iconbox_error: ApplyError | None = None
     if prev_iconbox is not None:
-        if prev_iconbox.isdigit():
+        if _is_panel_id(prev_iconbox):
             try:
-                _evaluate_plasma_script(
+                reply = _evaluate_plasma_script(
                     f"var p = panelById({prev_iconbox});"
-                    " if (p) { p.remove(); }",
+                    " if (p) { p.remove(); print('removed'); }"
+                    " else { print('absent'); }",
                     "plasmashell iconbox removal script",
                 )
+                if reply not in ("removed", "absent"):
+                    raise ApplyError(
+                        "plasmashell iconbox removal script did not "
+                        f"confirm removal (got {reply!r})"
+                    )
                 _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, _ICONBOX_KEY)
             except ApplyError as exc:
                 iconbox_error = exc

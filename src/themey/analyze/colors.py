@@ -272,6 +272,9 @@ def extract_clusters(path: Path, k: int = 8) -> tuple[tuple[int, RGB], ...]:
     # 66%-opaque n_menub.png, e13's 37%-opaque side borders: the whole
     # sampled scheme came out (128,128,128)). Geometry is irrelevant to
     # median-cut counts, so the surviving pixels go into a flat strip.
+    # This pass materializes the pixels in Python, unlike the old pure-C
+    # quantize — fine for E16 art (kilopixels), noted because the
+    # MAX_IMAGE_PIXELS bomb guard alone would admit a 100M-pixel image.
     pixels = cast("tuple[RGB, ...]", flat.get_flattened_data())
     alphas = cast(
         "tuple[int, ...]", rgba.getchannel("A").get_flattened_data()
