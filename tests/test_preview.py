@@ -121,3 +121,27 @@ def test_preview_includes_notes_count(tmp_path: Path) -> None:
     render(theme, out)
     text = out.read_text()
     assert "3" in text
+
+
+def test_preview_no_longer_defers_the_bundle(tmp_path: Path) -> None:
+    """The Look-and-Feel bundle shipped; the old "deferred to a later
+    phase" placeholder must be gone."""
+    from themey.preview import render
+
+    theme = _make_theme()
+    out = tmp_path / "preview.html"
+    render(theme, out)
+    text = out.read_text()
+    assert "deferred" not in text
+
+
+def test_preview_apply_section_describes_full_theme_default(tmp_path: Path) -> None:
+    from themey.preview import render
+
+    theme = _make_theme()
+    out = tmp_path / "preview.html"
+    render(theme, out)
+    text = out.read_text()
+    assert "themey apply TestTheme" in text
+    assert "--deco-only" in text
+    assert "themey apply --revert" in text

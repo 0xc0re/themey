@@ -125,7 +125,34 @@ def test_report_omits_bundle_lines_when_lnf_id_is_none(tmp_path: Path) -> None:
     write(theme, out)
     text = out.read_text()
     assert "Global Theme" not in text
-    assert "--deco-only" not in text
+
+
+def test_report_svg_only_backend_does_not_recommend_bare_full_apply(
+    tmp_path: Path,
+) -> None:
+    """backend='svg' never installs the QML deco package apply_full()
+    requires, so the report must not point at bare `themey apply NAME`."""
+    from themey.report import write
+
+    theme = _make_theme()
+    out = tmp_path / "report.txt"
+    write(
+        theme, out, backend="svg",
+        lnf_id="themey_TestTheme", lnf_dir=tmp_path / "themey_TestTheme",
+    )
+    text = out.read_text()
+    apply_section = text.split("## Apply")[1]
+    assert "applies the full Global Theme" not in apply_section
+    assert "themey apply TestTheme --deco-only --backend svg" in apply_section
+    assert "themey_TestTheme" in apply_section
+
+
+def test_report_svg_border_size_advice_uses_deco_only(tmp_path: Path) -> None:
+    from themey.report import write
+
+    theme = _make_theme()
+    text = write(theme, tmp_path / "r.txt", backend="svg").read_text()
+    assert "themey apply TestTheme --deco-only --backend svg" in text
 
 
 def test_report_preserves_the_color_scheme(tmp_path: Path) -> None:

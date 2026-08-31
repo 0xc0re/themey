@@ -215,7 +215,7 @@ def write(
     # Apply
     # ------------------------------------------------------------------ #
     lines.append("## Apply")
-    if lnf_id is not None:
+    if lnf_id is not None and want_qml:
         lines.append(
             f"- `themey apply {theme.name}` applies the full Global Theme "
             f"(id {lnf_id}) in one step: decoration, colors, wallpaper and "
@@ -223,6 +223,16 @@ def write(
             "behavior, or `themey apply --revert` to restore whatever "
             "global theme was active before. Manual equivalent: System "
             "Settings -> Appearance -> Global Theme."
+        )
+    elif lnf_id is not None:
+        lines.append(
+            f"- `themey apply {theme.name} --deco-only --backend svg` "
+            "applies this theme's decoration — the full `themey apply "
+            "NAME` needs the QML decoration package, which this svg-only "
+            f"convert didn't build. The installed Global Theme (id {lnf_id}) "
+            "still carries the color scheme, wallpaper, and cursors; apply "
+            "those via System Settings -> Appearance -> Global Theme, or "
+            "`themey apply --revert` to undo."
         )
     if want_qml:
         lines.append(
@@ -246,9 +256,10 @@ def write(
         lines.append(
             f"- SVG backend: this theme's sides are {thick['left']}/{thick['right']}/"
             f"{thick['bottom']} px (L/R/B) -> set Window Decorations -> Border "
-            f"size = {rec}, or run `themey apply {theme.name} --backend svg` "
-            f"(picks {rec}; override with --border-size, add --legacy-plugin "
-            "for the v1 QML plugin, which also honours the text-shadow keys)."
+            f"size = {rec}, or run `themey apply {theme.name} --deco-only "
+            f"--backend svg` (picks {rec}; override with --border-size, add "
+            "--legacy-plugin for the v1 QML plugin, which also honours the "
+            "text-shadow keys)."
         )
         lines.append(
             "- Button order is global kwinrc state; `themey apply` (SVG "
