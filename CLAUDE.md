@@ -291,8 +291,9 @@ hyphens left alone since these ids are never QML/JS identifiers).
 `slug.cursor_theme_dir(name)` narrows it to `themey_<slug>-cursors` (an
 XCursor theme has no KPlugin id; the directory name itself is the
 `kcminputrc cursorTheme=` value). `paths.py` gained one XDG root per new
-namespace: `color_schemes()`, `wallpapers()`, `icon_themes()` (icons AND
-XCursor themes both live under `icons/`), `look_and_feel()`, alongside the
+namespace: `color_schemes()`, `wallpapers()`, `cursor_themes()` (XCursor themes go
+to `~/.icons`, NOT `$XDG_DATA_HOME/icons` — libXcursor/the cursor KCM on
+stock Kubuntu never scan the XDG dir; verified live 2026-08-31), `look_and_feel()`, alongside the
 existing `aurorae_themes()`/`kwin_decorations()`.
 
 **`apply.py`'s global flow.** `apply_full` (the CLI default) is a superset

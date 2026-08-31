@@ -408,7 +408,7 @@ def write_theme(theme: Theme, out_dir: Path) -> CursorTheme | None:
             link = cursors_dir / alias
             link.unlink(missing_ok=True)
             # Relative target: the theme dir is staged and then renamed
-            # into ~/.local/share/icons/, so an absolute link would dangle.
+            # into ~/.icons/, so an absolute link would dangle.
             link.symlink_to(shape)
             aliases.append(alias)
 
