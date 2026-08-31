@@ -44,7 +44,9 @@ Three contracts govern this module:
    ``pin.xbm`` really does declare ``y_hot 20`` on a 20px-tall bitmap,
    and xcursorgen rejects that outright.
 
-Scaling: three nominal sizes at x1/x2/x3, NEAREST only. The
+Scaling: three nominal sizes at x1/x2/x3, NEAREST only, independent of
+``--scale`` — pointer size is a per-user display setting, so the theme
+ships all three and lets XCursor pick per the user's cursor size. The
 ``--upscale quality`` hqx path is deliberately ignored here — hqx
 interpolates edges between color regions, which is meaningless for 1-bit
 art and would soften the one-pixel outlines these cursors are made of.

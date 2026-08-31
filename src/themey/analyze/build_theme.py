@@ -253,20 +253,11 @@ def build_theme(
         )
 
     # ------------------------------------------------------------------
-    # 5b. Cursors — parse __CURSOR blocks (Phase 3 will emit XCursor files).
+    # 5b. Cursors — parse __CURSOR blocks. `generate/cursors.py` owns every
+    # cursors: note from here on (which shapes converted, which were
+    # skipped and why), so analysis adds none of its own.
     # ------------------------------------------------------------------
     cursors = extract_cursors(ast_nodes, asset_root)
-    if cursors:
-        missing = [c.name for c in cursors if c.xbm_path is None or not c.xbm_path.is_file()]
-        notes.append(
-            f"parsed {len(cursors)} __CURSOR blocks "
-            f"(XCursor emission deferred to Phase 3)"
-        )
-        if missing:
-            notes.append(
-                f"cursors: {len(missing)} XBM file(s) missing from asset_root: "
-                f"{', '.join(sorted(missing))}"
-            )
 
     # ------------------------------------------------------------------
     # 5c. Wallpapers — scan desktops.cfg's macro syntax for image paths.
