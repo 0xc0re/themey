@@ -1,4 +1,3 @@
-<!-- GSD:project-start source:PROJECT.md -->
 ## Project
 
 **themey**
@@ -14,9 +13,7 @@ themey is a local Python CLI that converts Enlightenment DR16 (E16) `.etheme` ar
 - **Dependencies on E16**: zero runtime dependency — we read the source for grammar reference only.
 - **Output discipline**: every install path is under `~/.local/share/...` so a conversion is fully reversible by deleting the named directories. No system-wide writes. No root.
 - **Fidelity philosophy**: faithful where the format maps cleanly, sensible defaults where it doesn't (button grouping, missing button glyphs default to a system fallback). When the converter has to approximate, it logs to `report.txt`.
-<!-- GSD:project-end -->
 
-<!-- GSD:stack-start source:research/STACK.md -->
 ## Technology Stack
 
 ## TL;DR Recommendations
@@ -207,9 +204,7 @@ themey is a local Python CLI that converts Enlightenment DR16 (E16) `.etheme` ar
 - [uvx vs pipx (BSWEN, Mar 2026)](https://docs.bswen.com/blog/2026-03-05-uvx-vs-pipx/) — 2026 perspective on uv as pipx replacement
 - [stdlib etree vs lxml (bjoernricks)](https://bjoernricks.github.io/posts/python/stdlib-etree-vs-lxml-etree/) — namespace handling differences
 - [Snapshot testing with syrupy (Simon Willison TIL)](https://til.simonwillison.net/pytest/syrupy) — Amber format for text outputs
-<!-- GSD:stack-end -->
 
-<!-- GSD:conventions-start source:CONVENTIONS.md -->
 ## Conventions
 
 **Module style**
@@ -252,9 +247,7 @@ themey is a local Python CLI that converts Enlightenment DR16 (E16) `.etheme` ar
   `tests/snapshots/visual/` guard rendering. A phash diff means the pixels
   moved — regenerate only when the change is intended and verified.
 - Verify with `uv run pytest`, `uv run ruff check src/`, `uv run pyright src`.
-<!-- GSD:conventions-end -->
 
-<!-- GSD:architecture-start source:ARCHITECTURE.md -->
 ## Architecture
 
 Pipeline: `.etheme` → ingest → analyze → generate → install → report + preview.
@@ -264,11 +257,11 @@ Pipeline: `.etheme` → ingest → analyze → generate → install → report +
 |---------|------|
 | `etheme/` | `archive.py` (validating tar extract), `lex.py`, `parse.py`, `ast.py` — the E16 grammar front end |
 | `analyze/` | AST → frozen `ir.Theme`: iclass resolution, state collapse, button binning, coordinate math, palette, borders |
-| `images/` | `ninepatch.py`, `upscale.py`, `embed.py` — raster primitives, NEAREST only |
+| `images/` | `ninepatch.py`, `opaque.py`, `upscale.py`, `embed.py` — raster primitives, NEAREST only |
 | `generate/` | `aurorae.py` orchestrates `decoration_svg.py`, `aurorae_rc.py`, `aurorae_meta.py`, `button_svg.py`, `composite.py` |
 | root modules | `ir.py` (IR), `paths.py` (XDG), `install.py` (atomic deploy), `report.py`, `preview.py`, `kwin.py`, `render.py`, `apply.py`, `external.py`, `slug.py`, `log.py` |
 
-Two contracts govern the generated theme:
+Three contracts govern the generated theme:
 
 1. **Aurorae matches by element ID.** `decoration.svg` carries all 36
    `decoration-*` IDs (nine regions × active / inactive / maximized /
@@ -278,6 +271,14 @@ Two contracts govern the generated theme:
    `Border*` / `TitleHeight` in `<name>rc` both come from
    `decoration_svg.strip_thicknesses()`. `tests/test_svg_rc_invariant.py`
    enforces it.
+3. **Geometry is measured, not declared.** Part images render as true
+   9-patches per `__EDGE_SCALING` (`composite._resize_with_edge_scaling`:
+   caps pinned, middles stretch). Side zones that host button stacks trim
+   to their opaque art span (`images/opaque.py`); TitleHeight trims to the
+   title image's opaque rows (shaped notches stay transparent in the band);
+   buttons get per-code aspect-true dims (`composite.button_geometry`)
+   fitted under the trimmed title. `declared_zone_extents` keeps the raw
+   E16 zones for art scans.
 
 `kwin.py` is a leaf module (no themey imports) holding the KWin facts — plugin
 IDs and the per-`BorderSize` clamp brackets from the Plasma 6.6.6 Aurorae
@@ -287,32 +288,8 @@ corner art is folded into the title band instead.
 
 Visual verification: `themey render` (nested headless KWin) is the truth.
 `scripts/render_review.py` is a fast approximation and can disagree with KWin.
-<!-- GSD:architecture-end -->
 
-<!-- GSD:skills-start source:skills/ -->
 ## Project Skills
 
 No project skills found. Add skills to any of: `.claude/skills/`, `.agents/skills/`, `.cursor/skills/`, `.github/skills/`, or `.codex/skills/` with a `SKILL.md` index file.
-<!-- GSD:skills-end -->
 
-<!-- GSD:workflow-start source:GSD defaults -->
-## GSD Workflow Enforcement
-
-Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
-
-Use these entry points:
-- `/gsd-quick` for small fixes, doc updates, and ad-hoc tasks
-- `/gsd-debug` for investigation and bug fixing
-- `/gsd-execute-phase` for planned phase work
-
-Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
-<!-- GSD:workflow-end -->
-
-
-
-<!-- GSD:profile-start -->
-## Developer Profile
-
-> Profile not yet configured. Run `/gsd-profile-user` to generate your developer profile.
-> This section is managed by `generate-claude-profile` -- do not edit manually.
-<!-- GSD:profile-end -->
