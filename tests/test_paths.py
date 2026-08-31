@@ -66,7 +66,7 @@ def test_global_theme_dirs_default(monkeypatch):
     base = "/tmp/abc/.local/share"
     assert str(paths.color_schemes()) == f"{base}/color-schemes"
     assert str(paths.wallpapers()) == f"{base}/wallpapers"
-    assert str(paths.icon_themes()) == f"{base}/icons"
+    assert str(paths.cursor_themes()) == "/tmp/abc/.icons"
     assert str(paths.look_and_feel()) == f"{base}/plasma/look-and-feel"
 
 
@@ -78,5 +78,9 @@ def test_global_theme_dirs_xdg_override(monkeypatch):
 
     assert str(paths.color_schemes()) == "/tmp/xdg/color-schemes"
     assert str(paths.wallpapers()) == "/tmp/xdg/wallpapers"
-    assert str(paths.icon_themes()) == "/tmp/xdg/icons"
+    # cursor themes deliberately do NOT follow XDG_DATA_HOME:
+    # libXcursor's stock search path is ~/.icons + /usr/share/icons, and
+    # Kubuntu's build (and Plasma's cursor KCM on it) never scans
+    # $XDG_DATA_HOME/icons — verified live 2026-08-31.
+    assert str(paths.cursor_themes()).endswith("/.icons")
     assert str(paths.look_and_feel()) == "/tmp/xdg/plasma/look-and-feel"

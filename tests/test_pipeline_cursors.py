@@ -21,7 +21,7 @@ def test_convert_installs_the_cursor_theme_under_icons(fake_home):
     result = convert(FIXTURES / "Aliens.etheme", scale=2, backend="svg")
     assert result.cursor_theme_dir is not None
     assert result.cursor_theme_dir == (
-        fake_home / ".local/share/icons" / cursor_theme_dir("Aliens")
+        fake_home / ".icons" / cursor_theme_dir("Aliens")
     )
     assert (result.cursor_theme_dir / "index.theme").is_file()
     assert (result.cursor_theme_dir / "cursors" / "default").is_file()
@@ -64,7 +64,7 @@ def test_output_dir_mode_writes_cursors_without_touching_xdg(tmp_path, fake_home
     result = convert(FIXTURES / "Aliens.etheme", scale=2, backend="svg", output_dir=out)
     assert result.cursor_theme_dir == out / cursor_theme_dir("Aliens")
     assert (result.cursor_theme_dir / "cursors" / "default").is_file()
-    assert not (fake_home / ".local/share/icons").exists()
+    assert not (fake_home / ".icons").exists()
 
 
 @needs_xcursorgen
@@ -82,7 +82,7 @@ def test_report_lists_the_converted_shapes(fake_home):
 def test_theme_without_cursors_installs_none(fake_home):
     result = convert(FIXTURES / "tiny.etheme", scale=2, backend="svg")
     assert result.cursor_theme_dir is None
-    assert not (fake_home / ".local/share/icons").exists()
+    assert not (fake_home / ".icons").exists()
     text = result.report_path.read_text()
     assert "Pointer theme: not installed" in text
     assert "cursors: no __CURSOR blocks" in text
@@ -100,7 +100,7 @@ def test_missing_xcursorgen_skips_the_stage_and_notes_it(
     monkeypatch.setenv("PATH", str(tmp_path / "no-tools"))
     result = convert(FIXTURES / "Aliens.etheme", scale=2, backend="svg")
     assert result.cursor_theme_dir is None
-    assert not (fake_home / ".local/share/icons").exists()
+    assert not (fake_home / ".icons").exists()
     # Everything else still converted.
     assert result.installed_dir.is_dir()
     assert result.color_scheme_path is not None
