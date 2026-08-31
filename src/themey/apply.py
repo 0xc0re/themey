@@ -51,16 +51,20 @@ not Breeze), restores the deco triple and the button layout, then deletes
 both markers. No markers present means no prior full apply on this
 machine: a friendly no-op, not an error.
 
-:func:`apply_full` also creates a dedicated E16 furniture panel — a
-vertical left-edge, content-sized panel with the pager on top (E16 kept
-its pager top-left) and, below it, an icons-only task manager showing only
-MINIMIZED windows, E16's iconbox behavior — via plasmashell desktop
-scripting (:func:`_ensure_iconbox`). Its ``[Themey] IconboxPanel`` marker
-is the one marker that is NOT a ``Prev*`` baseline: it records a
-themey-CREATED artifact (the panel's containment id), so it is overwritten
-when the recorded panel no longer exists (recreate), left alone when it
-does (idempotent second apply), and deleted when :func:`revert` removes
-the panel. Existing panels are never touched beyond the fit-content step.
+:func:`apply_full` also creates E16's left-edge furniture — TWO vertical
+content-sized panels via plasmashell desktop scripting
+(:func:`_ensure_furniture`): a thick pager panel hugging the top-left
+corner (E16's pager window spot; two panels because pager cell size is
+panel thickness ÷ desktop-grid columns while task-icon size IS the panel
+thickness, so one shared panel cannot serve both) and a slim iconbox
+panel hugging the bottom-left whose icons-only task manager shows only
+MINIMIZED windows, E16's iconbox behavior. The ``[Themey] PagerPanel``
+and ``IconboxPanel`` markers are the ones that are NOT ``Prev*``
+baselines: each records a themey-CREATED artifact (that panel's
+containment id), so it is overwritten when the recorded panel no longer
+exists (recreate), left alone when it does (idempotent second apply), and
+deleted when :func:`revert` removes the panel. Existing panels are never
+touched beyond the fit-content step.
 
 Legacy revert path: ``themey apply Breeze`` (which selects
 ``org.kde.breeze``, restores the recorded button layout) or System
@@ -240,16 +244,23 @@ _PREV_PANELS_KEY = "PrevPanelLengthModes"
 # artifact (the dedicated iconbox panel's containment id), so it is
 # overwritten whenever the recorded panel no longer exists and deleted when
 # revert removes the panel.
+#: E16 furniture: themey-created panels on the LEFT screen edge. On a
+#: vertical panel plasmashell's 'left' alignment means TOP and 'right'
+#: means BOTTOM — the pager panel hugs the top-left corner exactly where
+#: E16 kept its pager window, the iconbox the bottom-left where E16 kept
+#: its iconbox. Two panels, not one: pager cell size is panel thickness ÷
+#: desktop-grid columns while task-icon size IS the panel thickness, so a
+#: shared panel cannot give the pager readable cells without ballooning
+#: the icons (verified live 2026-08-31 — a shared 60px panel shrank the
+#: pager cells to ~26px slivers).
 _ICONBOX_KEY = "IconboxPanel"
-_ICONBOX_PAGER_WIDGET = "org.kde.plasma.pager"
 _ICONBOX_WIDGET = "org.kde.plasma.icontasks"
-_ICONBOX_LOCATION = "left"
-#: On a vertical panel plasmashell's 'left' alignment means TOP — the
-#: pager hugs the top-left corner exactly where E16 kept its pager.
-_ICONBOX_ALIGNMENT = "left"
-#: Panel thickness (width, for a vertical panel). 60 gives the pager
-#: cells roughly desktop aspect at a readable size.
 _ICONBOX_HEIGHT = 60
+_PAGER_KEY = "PagerPanel"
+_PAGER_WIDGET = "org.kde.plasma.pager"
+#: Thick enough that two side-by-side cells (a 1x2 desktop grid) land
+#: near E16's ~64px pager cells.
+_PAGER_HEIGHT = 130
 
 
 def _is_panel_id(value: str) -> bool:
@@ -388,65 +399,83 @@ def _restore_panel_length_modes(kw: str, marker: str) -> None:
     )
 
 
-def _create_iconbox_panel() -> str:
-    """Create the dedicated E16 furniture panel; returns its containment id.
+def _panel_script(alignment: str, height: int, widgets: str) -> str:
+    """Creation script for one furniture panel; prints the new panel id.
 
-    A vertical LEFT-edge, content-sized panel replaying e13-era E16 desktop
-    furniture: the PAGER at the top (E16 kept its pager top-left; a
-    vertical panel also gives the cells roughly desktop aspect at a
-    readable size, where bottom-panel cells shrink to unreadable slivers)
-    and, below it, an icons-only task manager showing ONLY minimized
-    windows — E16's iconbox: icons appear on iconify, vanish on restore.
-    ``launchers`` is cleared because icontasks ships default pinned
-    launchers. ``qdbus`` exits 0 even when the script throws, so the
-    printed panel id is the real success signal. ``p.floating`` is wrapped
-    in try/catch: an unscriptable property assignment would otherwise kill
-    the whole script.
+    ``qdbus`` exits 0 even when the script throws, so the printed id is
+    the real success signal. ``p.floating`` is wrapped in try/catch: an
+    unscriptable property assignment would otherwise kill the whole
+    script.
     """
-    reply = _evaluate_plasma_script(
+    return (
         "var p = new Panel;"
-        f" p.location = '{_ICONBOX_LOCATION}';"
-        f" p.alignment = '{_ICONBOX_ALIGNMENT}';"
-        f" p.height = {_ICONBOX_HEIGHT};"
+        " p.location = 'left';"
+        f" p.alignment = '{alignment}';"
+        f" p.height = {height};"
         " p.hiding = 'none';"
         " p.lengthMode = 'fit';"
         " try { p.floating = false; } catch (e) {}"
-        f" p.addWidget('{_ICONBOX_PAGER_WIDGET}');"
+        f"{widgets}"
+        " print(p.id);"
+    )
+
+
+def _furniture_specs() -> tuple[tuple[str, str, str], ...]:
+    """``(marker key, human name, creation script)`` per themey panel.
+
+    Pager panel: top-left, thick, one pager — E16's pager window spot.
+    Iconbox panel: bottom-left, slim, an icons-only task manager showing
+    ONLY minimized windows — E16's iconbox: icons appear on iconify,
+    vanish on restore. ``launchers`` is cleared because icontasks ships
+    default pinned launchers.
+    """
+    pager = _panel_script(
+        "left", _PAGER_HEIGHT, f" p.addWidget('{_PAGER_WIDGET}');"
+    )
+    iconbox = _panel_script(
+        "right",
+        _ICONBOX_HEIGHT,
         f" var w = p.addWidget('{_ICONBOX_WIDGET}');"
         " w.currentConfigGroup = ['General'];"
         " w.writeConfig('showOnlyMinimized', true);"
         " w.writeConfig('launchers', '');"
-        " w.reloadConfig();"
-        " print(p.id);",
-        "plasmashell iconbox creation script",
+        " w.reloadConfig();",
     )
-    if not reply.isdigit():
-        raise ApplyError(
-            "plasmashell iconbox creation script did not print a panel id "
-            f"(got {reply!r}) — the iconbox panel was not created"
-        )
-    return reply
+    return (
+        (_PAGER_KEY, "pager panel", pager),
+        (_ICONBOX_KEY, "iconbox panel", iconbox),
+    )
 
 
-def _ensure_iconbox(kw: str, kr: str) -> None:
-    """Create the iconbox panel unless the recorded one is still alive.
+def _ensure_furniture(kw: str, kr: str) -> None:
+    """Create each E16 furniture panel unless its recorded one is alive.
 
-    The marker is validated ``isdigit()`` before it is ever interpolated
-    into a plasmashell script — kdeglobals is user-editable, and a tampered
-    marker must not become script injection. A non-digit or dead-panel
-    marker is simply overwritten by the fresh panel's id, written only
-    AFTER a successful create so a failed create leaves no stale marker.
+    Each marker is validated :func:`_is_panel_id` before it is ever
+    interpolated into a plasmashell script — kdeglobals is user-editable,
+    and a tampered marker must not become script injection. A non-digit
+    or dead-panel marker is simply overwritten by the fresh panel's id,
+    written only AFTER a successful create so a failed create leaves no
+    stale marker (an earlier panel's marker survives the failure, so a
+    retry skips it instead of doubling it).
     """
-    marker = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _ICONBOX_KEY)
-    if marker is not None and _is_panel_id(marker):
-        alive = _evaluate_plasma_script(
-            f"print(panelById({marker}) ? 'exists' : 'missing');",
-            "plasmashell iconbox existence check",
+    for key, name, script in _furniture_specs():
+        marker = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, key)
+        if marker is not None and _is_panel_id(marker):
+            alive = _evaluate_plasma_script(
+                f"print(panelById({marker}) ? 'exists' : 'missing');",
+                f"plasmashell {name} existence check",
+            )
+            if alive == "exists":
+                continue
+        reply = _evaluate_plasma_script(
+            script, f"plasmashell {name} creation script"
         )
-        if alive == "exists":
-            return
-    panel_id = _create_iconbox_panel()
-    _cfg_write(kw, _KDEGLOBALS, _THEMEY_GROUP, _ICONBOX_KEY, panel_id)
+        if not _is_panel_id(reply):
+            raise ApplyError(
+                f"plasmashell {name} creation script did not print a "
+                f"panel id (got {reply!r}) — the {name} was not created"
+            )
+        _cfg_write(kw, _KDEGLOBALS, _THEMEY_GROUP, key, reply)
 
 
 def _record_prev_deco(kw: str, kr: str) -> None:
@@ -810,10 +839,10 @@ def apply_full(
     # raises), and the E16 panel feel must not be lost to it.
     _set_panels_fit(kw, kr)
 
-    # Iconbox AFTER the fit step (so the created panel never pollutes the
-    # PrevPanelLengthModes baseline snapshotted there) and, like it,
+    # Furniture AFTER the fit step (so the created panels never pollute
+    # the PrevPanelLengthModes baseline snapshotted there) and, like it,
     # before the wallpaper fix-up.
-    _ensure_iconbox(kw, kr)
+    _ensure_furniture(kw, kr)
 
     tiled_set = False
     wallpaper_id = _read_default_wallpaper_id(lnf_dir)
@@ -880,14 +909,17 @@ def revert() -> bool:
     prev_colors = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_COLORS_KEY)
     prev_plasma = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PLASMA_KEY)
     prev_panels = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PANELS_KEY)
-    prev_iconbox = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _ICONBOX_KEY)
+    prev_furniture = {
+        key: _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, key)
+        for key, _name, _script in _furniture_specs()
+    }
     if (
         prev_deco is None
         and prev_lnf is None
         and prev_colors is None
         and prev_plasma is None
         and prev_panels is None
-        and prev_iconbox is None
+        and all(v is None for v in prev_furniture.values())
     ):
         return False
 
@@ -974,7 +1006,7 @@ def revert() -> bool:
                     prev_plasma, exc,
                 )
 
-    # Iconbox removal BEFORE the panel-mode restore, so the mode-restore
+    # Furniture removal BEFORE the panel-mode restore, so the mode-restore
     # script iterates only surviving panels. A missing panel prints
     # 'absent' — still success, marker deleted. The printed sentinel is
     # the real success signal (qdbus exits 0 even when the script throws,
@@ -982,31 +1014,35 @@ def revert() -> bool:
     # on a thrown script would leak the panel with no retry). A non-digit
     # (tampered) marker is never interpolated: just dropped.
     iconbox_error: ApplyError | None = None
-    if prev_iconbox is not None:
-        if _is_panel_id(prev_iconbox):
+    for key, name, _script in _furniture_specs():
+        prev_panel = prev_furniture[key]
+        if prev_panel is None:
+            continue
+        if _is_panel_id(prev_panel):
             try:
                 reply = _evaluate_plasma_script(
-                    f"var p = panelById({prev_iconbox});"
+                    f"var p = panelById({prev_panel});"
                     " if (p) { p.remove(); print('removed'); }"
                     " else { print('absent'); }",
-                    "plasmashell iconbox removal script",
+                    f"plasmashell {name} removal script",
                 )
                 if reply not in ("removed", "absent"):
                     raise ApplyError(
-                        "plasmashell iconbox removal script did not "
-                        f"confirm removal (got {reply!r})"
+                        f"plasmashell {name} removal script did not "
+                        f"confirm removal (got {reply!r}) — the {name} "
+                        "may still be present"
                     )
-                _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, _ICONBOX_KEY)
+                _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, key)
             except ApplyError as exc:
-                iconbox_error = exc
+                iconbox_error = exc if iconbox_error is None else iconbox_error
                 log.warning(
-                    "could not remove the themey iconbox panel (%s) — "
-                    "keeping the marker so a later `themey apply --revert` "
-                    "can retry it",
-                    exc,
+                    "could not remove the themey %s (%s) — keeping the "
+                    "marker so a later `themey apply --revert` can retry "
+                    "it",
+                    name, exc,
                 )
         else:
-            _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, _ICONBOX_KEY)
+            _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, key)
 
     panels_error: ApplyError | None = None
     if prev_panels is not None:

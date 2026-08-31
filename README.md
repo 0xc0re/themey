@@ -227,15 +227,16 @@ visibly rearranges your desktop. The previous per-panel modes are recorded
 once in `kdeglobals [Themey] PrevPanelLengthModes` and put back by
 `themey apply --revert`.
 
-**You get E16's left-edge furniture.** A full apply also creates a
-content-sized vertical panel on the left screen edge: the pager at the
-top (where E16 kept its pager, with cells big enough to read the theme's
-pager art) and, below it, an icons-only task manager that shows *only
-minimized windows* — E16's iconbox: iconify a window and its icon appears
-there, restore it and the icon vanishes. Your existing panels are not
-touched (beyond the fit-content step above). The panel's id is recorded
-in `kdeglobals [Themey] IconboxPanel`; a second apply reuses the live
-panel, and `themey apply --revert` removes it.
+**You get E16's left-edge furniture.** A full apply also creates two
+content-sized vertical panels on the left screen edge: a pager hugging
+the top-left corner (where E16 kept its pager window, thick enough that
+the cells read the theme's pager art) and, hugging the bottom-left, an
+icons-only task manager that shows *only minimized windows* — E16's
+iconbox: iconify a window and its icon appears there, restore it and the
+icon vanishes. Your existing panels are not touched (beyond the
+fit-content step above). The panel ids are recorded in
+`kdeglobals [Themey] PagerPanel` and `IconboxPanel`; a second apply
+reuses the live panels, and `themey apply --revert` removes them.
 
 The first time you run a full `themey apply`, it snapshots your current
 global theme, decoration, color scheme (`[Themey] PrevColorScheme`), Plasma

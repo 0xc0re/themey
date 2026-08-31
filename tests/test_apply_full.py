@@ -42,7 +42,9 @@ class FakeKConfig:
         #: stdout served for the iconbox CREATE script (the new panel's id;
         #: "" = plasmashell printed nothing, the failure signal).
         self.iconbox_create_reply: str = "301"
-        #: stdout served for the iconbox existence-check script.
+        #: stdout served for the pager-panel CREATE script.
+        self.pager_create_reply: str = "302"
+        #: stdout served for the furniture existence-check scripts.
         self.iconbox_exists_reply: str = "missing"
         #: stdout served for the iconbox REMOVAL script ("" = the script
         #: threw and printed nothing — qdbus still exits 0).
@@ -60,9 +62,12 @@ class FakeKConfig:
                 cmd, 0, stdout=self.panel_read_reply + "\n"
             )
         if any("evaluateScript" in tok for tok in cmd) and "new Panel" in cmd[-1]:
-            return subprocess.CompletedProcess(
-                cmd, 0, stdout=self.iconbox_create_reply + "\n"
+            reply = (
+                self.iconbox_create_reply
+                if "icontasks" in cmd[-1]
+                else self.pager_create_reply
             )
+            return subprocess.CompletedProcess(cmd, 0, stdout=reply + "\n")
         if any("evaluateScript" in tok for tok in cmd) and "'exists'" in cmd[-1]:
             return subprocess.CompletedProcess(
                 cmd, 0, stdout=self.iconbox_exists_reply + "\n"
@@ -756,28 +761,47 @@ def test_revert_panel_restore_failure_keeps_marker(
     assert fake_kconfig.store["PrevPanelLengthModes"] == "1058=fill"
 
 
-def test_apply_full_creates_iconbox_panel_and_records_marker(
+def test_apply_full_creates_pager_panel_and_records_marker(
     fake_kconfig: FakeKConfig,
 ) -> None:
-    """The dedicated E16 furniture panel: a vertical LEFT-edge, content-sized
-    panel — pager on top (E16 kept its pager top-left), minimized-only
-    icons-only task manager below it (the iconbox)."""
+    """E16 furniture, piece one: a thick content-sized pager panel hugging
+    the TOP-left ('left' alignment == top on a vertical panel) — where E16
+    kept its pager window, with cells big enough to read the theme art."""
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
     apply_mod.apply_full("e13")
-    i = fake_kconfig.index_of("new Panel")
+    i = fake_kconfig.index_of("new Panel", "org.kde.plasma.pager")
     script = fake_kconfig.calls[i][-1]
     assert "org.kde.plasmashell" in fake_kconfig.calls[i]
     assert "p.location = 'left'" in script
-    assert "p.alignment = 'left'" in script  # 'left' == top on a vertical panel
+    assert "p.alignment = 'left'" in script
+    assert "p.lengthMode = 'fit'" in script
+    assert "p.height = 130" in script
+    assert "p.addWidget('org.kde.plasma.pager')" in script
+    assert "icontasks" not in script
+    assert "print(p.id)" in script
+    assert fake_kconfig.store["PagerPanel"] == "302"
+
+
+def test_apply_full_creates_iconbox_panel_and_records_marker(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """E16 furniture, piece two: a slim content-sized panel hugging the
+    BOTTOM-left ('right' alignment == bottom on a vertical panel) holding
+    an icons-only task manager showing only minimized windows — the
+    iconbox."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    apply_mod.apply_full("e13")
+    i = fake_kconfig.index_of("new Panel", "icontasks")
+    script = fake_kconfig.calls[i][-1]
+    assert "org.kde.plasmashell" in fake_kconfig.calls[i]
+    assert "p.location = 'left'" in script
+    assert "p.alignment = 'right'" in script
     assert "p.lengthMode = 'fit'" in script
     assert "p.height = 60" in script
-    assert "p.addWidget('org.kde.plasma.pager')" in script
     assert "p.addWidget('org.kde.plasma.icontasks')" in script
-    # Pager first: it must sit at the top of the panel, above the iconbox.
-    assert script.index("org.kde.plasma.pager") < script.index(
-        "org.kde.plasma.icontasks"
-    )
+    assert "org.kde.plasma.pager" not in script
     assert "w.writeConfig('showOnlyMinimized', true)" in script
     assert "w.writeConfig('launchers', '')" in script
     assert "print(p.id)" in script
@@ -801,6 +825,7 @@ def test_apply_full_iconbox_after_fit_before_wallpaper_and_out_of_baseline(
     assert i_fit < i_create < i_wp
     assert fake_kconfig.store["PrevPanelLengthModes"] == "1058=fill"
     assert "301" not in fake_kconfig.store["PrevPanelLengthModes"]
+    assert "302" not in fake_kconfig.store["PrevPanelLengthModes"]
 
 
 def test_apply_full_second_apply_reuses_live_iconbox(
@@ -812,8 +837,9 @@ def test_apply_full_second_apply_reuses_live_iconbox(
     fake_kconfig.iconbox_exists_reply = "exists"
     apply_mod.apply_full("e13")
     creates = [c for c in fake_kconfig.calls if "new Panel" in c[-1]]
-    assert len(creates) == 1
+    assert len(creates) == 2  # one per furniture panel, first apply only
     assert fake_kconfig.store["IconboxPanel"] == "301"
+    assert fake_kconfig.store["PagerPanel"] == "302"
 
 
 def test_apply_full_recreates_iconbox_when_panel_gone(
@@ -821,12 +847,12 @@ def test_apply_full_recreates_iconbox_when_panel_gone(
 ) -> None:
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
-    fake_kconfig.store["IconboxPanel"] = "301"
+    fake_kconfig.store["IconboxPanel"] = "290"
+    fake_kconfig.store["PagerPanel"] = "291"
     fake_kconfig.iconbox_exists_reply = "missing"
-    fake_kconfig.iconbox_create_reply = "302"
     apply_mod.apply_full("e13")
-    fake_kconfig.index_of("new Panel")
-    assert fake_kconfig.store["IconboxPanel"] == "302"
+    assert fake_kconfig.store["IconboxPanel"] == "301"
+    assert fake_kconfig.store["PagerPanel"] == "302"
 
 
 def test_apply_full_iconbox_create_without_id_raises_no_stale_marker(
@@ -840,6 +866,9 @@ def test_apply_full_iconbox_create_without_id_raises_no_stale_marker(
     with pytest.raises(apply_mod.ApplyError, match="iconbox"):
         apply_mod.apply_full("e13")
     assert "IconboxPanel" not in fake_kconfig.store
+    # The pager panel is created first and keeps its marker — the retry
+    # skips it instead of doubling it.
+    assert fake_kconfig.store["PagerPanel"] == "302"
 
 
 def test_apply_full_iconbox_survives_wallpaper_failure(
@@ -853,6 +882,7 @@ def test_apply_full_iconbox_survives_wallpaper_failure(
         apply_mod.apply_full("e13")
     fake_kconfig.index_of("new Panel")
     assert fake_kconfig.store["IconboxPanel"] == "301"
+    assert fake_kconfig.store["PagerPanel"] == "302"
 
 
 def test_apply_breeze_never_creates_iconbox(fake_kconfig: FakeKConfig) -> None:
@@ -870,6 +900,18 @@ def test_revert_removes_iconbox_and_clears_marker(
     script = fake_kconfig.calls[i][-1]
     assert "remove()" in script
     assert "IconboxPanel" not in fake_kconfig.store
+
+
+def test_revert_removes_both_furniture_panels(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["IconboxPanel"] = "301"
+    fake_kconfig.store["PagerPanel"] = "302"
+    assert apply_mod.revert() is True
+    fake_kconfig.index_of("panelById(301)")
+    fake_kconfig.index_of("panelById(302)")
+    assert "IconboxPanel" not in fake_kconfig.store
+    assert "PagerPanel" not in fake_kconfig.store
 
 
 def test_revert_with_only_iconbox_marker_is_a_revert(

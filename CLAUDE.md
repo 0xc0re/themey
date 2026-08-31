@@ -163,15 +163,18 @@ LnF apply already wrote deco defaults — those land in the
 `~/.config/kdedefaults/` layer, and only an explicit user-layer write is
 guaranteed to win), then `_set_panels_fit` (every panel's `lengthMode` to
 `fit` — E16's iconbox/dragbar are content-sized and a full-width bar reads
-as Plasma, not E16), then `_ensure_iconbox` (a dedicated vertical
-LEFT-edge content-sized panel — pager on top (E16's pager lived top-left;
-vertical cells keep desktop aspect at readable size), icons-only task
-manager showing only MINIMIZED
-windows below it — E16's iconbox; created via plasmashell scripting, `[Themey]
-IconboxPanel` marker holds the containment id — an artifact marker, not a
-`Prev*` baseline: overwritten when the recorded panel is gone, skipped
+as Plasma, not E16), then `_ensure_furniture` (E16's left-edge furniture:
+a thick content-sized pager panel hugging TOP-left — E16's pager window
+spot — and a slim iconbox panel hugging BOTTOM-left with an icons-only
+task manager showing only MINIMIZED windows; TWO panels because pager
+cell size is thickness ÷ desktop-grid columns while task-icon size IS the
+thickness (a shared 60px panel shrank pager cells to ~26px slivers,
+verified live 2026-08-31); created via plasmashell scripting, `[Themey]
+PagerPanel`/`IconboxPanel` markers hold the containment ids — artifact
+markers, not
+`Prev*` baselines: overwritten when the recorded panel is gone, skipped
 when alive, deleted when revert removes the panel; placed after the fit
-step so the new panel never pollutes `PrevPanelLengthModes`), then the
+step so the new panels never pollute `PrevPanelLengthModes`), then the
 tiled-wallpaper fix-up, and one `qdbus`
 reconfigure last. The panel steps come BEFORE the wallpaper one on
 purpose: the wallpaper step is the likeliest to raise, and a failed apply
