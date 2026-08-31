@@ -28,6 +28,7 @@ from __future__ import annotations
 import configparser
 import io
 from pathlib import Path
+from typing import cast
 
 from PIL import Image
 
@@ -89,7 +90,10 @@ def _sample_top_bg_rgb(
             rgba = im.convert("RGBA")
     except Exception:
         return None
-    opaque = [px for px in rgba.getdata() if px[3] > 32]
+    # Pillow's getdata() stub is untyped-ish (float | tuple | None); an RGBA
+    # image always yields 4-tuples.
+    pixels = cast("list[tuple[int, int, int, int]]", rgba.getdata())
+    opaque = [px for px in pixels if px[3] > 32]
     if not opaque:
         return None
     n = len(opaque)
