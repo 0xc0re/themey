@@ -99,6 +99,30 @@ def test_report_phase1_scaffold_section_for_phase2_3(tmp_path: Path) -> None:
     assert any(kw in text for kw in ("Phase 2", "Phase 3", "later phase"))
 
 
+def test_report_preserves_the_color_scheme(tmp_path: Path) -> None:
+    theme = _make_theme()
+    out = tmp_path / "report.txt"
+    write(theme, out)
+    preserved = out.read_text().split("## Approximated")[0]
+    assert "Color scheme sampled" in preserved
+    assert "Test Theme (themey)" in preserved
+
+
+def test_report_surfaces_colors_notes_before_the_state_bucket(tmp_path: Path) -> None:
+    """``colors:`` notes are layout decisions, not dropped-state noise.
+
+    The state-drop bucket truncates at 20 entries, so a colors note binned
+    into it could be silently cut from the report.
+    """
+    note = "colors: desktop backgrounds tinted from iclass BORDER_LEFT (normal)"
+    theme = _make_theme(notes=[note, *[f"drop {i}" for i in range(30)]])
+    out = tmp_path / "report.txt"
+    write(theme, out)
+    text = out.read_text()
+    assert note in text
+    assert text.index(note) < text.index("8-state image model collapsed")
+
+
 def test_report_includes_scale_note(tmp_path: Path) -> None:
     from themey.report import write
 
