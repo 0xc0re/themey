@@ -25,7 +25,7 @@ from pathlib import Path
 from themey.ir import ButtonPart, IClassSpec, Theme
 
 from .actions import button_kind
-from .resolver import RUNTIME_VERSION, part_geometry
+from .resolver import RUNTIME_VERSION, part_geometry, scale_px
 
 # Reference frame (ref px, pre-scale) for the emitter-side maximized
 # side-zone detection — mirrors analyze/coords.py's binning reference.
@@ -132,21 +132,24 @@ def _rgb(color: tuple[int, int, int] | None, fallback: str) -> str:
 
 
 def _clamped_insets(
-    ic: IClassSpec | None, scale: int
+    ic: IClassSpec | None, scale: float
 ) -> dict[str, int]:
-    """BorderImage insets = __EDGE_SCALING x scale, clamped to the source
+    """BorderImage insets = scale_px(__EDGE_SCALING), clamped to the source
     image so left+right ≤ width and top+bottom ≤ height (Qt renders a
-    zero-width middle fine; negative middles it does not)."""
+    zero-width middle fine; negative middles it does not). scale_px keeps
+    the insets aligned with the shipped art dimensions (upscale_part
+    targets the same rounding)."""
     if ic is None:
         return {"left": 0, "right": 0, "top": 0, "bottom": 0}
-    left, right, top, bottom = (v * scale for v in ic.edge_scaling)
+    left, right, top, bottom = (scale_px(v, scale) for v in ic.edge_scaling)
     img = ic.normal or ic.normal_active or ic.hilited or ic.clicked
     if img is not None and img.is_file():
         try:
             from PIL import Image
 
             with Image.open(img) as im:
-                iw, ih = im.width * scale, im.height * scale
+                iw = scale_px(im.width, scale)
+                ih = scale_px(im.height, scale)
             if left + right > iw:
                 over = left + right - iw
                 right = max(0, right - over)
@@ -172,10 +175,10 @@ def _font_index(
     spec = theme.fonts.get(alias) if alias else None
     if spec is None or spec.ttf_path is None:
         size = spec.size if spec is not None else DEFAULT_TITLE_SIZE
-        return (-1, size * theme.scale)
+        return (-1, scale_px(size, theme.scale))
     for i, src in enumerate(font_sources):
         if src == spec.ttf_path:
-            return (i, spec.size * theme.scale)
+            return (i, scale_px(spec.size, theme.scale))
     style = ""
     try:
         from PIL import ImageFont
@@ -192,7 +195,7 @@ def _font_index(
         }
     )
     font_sources.append(spec.ttf_path)
-    return (len(fonts_model) - 1, spec.size * theme.scale)
+    return (len(fonts_model) - 1, scale_px(spec.size, theme.scale))
 
 
 def build_theme_data(
@@ -317,10 +320,10 @@ def build_theme_data(
         "name": theme.name,
         "scale": scale,
         "borders": {
-            "left": border.border_size_left * scale,
-            "right": border.border_size_right * scale,
-            "top": border.border_size_top * scale,
-            "bottom": border.border_size_bottom * scale,
+            "left": scale_px(border.border_size_left, scale),
+            "right": scale_px(border.border_size_right, scale),
+            "top": scale_px(border.border_size_top, scale),
+            "bottom": scale_px(border.border_size_bottom, scale),
         },
         "fonts": fonts_model,
         "parts": parts,
@@ -338,11 +341,13 @@ def _mark_hidden_when_maximized(theme: Theme, data: dict) -> None:
     shared resolver; a corner button that lives within the band's rows
     (e13's KILL) stays visible."""
     scale = theme.scale
-    frame_w, frame_h = REFERENCE_W * scale, REFERENCE_H * scale
+    frame_w = scale_px(REFERENCE_W, scale)
+    frame_h = scale_px(REFERENCE_H, scale)
     band_h = data["borders"]["top"]
     for i, p in enumerate(data["parts"]):
         _x, y, _w, h = part_geometry(
-            data, i, frame_w, frame_h, lambda _i: REFERENCE_TITLE_W * scale
+            data, i, frame_w, frame_h,
+            lambda _i: scale_px(REFERENCE_TITLE_W, scale),
         )
         if y + h > band_h:
             p["hideWhenMaximized"] = True

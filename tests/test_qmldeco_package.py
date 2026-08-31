@@ -208,3 +208,34 @@ def test_runtime_passes_qmllint():
         capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("mode", ["nearest", "quality"])
+def test_exported_image_dims_follow_scale_px_at_fractional_scale(tmp_path, mode):
+    """Art dims and BorderImage insets use the SAME rounding (scale_px) —
+    mismatched rounding smears the 9-patch caps."""
+    from PIL import Image
+
+    from themey.analyze.build_theme import build_theme
+    from themey.etheme.archive import extract
+    from themey.etheme.parse import parse_tree
+    from themey.generate import qmldeco
+    from themey.generate.qmldeco.resolver import scale_px
+    from themey.generate.qmldeco.theme_js import build_theme_data
+
+    if not (FIXTURES / "e13.etheme").exists():
+        pytest.skip("e13.etheme not available")
+    pkg = tmp_path / "themey_e13"
+    with extract(FIXTURES / "e13.etheme") as raw:
+        theme = build_theme(
+            raw.asset_root, parse_tree(raw.asset_root), name="e13",
+            display_name="e13", scale=1.5,
+        )
+        _data, manifest, _fonts = build_theme_data(theme)
+        sources = {
+            relname: Image.open(src).size for relname, src in manifest.items()
+        }
+        qmldeco.write(theme, pkg, upscale=mode)
+    for relname, (sw, sh) in sources.items():
+        with Image.open(pkg / "contents" / "images" / relname) as out:
+            assert out.size == (scale_px(sw, 1.5), scale_px(sh, 1.5)), relname

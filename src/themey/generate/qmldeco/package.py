@@ -5,11 +5,13 @@ reference package):
 
     <pkg>/metadata.json              KPlugin Id == themey_<slug> == dir name
     <pkg>/contents/ui/               runtime (verbatim) + theme.js
-    <pkg>/contents/images/*.png      raw part art, NEAREST-upscaled by scale
+    <pkg>/contents/images/*.png      raw part art, upscaled to scale_px dims
     <pkg>/contents/fonts/*.ttf       theme TTFs referenced by title parts
 
-Invariants: images go through images/upscale.upscale_nearest (NEAREST only
-— CLAUDE.md); the runtime files ship from package data via
+Invariants: images go through images/upscale.upscale_part (NEAREST by
+default; hqx behind --upscale quality — see the CLAUDE.md carve-out) so
+art dims always match the resolver/insets rounding; the runtime files
+ship from package data via
 importlib.resources so an installed wheel works identically to the src
 tree; the KPlugin Id MUST equal the package directory basename or the
 Aurorae plugin will not resolve ``theme=<id>``.
@@ -22,7 +24,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from themey.images.upscale import upscale_nearest
+from themey.images.upscale import upscale_part
 from themey.ir import Theme
 from themey.slug import plugin_id
 
@@ -67,15 +69,19 @@ def copy_runtime(pkg_dir: Path) -> list[Path]:
 
 
 def export_images(
-    manifest: dict[str, Path], pkg_dir: Path, scale: int
+    manifest: dict[str, Path],
+    pkg_dir: Path,
+    scale: float,
+    upscale: str = "nearest",
 ) -> list[Path]:
-    """Export part art as raw PNGs, NEAREST-upscaled to the output scale."""
+    """Export part art as raw PNGs upscaled to scale_px dims (NEAREST by
+    default; ``upscale="quality"`` runs the opt-in hqx path)."""
     img_dir = pkg_dir / "contents" / "images"
     img_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
     for relname, source in sorted(manifest.items()):
         with Image.open(source) as im:
-            out_img = upscale_nearest(im.convert("RGBA"), scale)
+            out_img = upscale_part(im.convert("RGBA"), scale, upscale)
         target = img_dir / relname
         out_img.save(target)
         written.append(target)

@@ -21,7 +21,8 @@ Item {
     required property int index
     readonly property var part: modelData
     readonly property int partIndex: index
-    readonly property int outScale: root.themeData.scale
+    // May be fractional (e.g. 1.5) — pad offsets Math.round at the end.
+    readonly property real outScale: root.themeData.scale
 
     readonly property var geo: {
         // Dependencies (frame size, measured caption widths, font state)
@@ -85,14 +86,16 @@ Item {
     Text {
         id: captionText
         visible: partItem.textCfg !== null && !partItem.part.vertical
-        x: partItem.part ? partItem.part.padLeft * partItem.outScale : 0
+        x: partItem.part ? Math.round(partItem.part.padLeft * partItem.outScale) : 0
         width: partItem.part
                ? Math.max(0, partItem.width
-                          - (partItem.part.padLeft + partItem.part.padRight) * partItem.outScale)
+                          - Math.round((partItem.part.padLeft + partItem.part.padRight)
+                                       * partItem.outScale))
                : 0
         anchors.verticalCenter: parent.verticalCenter
         anchors.verticalCenterOffset: partItem.part
-            ? (partItem.part.padTop - partItem.part.padBottom) * partItem.outScale / 2
+            ? Math.round((partItem.part.padTop - partItem.part.padBottom)
+                         * partItem.outScale / 2)
             : 0
         text: root.clientCaption
         elide: Text.ElideRight

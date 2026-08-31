@@ -65,7 +65,12 @@ def available() -> bool:
 
 
 def resolve_theme_dir(
-    theme: str, *, scale: int, work: Path, qml: bool = False
+    theme: str,
+    *,
+    scale: float,
+    work: Path,
+    qml: bool = False,
+    upscale: str = "nearest",
 ) -> tuple[str, Path]:
     """Return ``(name, theme_dir)`` for a ``.etheme`` path or an installed name.
 
@@ -81,7 +86,7 @@ def resolve_theme_dir(
             raise RenderError(f"no such file: {p}")
         result = convert(
             p, scale=scale, output_dir=work / "convert",
-            backend="qml" if qml else "svg",
+            backend="qml" if qml else "svg", upscale=upscale,
         )
         if qml:
             assert result.qml_plugin_id is not None
@@ -227,7 +232,8 @@ def render(
     plugin: str = "legacy",
     border_size: str = "Normal",
     maximized: bool = False,
-    scale: int = 2,
+    scale: float = 2,
+    upscale: str = "nearest",
     keep_work: bool = False,
 ) -> Path:
     """Render *theme* in a nested headless KWin and return the PNG path.
@@ -243,7 +249,9 @@ def render(
     work = Path(tempfile.mkdtemp(prefix="themey-render-"))
     try:
         qml = plugin == "qml"
-        name, theme_dir = resolve_theme_dir(theme, scale=scale, work=work, qml=qml)
+        name, theme_dir = resolve_theme_dir(
+            theme, scale=scale, work=work, qml=qml, upscale=upscale
+        )
         cfg = work / "config"
         data = work / "data"
         runtime = work / "runtime"

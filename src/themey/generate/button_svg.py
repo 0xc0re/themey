@@ -168,7 +168,7 @@ def _build_button_svg(theme: Theme, code: str) -> ET.Element:
     ET.register_namespace("xlink", XLINK_NS)
 
     ic = _find_iclass_for_code(theme, code)
-    scale = theme.scale
+    scale = int(theme.scale)  # SVG backend is integer-scale by contract
     art_w, art_h = button_geometry(theme)[code]
     _, btn_h = button_dims(theme)
 

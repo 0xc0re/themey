@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from themey.generate.qmldeco.resolver import part_geometry
+from themey.generate.qmldeco.resolver import part_geometry, scale_px
 
 E13_PATH = Path(__file__).parent / "fixtures" / "e13.etheme"
 
@@ -170,6 +170,59 @@ def test_vertical_title_sizes_height_to_text():
     }
     _x, y, _w, h = part_geometry(data, 0, 300, 300, lambda _: 50)
     assert (y, h) == (0, 57)  # text 50 + pads 7, justified to the top
+
+
+def test_scale_px_half_rounds_up():
+    """scale_px is floor(v*s + 0.5) — half-up in BOTH resolvers, killing
+    the Python round() (banker's) vs Math.round() (half-up) divergence."""
+    assert scale_px(5, 1.5) == 8
+    assert scale_px(9, 1.5) == 14
+    assert scale_px(3, 1.5) == 5  # 4.5 rounds up, unlike banker's round()
+
+
+def test_scale_px_matches_plain_multiplication_at_integer_scales():
+    for v in range(-5, 50):
+        for s in (1, 2, 3):
+            assert scale_px(v, s) == v * s
+
+
+# Same ref frame as the scale-2 pins (566x352 ref), at scale 1.5.
+FRAME_W_15 = 849
+FRAME_H_15 = 528
+
+
+@needs_e13
+@pytest.mark.parametrize(
+    ("part_id", "expected"),
+    [
+        # Edge-based rounding of the pinned ref geometry:
+        # x_out = scale_px(x), w_out = scale_px(x+w) - x_out.
+        ("BUTTON_KILL", (0, 0, 60, 57)),      # 40x38 @ (0,0)
+        ("BUTTON_ICONIFY", (14, 60, 46, 65)),  # 31x43 @ (9,40)
+        ("BUTTON_SHADE", (14, 125, 46, 31)),   # 31x21 @ (9,83)
+        ("BUTTON_STICK", (14, 156, 46, 57)),   # 31x38 @ (9,104)
+    ],
+)
+def test_e13_button_stack_geometry_at_fractional_scale(e13_data, part_id, expected):
+    data = dict(e13_data, scale=1.5)
+    got = part_geometry(data, _index(data, part_id), FRAME_W_15, FRAME_H_15, _tw)
+    assert got == expected
+
+
+def test_adjacent_parts_share_edges_at_fractional_scale():
+    """Parts adjacent in ref space stay seamless in output space — the
+    edge-based multiply rounds shared edges identically for both parts."""
+    data = {
+        "scale": 1.5,
+        "parts": [
+            _mk_part(brXA=9, brYA=9),                # ref x 0..9
+            _mk_part(tlXA=10, brXA=19, brYA=9),      # ref x 10..19
+        ],
+    }
+    ax, _ay, aw, _ah = part_geometry(data, 0, 100, 100, lambda _: 0)
+    bx, _by, bw, _bh = part_geometry(data, 1, 100, 100, lambda _: 0)
+    assert ax + aw == bx
+    assert (ax, aw, bw) == (0, 15, 15)
 
 
 def test_scale_multiplies_after_ref_math():

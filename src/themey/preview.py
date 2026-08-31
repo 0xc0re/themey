@@ -173,8 +173,9 @@ def _draw_buttons(
         return
     btn_w, btn_h = button_dims(theme)
     margin_top = max(0, (top - btn_h) // 2)
-    spacing = 4 * theme.scale
-    margin_right = max(3 * theme.scale, rgt // 2)
+    # round(): scale may be fractional (QML-only); positions must be ints.
+    spacing = round(4 * theme.scale)
+    margin_right = max(round(3 * theme.scale), rgt // 2)
 
     codes = list(theme.right_buttons)
     n = len(codes)

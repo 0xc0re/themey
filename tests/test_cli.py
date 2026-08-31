@@ -99,3 +99,54 @@ def test_cli_no_open_suppresses_browser(fake_home, monkeypatch):
     result = CliRunner().invoke(app, ["--no-open", str(FIXTURES / "Aliens.etheme")])
     assert result.exit_code == 0, result.output
     assert calls == []
+
+
+def test_cli_fractional_scale_accepted_for_qml(tmp_path, monkeypatch):
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    result = CliRunner().invoke(
+        app,
+        ["--scale=1.5", "--output", str(tmp_path / "o"), "--no-open",
+         str(FIXTURES / "Aliens.etheme")],
+    )
+    assert result.exit_code == 0, result.output
+
+
+def test_cli_fractional_scale_rejected_for_svg_backend(tmp_path, monkeypatch):
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    result = CliRunner().invoke(
+        app,
+        ["--scale=1.5", "--backend=svg", "--output", str(tmp_path / "o"),
+         "--no-open", str(FIXTURES / "Aliens.etheme")],
+    )
+    assert result.exit_code != 0
+
+
+def test_cli_scale_below_1_rejected():
+    result = CliRunner().invoke(
+        app, ["--scale=0.5", str(FIXTURES / "Aliens.etheme")]
+    )
+    assert result.exit_code != 0
+
+
+def test_cli_upscale_quality_accepted_for_qml(tmp_path, monkeypatch):
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    result = CliRunner().invoke(
+        app,
+        ["--upscale", "quality", "--output", str(tmp_path / "o"), "--no-open",
+         str(FIXTURES / "Aliens.etheme")],
+    )
+    assert result.exit_code == 0, result.output
+
+
+def test_cli_upscale_quality_rejected_for_svg_backend(tmp_path, monkeypatch):
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    result = CliRunner().invoke(
+        app,
+        ["--upscale", "quality", "--backend=svg", "--output",
+         str(tmp_path / "o"), "--no-open", str(FIXTURES / "Aliens.etheme")],
+    )
+    assert result.exit_code != 0

@@ -117,19 +117,21 @@ def strip_thicknesses(
     ``[2, max_side_border]`` after scaling. Corner art that wouldn't fit a
     side is folded into the (unclamped) top corners instead.
     """
+    # round(): the preview calls this at fractional (QML-only) scales;
+    # identical to plain multiplication at the SVG backend's int scales.
     s = theme.scale
     ext = required_border_extents(theme)
     return {
-        "top": max(2, min(max_border, ext["top"] * s)),
-        "bottom": max(2, min(max_side_border, ext["bottom"] * s)),
-        "left": max(2, min(max_side_border, ext["left"] * s)),
-        "right": max(2, min(max_side_border, ext["right"] * s)),
+        "top": max(2, min(max_border, round(ext["top"] * s))),
+        "bottom": max(2, min(max_side_border, round(ext["bottom"] * s))),
+        "left": max(2, min(max_side_border, round(ext["left"] * s))),
+        "right": max(2, min(max_side_border, round(ext["right"] * s))),
     }
 
 
 def _fold_note(theme: Theme) -> None:
     """Append an idempotent ``composite:`` note when sides were clamped."""
-    s = theme.scale
+    s = int(theme.scale)  # SVG backend is integer-scale by contract
     req = required_border_extents(theme)
     thick = strip_thicknesses(theme)
     clamped = [
@@ -221,7 +223,7 @@ def write_decoration_svg(theme: Theme, out_dir: Path) -> Path:
     ET.register_namespace("xlink", XLINK_NS)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    s = theme.scale
+    s = int(theme.scale)  # SVG backend is integer-scale by contract
 
     thick = strip_thicknesses(theme)
     top = thick["top"]
