@@ -8,6 +8,9 @@ Pattern (INSTALL-01):
   5. On failure: restore .themey-old; raise InstallError
 
 The previous-install backup makes re-runs idempotent (CLI-03 partial).
+``deploy_file`` applies the same pattern to the Global-Theme artifacts
+that are a single file rather than a package directory (the ``.colors``
+scheme).
 
 Note on cross-filesystem moves: source_dir SHOULD be created under the
 same XDG_DATA_HOME tree (e.g. via paths.staging_dir()) so os.replace

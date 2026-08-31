@@ -61,7 +61,7 @@ def write(theme: Theme, out_path: Path, backend: str = "svg") -> Path:
         "borders embedded as base64 PNG inside decoration.svg"
     )
     lines.append(
-        f"- Color scheme sampled from the border art and installed as "
+        "- Color scheme sampled from the border art and installed as "
         f"'{theme.display_name} (themey)' — pick it under System "
         "Settings -> Colors. Sources are listed below."
     )
@@ -89,9 +89,9 @@ def write(theme: Theme, out_path: Path, backend: str = "svg") -> Path:
             "name-only note (Aurorae limitation)."
         )
 
-    # Surface layout-decision notes (aurorae_rc:, composite:, qmldeco:)
-    # BEFORE the truncated-state-drop bucket so they don't get buried past
-    # line 20.
+    # Surface layout-decision notes (aurorae_rc:, colors:, composite:,
+    # qmldeco:) BEFORE the truncated-state-drop bucket so they don't get
+    # buried past line 20.
     _layout_prefixes = ("aurorae_rc:", "colors:", "composite:", "qmldeco:")
     layout_notes = [n for n in theme.notes if n.startswith(_layout_prefixes)]
     state_notes = [n for n in theme.notes if not n.startswith(_layout_prefixes)]
