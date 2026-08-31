@@ -225,10 +225,9 @@ def build_theme_data(
             )
         if kind == "shade":
             theme.notes.append(
-                f"qmldeco: shade button '{part.iclass_name}' generated; "
-                "KWin may not support shading on Wayland — the button "
-                "disables itself (degrades to drag) when the window is "
-                "not shadeable"
+                f"qmldeco: shade button '{part.iclass_name}' generated, but "
+                "KWin removed window shading in Plasma 6 — the button is "
+                "disabled and absorbs clicks (E16 art still renders)"
             )
 
         tl_origin, br_origin = part.tl_origin, part.br_origin
