@@ -73,7 +73,7 @@ def test_top_zone_height_at_least_border_size_top(
     """
     import xml.etree.ElementTree as ET
 
-    result = convert(FIXTURES / f"{theme_name}.etheme", scale=2)
+    result = convert(FIXTURES / f"{theme_name}.etheme", scale=2, backend="svg")
     svg = ET.parse(result.installed_dir / "decoration.svg").getroot()
     SVG_NS = "{http://www.w3.org/2000/svg}"
     for g in svg.iter(f"{SVG_NS}g"):

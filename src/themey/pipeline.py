@@ -62,7 +62,7 @@ def convert(
     *,
     scale: int = 2,
     output_dir: Path | None = None,
-    backend: str = "svg",
+    backend: str = "qml",
 ) -> ConvertResult:
     """Convert one .etheme to an installed KWin decoration + preview + report.
 
@@ -73,9 +73,9 @@ def convert(
             output tree(s) under ``output_dir`` plus ``<name>.report.txt``
             and ``<name>.html`` next to them. Nothing under
             ``~/.local/share`` is touched.
-        backend: ``"svg"`` (the Aurorae SVG theme — current default),
-            ``"qml"`` (the E16-faithful QML decoration package; becomes
-            the default on Phase-5 sign-off), or ``"both"``.
+        backend: ``"qml"`` (default — the E16-faithful QML decoration
+            package), ``"svg"`` (the legacy Aurorae SVG theme, kept as
+            an escape hatch), or ``"both"``.
 
     Returns:
         A :class:`ConvertResult`. ``installed_dir`` is the SVG theme dir

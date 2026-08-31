@@ -41,8 +41,10 @@ def test_cli_aliens_end_to_end(fake_home, monkeypatch):
     assert "Installed:" in result.output
     assert "Preview:" in result.output
     assert "Apply via" in result.output
-    # Verify install actually happened
-    assert (fake_home / ".local/share/aurorae/themes/Aliens" / "decoration.svg").is_file()
+    # Verify install actually happened (default backend = qml package)
+    pkg = fake_home / ".local/share/kwin/decorations/themey_Aliens"
+    assert (pkg / "metadata.json").is_file()
+    assert (pkg / "contents/ui/theme.js").is_file()
 
 
 def test_cli_quiet_suppresses_info(fake_home, monkeypatch):
@@ -78,9 +80,9 @@ def test_cli_output_dir_skips_install(fake_home, tmp_path, monkeypatch):
         app, ["--output", str(out), "--no-open", str(FIXTURES / "Aliens.etheme")]
     )
     assert result.exit_code == 0, result.output
-    # Theme tree + report + preview land under --output, nothing under HOME.
-    assert (out / "Aliens" / "decoration.svg").is_file()
-    assert (out / "Aliens" / "Aliensrc").is_file()
+    # QML package + report + preview land under --output, nothing under HOME.
+    assert (out / "themey_Aliens" / "metadata.json").is_file()
+    assert (out / "themey_Aliens" / "contents/ui/theme.js").is_file()
     assert (out / "Aliens.report.txt").is_file()
     assert (out / "Aliens.html").is_file()
     assert not (fake_home / ".local/share/aurorae").exists()

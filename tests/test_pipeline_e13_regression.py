@@ -49,7 +49,7 @@ def test_e13_rc_border_values_are_sane(tmp_path, monkeypatch):
 
     from themey.pipeline import convert
 
-    result = convert(E13_PATH, scale=2)
+    result = convert(E13_PATH, scale=2, backend="svg")
 
     rc_path = result.installed_dir / "e13rc"
     assert rc_path.is_file(), f"e13rc not found in {result.installed_dir}"
@@ -188,7 +188,7 @@ def test_e13_bottom_opaque_and_top_notch_survives(tmp_path, monkeypatch):
 
     from themey.pipeline import convert
 
-    result = convert(E13_PATH, scale=2)
+    result = convert(E13_PATH, scale=2, backend="svg")
     root = ET.parse(result.installed_dir / "decoration.svg").getroot()
     SVG_NS = "{http://www.w3.org/2000/svg}"
     XLINK = "{http://www.w3.org/1999/xlink}href"
@@ -247,14 +247,14 @@ def test_e13_report_carries_fidelity_notes(tmp_path, monkeypatch):
 
     from themey.pipeline import convert
 
-    report = convert(E13_PATH, scale=2).report_path.read_text()
+    report = convert(E13_PATH, scale=2, backend="svg").report_path.read_text()
     assert "hosts a button stack; border trimmed" in report, report
     assert "TitleHeight trimmed to the title art's opaque rows" in report
     assert "side-stack button(s) moved to the titlebar" in report
 
     mac3d = E13_PATH.parent / "Mac3D.etheme"
     if mac3d.exists():
-        mac_report = convert(mac3d, scale=2).report_path.read_text()
+        mac_report = convert(mac3d, scale=2, backend="svg").report_path.read_text()
         for marker in (
             "border trimmed",
             "TitleHeight trimmed",
@@ -284,7 +284,7 @@ def test_e13_decoration_svg_has_18_ids(tmp_path, monkeypatch):
     from themey.generate.aurorae import REQUIRED_FRAMESVG_IDS
     from themey.pipeline import convert
 
-    result = convert(E13_PATH, scale=2)
+    result = convert(E13_PATH, scale=2, backend="svg")
 
     svg_path = result.installed_dir / "decoration.svg"
     assert svg_path.is_file()
