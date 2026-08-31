@@ -98,7 +98,7 @@ themey Aliens.etheme --no-open           # skip the browser
 | `--shade-button ACTION` | QML-backend-only. KWin removed window shading in Plasma 6, so E16's shade button is dead weight; this remaps it instead. One of `maximize` (default), `keepAbove`, `keepBelow`, `menu`, `hide`, or `none` (today's inert disabled button, which still absorbs clicks). e13, for example, has no maximize button of its own, so the dead shade slot becomes the missing action. |
 | `--output DIR` | Write the theme tree(s), color scheme, wallpaper packages, cursor theme, bundle, report, and preview under `DIR` instead of installing. Nothing under `~/.local/share` is touched. |
 | `--no-open` | Do not launch the HTML preview. The preview is also suppressed automatically over SSH and on headless machines. |
-| `-v` / `-vv` / `-q` | DEBUG / more-DEBUG / WARNING-only logging. |
+| `-v` / `-vv` / `-q` | `-v` and `-vv` both switch to DEBUG (no extra verbosity between them today); `-q` restricts to WARNING+. |
 
 ### Apply
 

@@ -85,9 +85,11 @@ themey is a local Python CLI that converts Enlightenment DR16 (E16) `.etheme` ar
 - **Pillow XCursor support** — does not exist. Pillow can read/write XBM but has no XCursor plugin.
 - **`xcursorgen`** (xorg-xcursorgen system package) — the canonical tool. Reads a config file (`<size> <xhot> <yhot> <png_path> [delay_ms]`) and writes a binary XCursor file. Stable, ubiquitous on Linux distros, present on every KDE workstation.
 # As built: 1. hand-rolled XBM parser (image + mask) — see the XBM read
-# correction above; 2. rasterize through Pillow into RGBA, upscale per
-# --scale (NEAREST); 3. write PNG frames per nominal size; 4. build an
-# xcursorgen config: "32 4 4 /tmp/foo.png"; 5. subprocess to xcursorgen
+# correction above; 2. rasterize through Pillow into RGBA, upscale at
+# fixed x1/x2/x3 (NEAREST) — independent of --scale, which is a border/
+# image factor, not a cursor one; 3. write PNG frames per nominal size;
+# 4. build an xcursorgen config: "32 4 4 /tmp/foo.png"; 5. subprocess to
+# xcursorgen
 ### 5. CLI framework — Typer
 - **argparse (stdlib)** — fine but verbose, no auto-help-from-docstrings, no auto-completion shell scripts. A lot of boilerplate for `themey <theme.etheme>` + `themey --all <dir>`.
 - **Click 8.3.3** — the rock-solid choice. Excellent. Decorator-based.
@@ -266,7 +268,7 @@ receives no fidelity work.
 | Package | Role |
 |---------|------|
 | `etheme/` | `archive.py` (validating tar extract), `lex.py`, `parse.py`, `ast.py` — the E16 grammar front end |
-| `analyze/` | AST → frozen `ir.Theme`: iclass resolution, state collapse, button binning, coordinate math, borders, `fonts.py` (__FONTS scan), `colors.py` (median-cut sampling of the theme's own border art into a full 8-group `ColorScheme` + `[WM]` pair, WCAG-AA-guarded) |
+| `analyze/` | AST → frozen `ir.Theme`: iclass resolution, state collapse, button binning, coordinate math, borders, `fonts.py` (__FONTS scan), `colors.py` (median-cut sampling of the theme's own border art into a full 8-group `ColorScheme` + the 4-field `[WM]` active/inactive background+foreground set, WCAG-AA-guarded) |
 | `images/` | `ninepatch.py`, `opaque.py`, `upscale.py` (`upscale_part`: scale_px-dim targets, nearest/quality modes), `hqx.py` (opt-in quality scaler), `embed.py` — raster primitives, NEAREST default |
 | `generate/qmldeco/` | DEFAULT backend: `theme_js.py` (part model, `SHADE_BUTTON_MODES`), `resolver.py` (E16 geometry, Python mirror), `actions.py`, `package.py`, `runtime/` (4 verbatim QML/JS files) |
 | `generate/` (rest) | SVG backend: `aurorae.py` orchestrates `decoration_svg.py`, `aurorae_rc.py`, `aurorae_meta.py`, `button_svg.py`, `composite.py` |
@@ -308,7 +310,10 @@ LnF apply already wrote deco defaults — those land in the
 guaranteed to win), then `plasma-apply-wallpaperimage -f tile` if the
 bundle's default wallpaper package's `X-Themey-FillMode` is `tiled`
 (Plasma's Image wallpaper plugin doesn't read fill-mode from the package
-itself), and one `qdbus` reconfigure last. `themey apply --revert` reads
+itself — the `tile` token itself is `apply.py`'s own
+`_WALLPAPER_TILE_FILL_MODE`, flagged in its source comment as
+provisionally chosen and not yet live-verified against a real Plasma 6.6
+session), and one `qdbus` reconfigure last. `themey apply --revert` reads
 both markers back, reapplies the recorded Look-and-Feel package (no
 Breeze special-case — a real baseline is typically a third-party theme,
 e.g. chris's `com.github.vinceliuice.MacVentura-Dark`), restores the deco
