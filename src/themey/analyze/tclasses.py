@@ -86,6 +86,24 @@ TCLASS_STATE_CONTEXT_KEYS: frozenset[str] = frozenset({
 })
 
 
+def _raw_justification(value: object) -> int | None:
+    """Raw Q10 justification: numeric passes through; the literal tokens map
+    to their canonical Q10 values. Unrecognized → None (ignored)."""
+    if isinstance(value, str):
+        upper = value.upper()
+        token_map = {"__LEFT": 0, "LEFT": 0, "__CENTER": 512, "CENTER": 512,
+                     "__RIGHT": 1024, "RIGHT": 1024}
+        if upper in token_map:
+            return token_map[upper]
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    if isinstance(value, int):
+        return value
+    return None
+
+
 def build_tclasses(tclass_blocks: list[Block]) -> dict[str, TClassSpec]:
     """Convert __TCLASS blocks to a TClassSpec dict keyed by tclass name.
 
@@ -100,7 +118,9 @@ def build_tclasses(tclass_blocks: list[Block]) -> dict[str, TClassSpec]:
             continue
         current_state: str | None = None
         colors: dict[str, tuple[int, int, int]] = {}
+        fonts: dict[str, str] = {}  # state keyword -> raw font token
         alignment: str | None = None
+        justification_q10: int | None = None  # E16 last-wins across the block
         effect: str | None = None
         effect_color: tuple[int, int, int] | None = None
 
@@ -112,6 +132,8 @@ def build_tclasses(tclass_blocks: list[Block]) -> dict[str, TClassSpec]:
             # values (pure marker form). Both forms set the state context.
             if kv.keyword in TCLASS_STATE_CONTEXT_KEYS:
                 current_state = kv.keyword
+                if kv.values and kv.keyword not in fonts:
+                    fonts[kv.keyword] = str(kv.values[0])
             # Foreground color: any FG_COLOR_KEYS keyword with at least 3 values
             elif kv.keyword in FG_COLOR_KEYS and len(kv.values) >= 3:
                 if current_state is not None:
@@ -126,8 +148,12 @@ def build_tclasses(tclass_blocks: list[Block]) -> dict[str, TClassSpec]:
                     # First color seen for this state wins; don't overwrite
                     if current_state not in colors:
                         colors[current_state] = rgb
-            elif kv.keyword == "__JUSTIFICATION" and kv.values and alignment is None:
-                alignment = _normalize_alignment(kv.values[0])
+            elif kv.keyword == "__JUSTIFICATION" and kv.values:
+                if alignment is None:
+                    alignment = _normalize_alignment(kv.values[0])
+                raw = _raw_justification(kv.values[0])
+                if raw is not None:
+                    justification_q10 = raw
             elif kv.keyword == "__DRAWING_EFFECT" and kv.values and effect is None:
                 effect = str(kv.values[0])
             elif (
@@ -144,6 +170,14 @@ def build_tclasses(tclass_blocks: list[Block]) -> dict[str, TClassSpec]:
                 except (ValueError, TypeError):
                     pass
 
+        font_normal = fonts.get("__NORMAL")
+        font_active = fonts.get("__NORMAL_ACTIVE")
+        font_alias: str | None = None
+        for token in (font_active, font_normal):
+            if token is not None and token.startswith("*"):
+                font_alias = token[1:]
+                break
+
         out[name] = TClassSpec(
             name=name,
             fg_normal=colors.get("__NORMAL"),
@@ -151,5 +185,9 @@ def build_tclasses(tclass_blocks: list[Block]) -> dict[str, TClassSpec]:
             alignment=alignment,
             effect=effect,
             effect_color=effect_color,
+            justification_q10=justification_q10,
+            font_normal=font_normal,
+            font_active=font_active,
+            font_alias=font_alias,
         )
     return out
