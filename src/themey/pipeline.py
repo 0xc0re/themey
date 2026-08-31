@@ -6,12 +6,15 @@ Composes the four stages: ingest → analyze → generate → install + report
 
 Lifecycle invariant:
     ``raw.asset_root`` is valid only while the ``with extract(...)`` block
-    is open. ``build_theme`` and ``write_aurorae`` both run INSIDE that block.
-    After the block exits, the tmpdir is gone and ``theme.asset_root`` becomes
-    a stale reference. ``report.write`` and ``preview.render`` run AFTER the
-    block exits — they only consume ``theme.name``, ``theme.notes``,
-    ``theme.palette``, etc. (NOT ``theme.asset_root``). Do NOT add code that
-    reads ``theme.asset_root`` outside the ``with extract(...)`` block.
+    is open. EVERYTHING that derives geometry runs INSIDE that block —
+    ``build_theme``, ``write_aurorae``, and also ``report.write`` and
+    ``preview.render``: since the measured-geometry work,
+    ``strip_thicknesses``/``required_border_extents`` open the iclass
+    images (opaque-span trims), so a report/preview generated after the
+    block would silently compute geometry that disagrees with the
+    installed SVG (``composite._zone_art_span`` warns when it detects a
+    vanished image). Do NOT move any of these calls outside the ``with
+    extract(...)`` block.
 """
 from __future__ import annotations
 
@@ -126,9 +129,9 @@ def convert(
                 log.info("installed to %s", installed)
             previews = paths.themey_previews()
 
-        # Report and preview only need Theme IR data (theme.notes,
-        # theme.palette, etc.) — NOT theme.asset_root. See lifecycle
-        # invariant in module docstring.
+        # Report and preview MUST run inside the extract block: they call
+        # strip_thicknesses, which measures iclass images (opaque-span
+        # trims). See lifecycle invariant in module docstring.
         previews.mkdir(parents=True, exist_ok=True)
         report_path = write_report(theme, previews / f"{theme_name}.report.txt")
         preview_path = render_preview(theme, previews / f"{theme_name}.html")

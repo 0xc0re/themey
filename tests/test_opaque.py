@@ -89,9 +89,26 @@ def test_inner_edge_band_found_by_span() -> None:
     assert structural_extent(img, "right") == 6
 
 
-def test_span_picks_longest_run() -> None:
-    """Two disjoint majority-opaque runs: the longer one wins."""
+def test_span_is_union_of_structural_runs() -> None:
+    """Disjoint majority-opaque runs measure as one bounding span.
+
+    Shaped side art often pairs an outer 1px frame line with an inner band;
+    taking only the longest run would crop the outer line out of the border
+    entirely (and collapse hollow outline frames to 1px — see below).
+    """
     img = _img(30, 10)
     _fill(img, 0, 0, 4, 10)    # cols 0-3
-    _fill(img, 10, 0, 22, 10)  # cols 10-21 (longer)
-    assert structural_span(img, "x") == (10, 22)
+    _fill(img, 10, 0, 22, 10)  # cols 10-21
+    assert structural_span(img, "x") == (0, 22)
+
+
+def test_hollow_outline_frame_measures_full_extent() -> None:
+    """A bevel-outline titlebar (1px opaque frame, transparent interior)
+    must measure its full height, not a single row — collapsing it made
+    TitleHeight hit the 2*s floor and squashed every button to 4px tall.
+    """
+    img = _img(40, 20)
+    _fill(img, 0, 0, 40, 1)      # top edge line
+    _fill(img, 0, 19, 40, 20)    # bottom edge line
+    _fill(img, 0, 0, 1, 20)      # left edge (sub-majority per-row: ignored)
+    assert structural_span(img, "y") == (0, 20)

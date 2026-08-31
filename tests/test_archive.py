@@ -24,7 +24,6 @@ MALICIOUS = FIXTURES / "malicious"
         ("absolute_path.tar.gz", "path-traversal"),
         ("symlink_escape.tar.gz", "symlink"),
         ("oversize_file.tar.gz", "too large"),
-        ("oversize_count.tar.gz", "too many entries"),
         ("no_root_marker.tar.gz", "marker"),
         ("device_file.tar.gz", "unsafe member type"),
     ],

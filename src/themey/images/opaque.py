@@ -75,22 +75,42 @@ def structural_extent(img: Image.Image, side: str) -> int:
 
 
 def structural_span(img: Image.Image, axis: str) -> tuple[int, int]:
-    """Longest consecutive structural run along *axis* (``"x"`` or ``"y"``).
+    """Bounding span (first..last structural line) along ``"x"`` or ``"y"``.
 
     Returns a half-open ``(start, end)`` pixel range — ``(0, dim)`` for fully
     opaque art, ``(0, 0)`` when no line is structural. Finds inner bands that
     touch neither edge (WIN_SIDE_LEFT's cols 24-29).
+
+    Deliberately the UNION of structural runs, not the longest run: a
+    bevel-outline frame (1px opaque edges, transparent interior) must
+    measure its full extent — longest-run semantics collapsed such
+    titlebars to 1 row (TitleHeight floor, squashed buttons) and cropped
+    outer frame lines away from side borders. Transparent interiors are
+    the theme's shaped look and stay inside the span.
+    """
+    runs = structural_runs(img, axis)
+    if not runs:
+        return (0, 0)
+    return (runs[0][0], runs[-1][1])
+
+
+def structural_runs(img: Image.Image, axis: str) -> list[tuple[int, int]]:
+    """All consecutive structural runs along *axis*, in order.
+
+    Each run is a half-open ``(start, end)`` line range. The title trim
+    uses ``runs[0]`` (a titlebar is top-anchored; e13's capsule is rows
+    0-30 while an embedded ornament bar lower down forms its own run);
+    ``structural_span`` unions them for side-art measurement.
     """
     lines = _structural(_line_coverage(img, axis))
-    best = (0, 0)
+    runs: list[tuple[int, int]] = []
     start: int | None = None
     for i, ok in enumerate(lines):
         if ok and start is None:
             start = i
         elif not ok and start is not None:
-            if i - start > best[1] - best[0]:
-                best = (start, i)
+            runs.append((start, i))
             start = None
-    if start is not None and len(lines) - start > best[1] - best[0]:
-        best = (start, len(lines))
-    return best
+    if start is not None:
+        runs.append((start, len(lines)))
+    return runs
