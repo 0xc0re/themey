@@ -306,6 +306,108 @@ def test_resize_edge_scaling_oversized_caps_fall_back_uniform() -> None:
     assert any(n.startswith("composite:") and "BOGUS" in n for n in notes)
 
 
+def test_resize_edge_scaling_caps_consuming_image_fall_back() -> None:
+    """Caps that sum to the full image leave no middle content; stretching
+    into a larger slot must fall back to uniform resize (with a note), not
+    paint the caps and leave the stretch region silently transparent."""
+    from themey.generate.composite import _resize_with_edge_scaling
+
+    src = Image.new("RGBA", (10, 10), (255, 0, 0, 255))
+    notes: list[str] = []
+    out = _resize_with_edge_scaling(
+        src, (5, 5, 0, 0), 40, 20, 2, notes=notes, part_name="FULLCAP"
+    )
+    ref = src.resize((40, 20), Image.Resampling.NEAREST)
+    assert out.tobytes() == ref.tobytes()
+    assert any("FULLCAP" in n for n in notes)
+
+
+def test_buttons_only_side_zone_trims_to_floor() -> None:
+    """A side zone hosting ONLY buttons (no non-interactive art) trims to
+    the 2-ref floor — after the buttons migrate to the titlebar, keeping
+    the declared width reserves pure transparency."""
+    from themey.generate.composite import required_border_extents
+    from themey.ir import BorderSpec, ButtonPart, Palette, Theme
+
+    stack = ButtonPart(
+        iclass_name="BUTTON_CLOSE", aclass="ACTION_CLOSE",
+        tl_x_pct=0, tl_x_abs=0, br_x_pct=0, br_x_abs=30,
+        tl_y_pct=0, tl_y_abs=40, br_y_pct=0, br_y_abs=80,
+    )
+    theme = Theme(
+        name="Tmp", display_name="Tmp", author=None, scale=2,
+        asset_root=Path("/nonexistent"),
+        border=BorderSpec("DEFAULT", 30, 4, 20, 4, (stack,)),
+        iclasses={}, tclasses={}, button_codes={"BUTTON_CLOSE": "X"},
+        left_buttons="X", right_buttons="",
+        palette=Palette((0, 0, 0), (0, 0, 0), (255, 255, 255), (255, 255, 255)),
+    )
+    ext = required_border_extents(theme)
+    assert ext["left"] == 2, ext
+    assert any("hosts a button stack" in n for n in theme.notes), theme.notes
+
+
+def test_bottom_corner_button_does_not_trigger_left_trim() -> None:
+    """A button sitting in the BOTTOM-left corner belongs to the bottom
+    zone; it must not fire the left-side trim gate."""
+    from themey.generate.composite import _side_hosts_interactive
+    from themey.ir import BorderSpec, ButtonPart, Palette, Theme
+
+    corner_btn = ButtonPart(
+        iclass_name="BUTTON_CLOSE", aclass="ACTION_CLOSE",
+        tl_x_pct=0, tl_x_abs=0, br_x_pct=0, br_x_abs=20,
+        tl_y_pct=1024, tl_y_abs=-18, br_y_pct=1024, br_y_abs=0,
+    )
+    theme = Theme(
+        name="Tmp", display_name="Tmp", author=None, scale=2,
+        asset_root=Path("/nonexistent"),
+        border=BorderSpec("DEFAULT", 30, 4, 20, 20, (corner_btn,)),
+        iclasses={}, tclasses={}, button_codes={"BUTTON_CLOSE": "X"},
+        left_buttons="X", right_buttons="",
+        palette=Palette((0, 0, 0), (0, 0, 0), (255, 255, 255), (255, 255, 255)),
+    )
+    assert not _side_hosts_interactive(theme, "left", 30)
+    assert _side_hosts_interactive(theme, "bottom", 20)
+
+
+def test_hollow_outline_titlebar_keeps_full_title_height(tmp_path: Path) -> None:
+    """A bevel-outline titlebar (opaque 1px frame, transparent interior)
+    must NOT trim TitleHeight — its leading structural run is a single
+    row, no text zone is identifiable, and trimming collapsed TitleHeight
+    to the 2*s floor and squashed every button to 4px tall."""
+    from themey.generate.composite import title_opaque_rows_ref
+    from themey.ir import BorderSpec, ButtonPart, IClassSpec, Palette, Theme
+
+    img = Image.new("RGBA", (100, 20), (0, 0, 0, 0))
+    for x in range(100):
+        img.putpixel((x, 0), (200, 200, 200, 255))
+        img.putpixel((x, 19), (200, 200, 200, 255))
+    p = tmp_path / "frame.png"
+    img.save(p)
+
+    part = ButtonPart(
+        iclass_name="TITLEBAR", aclass="ACTION_MOVE",
+        tl_x_pct=0, tl_x_abs=0, br_x_pct=1024, br_x_abs=0,
+        tl_y_pct=0, tl_y_abs=0, br_y_pct=0, br_y_abs=20,
+        flags=("__FLAG_TITLE",),
+    )
+    ic = IClassSpec(
+        name="TITLEBAR", edge_scaling=(0, 0, 0, 0),
+        normal=p, normal_active=p, hilited=None, hilited_active=None,
+        clicked=None, clicked_active=None,
+        normal_sticky=None, normal_active_sticky=None,
+    )
+    theme = Theme(
+        name="Tmp", display_name="Tmp", author=None, scale=2,
+        asset_root=tmp_path,
+        border=BorderSpec("DEFAULT", 4, 4, 20, 4, (part,)),
+        iclasses={"TITLEBAR": ic}, tclasses={}, button_codes={},
+        left_buttons="", right_buttons="",
+        palette=Palette((0, 0, 0), (0, 0, 0), (255, 255, 255), (255, 255, 255)),
+    )
+    assert title_opaque_rows_ref(theme) == 20  # full height, no trim
+
+
 def test_e13_corner_extents_include_cap_reach() -> None:
     """e13's top-band strips push their unstretchable caps into the corners.
 

@@ -80,6 +80,29 @@ def test_include_quoted_path() -> None:
     assert tokens[1].value == "borders/default.cfg"
 
 
+def test_semicolon_is_statement_separator() -> None:
+    """';' separates statements like a newline (E16 config.c treats it so;
+    cpp macro bodies join statements with ';' on one physical line)."""
+    tokens = tokenize("__ICLASS FOO ; __ACLASS BAR")
+    kinds = [t.kind for t in tokens]
+    assert kinds == [
+        TokenKind.IDENT,
+        TokenKind.IDENT,
+        TokenKind.NEWLINE,
+        TokenKind.IDENT,
+        TokenKind.IDENT,
+        TokenKind.EOF,
+    ]
+
+
+def test_hash_comment_with_continuation_skips_next_line() -> None:
+    """A '#' directive line ending in '\\' continues onto the next line —
+    multi-line #define bodies must not leak tokens (BlueIce definitions.cfg)."""
+    tokens = _content(tokenize("#define BP_START(x) \\\n__BORDER_PART __BGN ; \\\n__ICLASS x\nQUX"))
+    assert len(tokens) == 1
+    assert tokens[0].value == "QUX"
+
+
 def test_line_numbers_track_newlines() -> None:
     """Line counter increments across newlines; second-line token has line==2."""
     tokens = tokenize("FOO\nBAR")

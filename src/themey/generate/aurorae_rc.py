@@ -341,17 +341,21 @@ def write_aurorae_rc(theme: Theme, out_dir: Path) -> Path:
         theme.palette.text_inactive, inactive_bg
     )
     if active_swapped:
-        theme.notes.append(
+        note = (
             f"aurorae_rc: ActiveTextColor swapped "
             f"{theme.palette.text_active} → {active_text} for contrast "
             f"against title-bar bg {active_bg}"
         )
+        if note not in theme.notes:
+            theme.notes.append(note)
     if inactive_swapped:
-        theme.notes.append(
+        note = (
             f"aurorae_rc: InactiveTextColor swapped "
             f"{theme.palette.text_inactive} → {inactive_text} for contrast "
             f"against title-bar bg {inactive_bg}"
         )
+        if note not in theme.notes:
+            theme.notes.append(note)
 
     # Map TEXT1's __JUSTIFICATION / __DRAWING_EFFECT into Aurorae values
     # where the theme expresses an opinion. The text-shadow keys are read

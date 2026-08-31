@@ -49,7 +49,7 @@ from themey.analyze.buttons import (
 )
 from themey.analyze.coords import resolve
 from themey.images.ninepatch import slice_9patch
-from themey.images.opaque import structural_span
+from themey.images.opaque import structural_runs, structural_span
 from themey.ir import ButtonPart, IClassSpec, Theme
 
 log = logging.getLogger(__name__)
@@ -362,9 +362,14 @@ def _side_hosts_interactive(theme: Theme, side: str, declared: int) -> bool:
         x0, y0, x1, y1 = bboxes.get(idx, (0, 0, 0, 0))
         if x1 <= x0 or y1 <= y0:
             continue
-        if side == "left" and x1 <= declared and y1 > bst:
+        # A left/right-stack button lives in the side STRIP: below the top
+        # band, above the bottom zone. A bottom-corner button belongs to the
+        # bottom gate only — it says nothing about the side's width.
+        bsb = theme.border.border_size_bottom
+        in_strip = y1 > bst and y0 < REFERENCE_H - bsb
+        if side == "left" and x1 <= declared and in_strip:
             return True
-        if side == "right" and x0 >= REFERENCE_W - declared and y1 > bst:
+        if side == "right" and x0 >= REFERENCE_W - declared and in_strip:
             return True
         if side == "bottom" and y0 >= REFERENCE_H - declared:
             return True
@@ -383,6 +388,12 @@ def _zone_art_span(
     Falls back to the part's bbox when its image can't be opened. Returns
     the union (min, max) clipped to the zone, or None when the zone holds
     no measurable art.
+
+    Known approximation: the image→window mapping assumes uniform stretch,
+    but parts render as 9-patches — opaque art adjacent to an
+    ``__EDGE_SCALING`` cap can land a couple of ref px off the estimate.
+    Corpus canaries measure within 2 ref px (over-covering); measure on
+    the edge-scaled resize if a theme ever under-covers.
     """
     if side == "left":
         lo, hi = 0, declared
@@ -410,7 +421,18 @@ def _zone_art_span(
                 continue
             p0, p1 = px0, px1
         a0, a1 = p0, p1
-        img = _iclass_image(theme.iclasses.get(part.iclass_name), prefer_active)
+        ic = theme.iclasses.get(part.iclass_name)
+        img = _iclass_image(ic, prefer_active)
+        if img is None and ic is not None and (ic.normal or ic.normal_active):
+            # The iclass declares an image but it can't be opened — almost
+            # always a caller measuring AFTER the extract block closed.
+            # Geometry then silently falls back to bboxes and disagrees
+            # with what was installed. Be loud (see pipeline.py lifecycle).
+            log.warning(
+                "_zone_art_span: image for %s unreadable (asset_root "
+                "closed?); geometry falls back to declared bboxes",
+                part.iclass_name,
+            )
         if img is not None:
             s0, s1 = structural_span(img, axis)
             img_dim = img.width if axis == "x" else img.height
@@ -447,9 +469,11 @@ def required_border_extents(theme: Theme) -> dict[str, int]:
         if not _side_hosts_interactive(theme, side, declared):
             continue
         span = _zone_art_span(theme, side, declared)
-        if span is None:
-            continue
-        trimmed = max(2, min(declared, span[1] - span[0]))
+        # No non-interactive art at all: the zone existed purely for the
+        # button stack; after the buttons migrate to the titlebar keeping
+        # the declared width would reserve pure transparency. Floor it.
+        span_width = span[1] - span[0] if span is not None else 2
+        trimmed = max(2, min(declared, span_width))
         if trimmed < declared:
             note = (
                 f"composite: {side} zone ({declared} ref px) hosts a button "
@@ -725,7 +749,17 @@ def _resize_with_edge_scaling(
 
     lo, ro = left * scale, right * scale
     to, bo = top * scale, bottom * scale
-    fits_target = lo + ro <= target_w and to + bo <= target_h
+    mid_w = target_w - lo - ro
+    mid_h = target_h - to - bo
+    # Caps consuming the whole image leave no middle content; a larger slot
+    # would then render its stretch region silently transparent. Fall back.
+    src_w, src_h = img.size
+    fits_target = (
+        lo + ro <= target_w
+        and to + bo <= target_h
+        and not (mid_w > 0 and src_w - left - right <= 0)
+        and not (mid_h > 0 and src_h - top - bottom <= 0)
+    )
     try:
         regions = slice_9patch(img, left, right, top, bottom) if fits_target else None
     except ValueError:
@@ -741,8 +775,6 @@ def _resize_with_edge_scaling(
                 notes.append(msg)
         return _uniform()
 
-    mid_w = target_w - lo - ro
-    mid_h = target_h - to - bo
     out = Image.new("RGBA", (target_w, target_h), (0, 0, 0, 0))
 
     def _paste(piece: Image.Image, w: int, h: int, x: int, y: int) -> None:
@@ -1107,19 +1139,31 @@ def _title_bar_height_ref(theme: Theme) -> int:
     return h if h > 0 else theme.border.border_size_top
 
 
+# A leading structural run must cover at least this fraction of the title
+# image's height to count as "the title band" for trimming. Below it (a
+# bevel-outline frame's 1px top line) no meaningful text zone is
+# identifiable and the canonical full height is kept — longest-run/union
+# metrics either collapsed hollow frames to the 2*s floor or let e13's
+# embedded waterline bar (rows 36-38, 0.92 coverage) drag the trim down.
+TITLE_RUN_MIN_FRACTION: float = 0.4
+
+
 def title_opaque_rows_ref(theme: Theme) -> int:
-    """Structural (opaque) height of the ``__FLAG_TITLE`` part in ref rows.
+    """Top-anchored structural height of the ``__FLAG_TITLE`` part, in ref rows.
 
-    e13's titlebar image is 46 rows tall but opaque only in rows 0-30 —
-    rows below are a shaped transparent notch (E16 ``__CHANGES_SHAPE``).
-    Counting the notch as title made TitleHeight 88/92 and the text float
+    e13's titlebar image is 46 rows tall but its title capsule is rows
+    0-30; below sit a shaped transparent notch and an embedded ornament
+    bar. Counting those as title made TitleHeight 88/92 and the text float
     over transparency. The rc writer clamps its canonical title height to
-    this value.
+    this value, which is the END of the image's FIRST structural run — a
+    titlebar is top-anchored; lower ornament runs are decoration, not text
+    zone.
 
-    Guarded: a title image whose opaque extent covers >= 90% of its height
-    (every non-shaped titlebar) returns the full bbox height, so ordinary
-    themes are untouched. Returns 0 when there is no measurable title image
-    (callers must treat 0 as "no opinion").
+    Guarded twice: a leading run shorter than ``TITLE_RUN_MIN_FRACTION`` of
+    the image (hollow outline frames) and a run covering >= 90% of the
+    height (every non-shaped titlebar) both return the full bbox height.
+    Returns 0 when there is no measurable title image (callers must treat
+    0 as "no opinion").
     """
     tp = title_part(theme.border.parts)
     if tp is None:
@@ -1128,13 +1172,15 @@ def title_opaque_rows_ref(theme: Theme) -> int:
     if img is None or img.height == 0:
         return 0
     bbox_h_ref = _title_bar_height_ref(theme)
-    s0, s1 = structural_span(img, "y")
-    opaque_px = s1 - s0
-    if opaque_px <= 0:
+    runs = structural_runs(img, "y")
+    if not runs:
         return 0
-    if opaque_px >= 0.9 * img.height:
+    run_start, run_end = runs[0]
+    if run_end - run_start < TITLE_RUN_MIN_FRACTION * img.height:
         return bbox_h_ref
-    return max(1, round(opaque_px * bbox_h_ref / img.height))
+    if run_end >= 0.9 * img.height:
+        return bbox_h_ref
+    return max(1, round(run_end * bbox_h_ref / img.height))
 
 
 def button_size(theme: Theme) -> int:
