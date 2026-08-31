@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from themey import apply as apply_mod
+from themey import install as install_mod
 from themey import paths
 from themey.generate.desktop_writer import write_desktop
 from themey.slug import plugin_id
@@ -38,6 +39,14 @@ class FakeKConfig:
         #: stdout served for the plasmashell panel-length READ script
         #: ("" = no panels reported).
         self.panel_read_reply: str = ""
+        #: stdout served for the iconbox CREATE script (the new panel's id;
+        #: "" = plasmashell printed nothing, the failure signal).
+        self.iconbox_create_reply: str = "301"
+        #: stdout served for the iconbox existence-check script.
+        self.iconbox_exists_reply: str = "missing"
+        #: stdout served for the iconbox REMOVAL script ("" = the script
+        #: threw and printed nothing — qdbus still exits 0).
+        self.iconbox_remove_reply: str = "removed"
 
     def run(self, cmd, **kwargs):
         self.calls.append(list(cmd))
@@ -49,6 +58,18 @@ class FakeKConfig:
         if any("evaluateScript" in tok for tok in cmd) and "out.push" in cmd[-1]:
             return subprocess.CompletedProcess(
                 cmd, 0, stdout=self.panel_read_reply + "\n"
+            )
+        if any("evaluateScript" in tok for tok in cmd) and "new Panel" in cmd[-1]:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout=self.iconbox_create_reply + "\n"
+            )
+        if any("evaluateScript" in tok for tok in cmd) and "'exists'" in cmd[-1]:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout=self.iconbox_exists_reply + "\n"
+            )
+        if any("evaluateScript" in tok for tok in cmd) and "'removed'" in cmd[-1]:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout=self.iconbox_remove_reply + "\n"
             )
         if prog.startswith("kwriteconfig"):
             key = cmd[cmd.index("--key") + 1]
@@ -620,7 +641,7 @@ def test_clear_style_cache_respects_xdg_cache_home(
     other = cache_dir / "plasma_theme_Otto.kcache"
     other.write_bytes(b"keep")
     monkeypatch.setenv("XDG_CACHE_HOME", str(cache_dir))
-    apply_mod._clear_style_cache("themey_e13")
+    install_mod.clear_style_cache("themey_e13")
     assert not stale.exists()
     assert other.exists()  # other themes' caches are left alone
 
@@ -707,8 +728,10 @@ def test_apply_full_no_panels_no_marker_no_fit_script(
     _install_fake_lnf("e13")
     apply_mod.apply_full("e13")  # panel_read_reply defaults to ""
     assert "PrevPanelLengthModes" not in fake_kconfig.store
+    # The fit-ALL loop specifically — the iconbox creation script sets its
+    # own panel's lengthMode and is allowed to run without other panels.
     with pytest.raises(AssertionError):
-        fake_kconfig.index_of("p.lengthMode = 'fit'")
+        fake_kconfig.index_of("for (const p of panels()) { p.lengthMode = 'fit'; }")
 
 
 def test_revert_restores_panel_modes_and_clears_marker(
@@ -733,6 +756,229 @@ def test_revert_panel_restore_failure_keeps_marker(
     assert fake_kconfig.store["PrevPanelLengthModes"] == "1058=fill"
 
 
+def test_apply_full_creates_iconbox_panel_and_records_marker(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """The dedicated E16 iconbox: a bottom-left content-sized panel holding
+    an icons-only task manager showing only minimized windows."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    apply_mod.apply_full("e13")
+    i = fake_kconfig.index_of("new Panel")
+    script = fake_kconfig.calls[i][-1]
+    assert "org.kde.plasmashell" in fake_kconfig.calls[i]
+    assert "p.location = 'bottom'" in script
+    assert "p.alignment = 'left'" in script
+    assert "p.lengthMode = 'fit'" in script
+    assert "p.addWidget('org.kde.plasma.icontasks')" in script
+    assert "w.writeConfig('showOnlyMinimized', true)" in script
+    assert "w.writeConfig('launchers', '')" in script
+    assert "print(p.id)" in script
+    assert fake_kconfig.store["IconboxPanel"] == "301"
+
+
+def test_apply_full_iconbox_after_fit_before_wallpaper_and_out_of_baseline(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """Created AFTER the fit snapshot (so the new panel never pollutes the
+    PrevPanelLengthModes baseline) and BEFORE the failure-prone wallpaper
+    fix-up."""
+    _install_fake_deco("e13")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tiled")
+    _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
+    fake_kconfig.panel_read_reply = "1058=fill"
+    apply_mod.apply_full("e13")
+    i_fit = fake_kconfig.index_of("p.lengthMode = 'fit'")
+    i_create = fake_kconfig.index_of("new Panel")
+    i_wp = fake_kconfig.index_of("plasma-apply-wallpaperimage")
+    assert i_fit < i_create < i_wp
+    assert fake_kconfig.store["PrevPanelLengthModes"] == "1058=fill"
+    assert "301" not in fake_kconfig.store["PrevPanelLengthModes"]
+
+
+def test_apply_full_second_apply_reuses_live_iconbox(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    apply_mod.apply_full("e13")
+    fake_kconfig.iconbox_exists_reply = "exists"
+    apply_mod.apply_full("e13")
+    creates = [c for c in fake_kconfig.calls if "new Panel" in c[-1]]
+    assert len(creates) == 1
+    assert fake_kconfig.store["IconboxPanel"] == "301"
+
+
+def test_apply_full_recreates_iconbox_when_panel_gone(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["IconboxPanel"] = "301"
+    fake_kconfig.iconbox_exists_reply = "missing"
+    fake_kconfig.iconbox_create_reply = "302"
+    apply_mod.apply_full("e13")
+    fake_kconfig.index_of("new Panel")
+    assert fake_kconfig.store["IconboxPanel"] == "302"
+
+
+def test_apply_full_iconbox_create_without_id_raises_no_stale_marker(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """qdbus exits 0 even when the script throws — the printed id is the
+    real success signal."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.iconbox_create_reply = ""
+    with pytest.raises(apply_mod.ApplyError, match="iconbox"):
+        apply_mod.apply_full("e13")
+    assert "IconboxPanel" not in fake_kconfig.store
+
+
+def test_apply_full_iconbox_survives_wallpaper_failure(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tiled")
+    _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
+    fake_kconfig.fail_on["plasma-apply-wallpaperimage"] = "boom"
+    with pytest.raises(apply_mod.ApplyError, match="plasma-apply-wallpaperimage"):
+        apply_mod.apply_full("e13")
+    fake_kconfig.index_of("new Panel")
+    assert fake_kconfig.store["IconboxPanel"] == "301"
+
+
+def test_apply_breeze_never_creates_iconbox(fake_kconfig: FakeKConfig) -> None:
+    apply_mod.apply_full("Breeze")
+    with pytest.raises(AssertionError):
+        fake_kconfig.index_of("new Panel")
+
+
+def test_revert_removes_iconbox_and_clears_marker(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["IconboxPanel"] = "301"
+    assert apply_mod.revert() is True
+    i = fake_kconfig.index_of("panelById(301)")
+    script = fake_kconfig.calls[i][-1]
+    assert "remove()" in script
+    assert "IconboxPanel" not in fake_kconfig.store
+
+
+def test_revert_with_only_iconbox_marker_is_a_revert(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["IconboxPanel"] = "301"
+    assert apply_mod.revert() is True
+
+
+def test_revert_iconbox_removal_failure_keeps_marker(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["IconboxPanel"] = "301"
+    fake_kconfig.fail_on["qdbus6"] = "plasmashell gone"
+    with pytest.raises(apply_mod.ApplyError, match="iconbox"):
+        apply_mod.revert()
+    assert fake_kconfig.store["IconboxPanel"] == "301"
+
+
+def test_revert_iconbox_script_error_keeps_marker(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """qdbus exits 0 even when the removal script throws — the printed
+    sentinel is the real success signal, and without it the marker (the
+    only handle on the created panel) must survive for a retry."""
+    fake_kconfig.store["IconboxPanel"] = "301"
+    fake_kconfig.iconbox_remove_reply = ""
+    with pytest.raises(apply_mod.ApplyError, match="iconbox"):
+        apply_mod.revert()
+    assert fake_kconfig.store["IconboxPanel"] == "301"
+
+
+def test_revert_iconbox_absent_panel_still_clears_marker(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["IconboxPanel"] = "301"
+    fake_kconfig.iconbox_remove_reply = "absent"
+    assert apply_mod.revert() is True
+    assert "IconboxPanel" not in fake_kconfig.store
+
+
+def test_iconbox_non_ascii_digit_marker_never_interpolated(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """str.isdigit() alone accepts superscript digits — those must be
+    treated like any other tampered marker, not interpolated."""
+    weird = "³01"  # "³01": isdigit() is True, not a valid panel id
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["IconboxPanel"] = weird
+    apply_mod.apply_full("e13")
+    assert all(weird not in tok for c in fake_kconfig.calls for tok in c)
+    assert fake_kconfig.store["IconboxPanel"] == "301"
+
+    fake_kconfig.store["IconboxPanel"] = weird
+    assert apply_mod.revert() is True
+    assert all(
+        weird not in c[-1]
+        for c in fake_kconfig.calls
+        if any("evaluateScript" in tok for tok in c)
+    )
+    assert "IconboxPanel" not in fake_kconfig.store
+
+
+def test_apply_full_restart_skipped_when_systemctl_missing(
+    fake_kconfig: FakeKConfig, monkeypatch, caplog,
+) -> None:
+    """No systemd is a graceful skip with a hint, never a failed apply."""
+    monkeypatch.setattr(
+        apply_mod.shutil, "which",
+        lambda n: None if n == "systemctl" else f"/usr/bin/{n}",
+    )
+    _install_fake_deco("e13")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tiled")
+    _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
+    apply_mod.apply_full("e13")  # must not raise
+    with pytest.raises(AssertionError):
+        fake_kconfig.index_of("systemctl")
+    assert "restart plasmashell manually" in caplog.text
+
+
+def test_revert_removes_iconbox_before_panel_mode_restore(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """The mode-restore script must iterate only surviving panels."""
+    fake_kconfig.store["IconboxPanel"] = "301"
+    fake_kconfig.store["PrevPanelLengthModes"] = "1058=fill"
+    assert apply_mod.revert() is True
+    i_remove = fake_kconfig.index_of("panelById(301)")
+    i_restore = fake_kconfig.index_of("p.id == 1058")
+    assert i_remove < i_restore
+
+
+def test_iconbox_non_digit_marker_never_interpolated(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """kdeglobals is user-editable — a tampered marker must never reach a
+    plasmashell script (apply recreates; revert just drops the marker)."""
+    evil = "0); panelById(1).remove(); print("
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["IconboxPanel"] = evil
+    apply_mod.apply_full("e13")
+    assert all(evil not in tok for c in fake_kconfig.calls for tok in c)
+    assert fake_kconfig.store["IconboxPanel"] == "301"
+
+    fake_kconfig.store["IconboxPanel"] = evil
+    assert apply_mod.revert() is True
+    assert all(
+        evil not in c[-1]
+        for c in fake_kconfig.calls
+        if any("evaluateScript" in tok for tok in c)
+    )
+    assert "IconboxPanel" not in fake_kconfig.store
+
+
 def test_revert_retry_with_only_plasma_marker_succeeds(
     fake_kconfig: FakeKConfig,
 ) -> None:
@@ -744,3 +990,52 @@ def test_revert_retry_with_only_plasma_marker_succeeds(
     assert fake_kconfig.calls[i][-1] == "Otto"
     assert "PrevPlasmaTheme" not in fake_kconfig.store
     assert "library" not in fake_kconfig.store
+
+
+def test_apply_full_tiled_wallpaper_restarts_plasmashell_last(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """plasmashell 6.6.6 never repaints fill-mode from scripting (verified
+    live) — a tiled wallpaper needs a shell restart, dead last so it cannot
+    race any evaluateScript call."""
+    _install_fake_deco("e13")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tiled")
+    _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
+    apply_mod.apply_full("e13")
+    i_restart = fake_kconfig.index_of("systemctl")
+    cmd = fake_kconfig.calls[i_restart]
+    assert cmd[1:] == ["--user", "restart", "plasma-plasmashell"]
+    i_reconf = fake_kconfig.index_of("org.kde.KWin", "reconfigure")
+    assert i_reconf < i_restart
+    assert i_restart == len(fake_kconfig.calls) - 1
+
+
+def test_apply_full_scaled_wallpaper_no_restart(fake_kconfig: FakeKConfig) -> None:
+    _install_fake_deco("e13")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="scaled")
+    _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
+    apply_mod.apply_full("e13")
+    with pytest.raises(AssertionError):
+        fake_kconfig.index_of("systemctl")
+
+
+def test_apply_full_no_restart_shell_opt_out(fake_kconfig: FakeKConfig) -> None:
+    _install_fake_deco("e13")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tiled")
+    _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
+    apply_mod.apply_full("e13", restart_shell=False)
+    with pytest.raises(AssertionError):
+        fake_kconfig.index_of("systemctl")
+
+
+def test_apply_full_restart_failure_only_warns(
+    fake_kconfig: FakeKConfig, caplog,
+) -> None:
+    """The theme is fully applied by restart time — a failed restart is a
+    warning (repaint waits for the next login), never a failed apply."""
+    _install_fake_deco("e13")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tiled")
+    _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
+    fake_kconfig.fail_on["systemctl"] = "unit not loaded"
+    apply_mod.apply_full("e13")  # must not raise
+    assert "restart" in caplog.text.lower()

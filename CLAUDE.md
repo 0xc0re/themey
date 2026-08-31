@@ -114,7 +114,7 @@ receives no fidelity work.
 | `generate/cursors.py` | E16 `__CURSOR` → XCursor pointer theme via the hand-rolled XBM parser + `xcursorgen`; modern Plasma 6.6 names canonical, legacy X11 names as symlinks |
 | `generate/plasmastyle.py` | Plasma Style (`Plasma/Theme` KPackage under `plasma/desktoptheme/themey_<slug>/`, selected by the bundle's `[plasmarc][Theme] name=`) — panel/popup/tooltip/pager chrome as KSvg FrameSvg sets. Deliberately sparse: ship an SVG only where E16 has real counterpart art and let Breeze fill in per missing file, re-tinted through the package's own `colors`. Every shipped SVG is mirrored byte-identically into `solid/` and `opaque/`; the panel background is the one exception — a flat translucent tint (never E16 art, whose baked-in wordmarks stretch unreadably across a 40 px panel), re-rendered opaque for those mirrors |
 | `generate/lookandfeel.py` | Plasma Global Theme (Look-and-Feel) bundle writer — `metadata.json` + `contents/defaults`, one conditional INI group per artifact this conversion actually deployed |
-| root modules | `ir.py` (IR), `paths.py` (XDG install roots), `install.py` (atomic deploy — `deploy` for package dirs, `deploy_file` for single files like `.colors`), `report.py`, `preview.py`, `kwin.py`, `render.py`, `apply.py`, `external.py` (xcursorgen wrapper), `slug.py` (naming contract), `log.py` |
+| root modules | `ir.py` (IR), `paths.py` (XDG install roots), `install.py` (atomic deploy — `deploy` for package dirs, `deploy_file` for single files like `.colors`, `clear_style_cache` for the Version-keyed plasmashell kcache, called at both convert and apply time), `report.py`, `preview.py`, `kwin.py`, `render.py`, `apply.py`, `external.py` (xcursorgen wrapper), `slug.py` (naming contract), `log.py` |
 
 **Naming contract.** Every Global-Theme artifact for one conversion derives
 from `slug.plugin_id(theme.name)` = `themey_<slug>`, deliberately reused
@@ -163,8 +163,15 @@ LnF apply already wrote deco defaults — those land in the
 `~/.config/kdedefaults/` layer, and only an explicit user-layer write is
 guaranteed to win), then `_set_panels_fit` (every panel's `lengthMode` to
 `fit` — E16's iconbox/dragbar are content-sized and a full-width bar reads
-as Plasma, not E16), then the tiled-wallpaper fix-up, and one `qdbus`
-reconfigure last. The panel step comes BEFORE the wallpaper one on
+as Plasma, not E16), then `_ensure_iconbox` (a dedicated bottom-left
+content-sized panel with an icons-only task manager showing only MINIMIZED
+windows — E16's iconbox; created via plasmashell scripting, `[Themey]
+IconboxPanel` marker holds the containment id — an artifact marker, not a
+`Prev*` baseline: overwritten when the recorded panel is gone, skipped
+when alive, deleted when revert removes the panel; placed after the fit
+step so the new panel never pollutes `PrevPanelLengthModes`), then the
+tiled-wallpaper fix-up, and one `qdbus`
+reconfigure last. The panel steps come BEFORE the wallpaper one on
 purpose: the wallpaper step is the likeliest to raise, and a failed apply
 should still have delivered the panel feel.
 
@@ -178,15 +185,21 @@ Plasma's Image wallpaper plugin doesn't read fill-mode from the package
 either). So: `plasma-apply-wallpaperimage <image>` sets the image, then a
 plasmashell scripting D-Bus call writes `FillMode =
 _WALLPAPER_TILE_FILL_MODE_INT` (3, QML `Image.Tile`) on every desktop's
-Image wallpaper config. The trailing `reloadConfig()` in that script is
-load-bearing — without it the config says tiled while the screen keeps the
-old fill until next login (also verified live 2026-08-31).
+Image wallpaper config. The CONFIG lands (KCM shows Tiled) but plasmashell
+6.6.6 does NOT repaint fill-mode from ANY scripting write (verified live
+2026-08-31 — FillMode alone, +reloadConfig, even an Image swap left the
+render pixel-identical), so a tiled apply ends with
+`systemctl --user restart plasma-plasmashell` (`_restart_plasmashell`,
+dead last so it can't race any evaluateScript; failure = warning, never a
+failed apply; opt-out `--no-restart-shell`).
 
 `themey apply --revert` reads
 the markers back, reapplies the recorded Look-and-Feel package (no
 Breeze special-case — a real baseline is typically a third-party theme,
 e.g. `com.github.vinceliuice.MacVentura-Dark`), restores the deco
-triple, button layout and panel length modes, then clears the markers it
+triple, button layout and panel length modes, removes the themey-created
+iconbox panel (before the panel-mode restore, so that script iterates only
+surviving panels), then clears the markers it
 actually restored; a
 failure to reapply the recorded package does NOT abort the rest of the
 restore, and `PrevLookAndFeelPackage` is deliberately kept in that one case

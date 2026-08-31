@@ -21,7 +21,12 @@ def test_apply_default_routes_to_apply_full(monkeypatch) -> None:
     )
     result = CliRunner().invoke(app, ["apply", "e13"])
     assert result.exit_code == 0, result.output
-    assert calls == [("e13", {"legacy_plugin": False, "border_size": None, "keep_buttons": False})]
+    assert calls == [
+        ("e13", {
+            "legacy_plugin": False, "border_size": None,
+            "keep_buttons": False, "restart_shell": True,
+        })
+    ]
     assert "revert: themey apply --revert" in result.output
 
 
@@ -104,3 +109,13 @@ def test_apply_revert_error_exits_nonzero(monkeypatch) -> None:
     monkeypatch.setattr(apply_mod, "revert", boom)
     result = CliRunner().invoke(app, ["apply", "--revert"])
     assert result.exit_code != 0
+
+
+def test_apply_no_restart_shell_flag_passes_through(monkeypatch) -> None:
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        apply_mod, "apply_full", lambda name, **kw: calls.append((name, kw))
+    )
+    result = CliRunner().invoke(app, ["apply", "e13", "--no-restart-shell"])
+    assert result.exit_code == 0, result.output
+    assert calls[0][1]["restart_shell"] is False

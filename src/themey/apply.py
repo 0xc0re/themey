@@ -17,7 +17,10 @@ Two applies live here:
   (the LnF apply lands in the ``~/.config/kdedefaults/`` layer, which the
   *explicit* kwinrc write in the user layer overrides), then fixes up a
   tiled default wallpaper (Plasma's Image wallpaper plugin does not read
-  fill-mode from the wallpaper package).
+  fill-mode from the wallpaper package) and — because plasmashell never
+  repaints a scripted fill-mode change — ends a tiled apply with an
+  automatic plasmashell restart (:func:`_restart_plasmashell`,
+  opt-out ``restart_shell=False`` / CLI ``--no-restart-shell``).
 
 Both applies share the decoration-writing logic (``_write_deco``) and the
 button-order snapshot/restore machinery. Button ORDER is global kwinrc
@@ -48,6 +51,16 @@ not Breeze), restores the deco triple and the button layout, then deletes
 both markers. No markers present means no prior full apply on this
 machine: a friendly no-op, not an error.
 
+:func:`apply_full` also creates a dedicated E16 iconbox panel — a small
+bottom-left, content-sized panel whose icons-only task manager shows only
+MINIMIZED windows, E16's iconbox behavior — via plasmashell desktop
+scripting (:func:`_ensure_iconbox`). Its ``[Themey] IconboxPanel`` marker
+is the one marker that is NOT a ``Prev*`` baseline: it records a
+themey-CREATED artifact (the panel's containment id), so it is overwritten
+when the recorded panel no longer exists (recreate), left alone when it
+does (idempotent second apply), and deleted when :func:`revert` removes
+the panel. Existing panels are never touched beyond the fit-content step.
+
 Legacy revert path: ``themey apply Breeze`` (which selects
 ``org.kde.breeze``, restores the recorded button layout) or System
 Settings → Window Decorations. That path is untouched by the above.
@@ -57,12 +70,12 @@ from __future__ import annotations
 import configparser
 import json
 import logging
-import os
 import shutil
 import subprocess
 from pathlib import Path
 
 from . import paths
+from .install import clear_style_cache
 from .kwin import BORDER_SIZES, PLUGINS, recommended_border_size
 from .slug import plugin_id
 
@@ -222,6 +235,26 @@ _PREV_COLORS_KEY = "PrevColorScheme"
 _PREV_PLASMA_KEY = "PrevPlasmaTheme"
 _PREV_PANELS_KEY = "PrevPanelLengthModes"
 
+# The iconbox marker is NOT a Prev* baseline: it records a themey-CREATED
+# artifact (the dedicated iconbox panel's containment id), so it is
+# overwritten whenever the recorded panel no longer exists and deleted when
+# revert removes the panel.
+_ICONBOX_KEY = "IconboxPanel"
+_ICONBOX_WIDGET = "org.kde.plasma.icontasks"
+_ICONBOX_LOCATION = "bottom"
+_ICONBOX_ALIGNMENT = "left"
+_ICONBOX_HEIGHT = 44
+
+
+def _is_panel_id(value: str) -> bool:
+    """True when *value* is safe to interpolate into a plasmashell script.
+
+    ``str.isdigit()`` alone accepts non-ASCII digit-property characters
+    ("³01"), which carry no injection risk but would throw inside the
+    script — and a thrown removal script must not read as success.
+    """
+    return value.isascii() and value.isdigit()
+
 
 def _record_prev_lookandfeel(kw: str, kr: str) -> None:
     """Snapshot kdeglobals ``[KDE] LookAndFeelPackage`` once, before the
@@ -264,29 +297,6 @@ def _record_prev_plasmatheme(kw: str, kr: str) -> None:
         return
     prev = _cfg_read(kr, _PLASMARC, _PLASMA_THEME_GROUP, _PLASMA_NAME_KEY) or _UNSET
     _cfg_write(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PLASMA_KEY, prev)
-
-
-def _clear_style_cache(pkg_id: str) -> None:
-    """Delete plasmashell's rendered-SVG caches for the themey style.
-
-    The ``plasma_theme_<name>[_v<version>].kcache`` files are keyed by the
-    package metadata ``Version``, which a re-convert never bumps — without
-    this, re-converting a theme and re-applying it would keep painting the
-    PREVIOUS conversion's panel art forever. Environment is read at call
-    time (not import time) so tests can monkeypatch it, mirroring
-    ``paths.py``."""
-    cache_home = os.environ.get("XDG_CACHE_HOME")
-    cache_root = (
-        Path(cache_home)
-        if cache_home
-        else Path(os.environ.get("HOME", "/")) / ".cache"
-    )
-    for cache in cache_root.glob(f"plasma_theme_{pkg_id}*.kcache"):
-        try:
-            cache.unlink()
-            log.debug("removed stale style cache %s", cache)
-        except OSError as exc:
-            log.warning("could not remove style cache %s: %s", cache, exc)
 
 
 def _evaluate_plasma_script(script: str, what: str) -> str:
@@ -370,6 +380,62 @@ def _restore_panel_length_modes(kw: str, marker: str) -> None:
         f"for (const p of panels()) {{ {assignments} }}",
         "plasmashell panel length-mode restore script",
     )
+
+
+def _create_iconbox_panel() -> str:
+    """Create the dedicated E16 iconbox panel; returns its containment id.
+
+    A small bottom-left, content-sized panel holding an icons-only task
+    manager that shows ONLY minimized windows — E16's iconbox: icons appear
+    on iconify, vanish on restore. ``launchers`` is cleared because
+    icontasks ships default pinned launchers. ``qdbus`` exits 0 even when
+    the script throws, so the printed panel id is the real success signal.
+    ``p.floating`` is wrapped in try/catch: an unscriptable property
+    assignment would otherwise kill the whole script.
+    """
+    reply = _evaluate_plasma_script(
+        "var p = new Panel;"
+        f" p.location = '{_ICONBOX_LOCATION}';"
+        f" p.alignment = '{_ICONBOX_ALIGNMENT}';"
+        f" p.height = {_ICONBOX_HEIGHT};"
+        " p.hiding = 'none';"
+        " p.lengthMode = 'fit';"
+        " try { p.floating = false; } catch (e) {}"
+        f" var w = p.addWidget('{_ICONBOX_WIDGET}');"
+        " w.currentConfigGroup = ['General'];"
+        " w.writeConfig('showOnlyMinimized', true);"
+        " w.writeConfig('launchers', '');"
+        " w.reloadConfig();"
+        " print(p.id);",
+        "plasmashell iconbox creation script",
+    )
+    if not reply.isdigit():
+        raise ApplyError(
+            "plasmashell iconbox creation script did not print a panel id "
+            f"(got {reply!r}) — the iconbox panel was not created"
+        )
+    return reply
+
+
+def _ensure_iconbox(kw: str, kr: str) -> None:
+    """Create the iconbox panel unless the recorded one is still alive.
+
+    The marker is validated ``isdigit()`` before it is ever interpolated
+    into a plasmashell script — kdeglobals is user-editable, and a tampered
+    marker must not become script injection. A non-digit or dead-panel
+    marker is simply overwritten by the fresh panel's id, written only
+    AFTER a successful create so a failed create leaves no stale marker.
+    """
+    marker = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _ICONBOX_KEY)
+    if marker is not None and _is_panel_id(marker):
+        alive = _evaluate_plasma_script(
+            f"print(panelById({marker}) ? 'exists' : 'missing');",
+            "plasmashell iconbox existence check",
+        )
+        if alive == "exists":
+            return
+    panel_id = _create_iconbox_panel()
+    _cfg_write(kw, _KDEGLOBALS, _THEMEY_GROUP, _ICONBOX_KEY, panel_id)
 
 
 def _record_prev_deco(kw: str, kr: str) -> None:
@@ -457,14 +523,47 @@ def _reconfigure() -> None:
     )
 
 
+def _restart_plasmashell() -> None:
+    """Restart plasmashell so a tiled wallpaper actually repaints.
+
+    plasmashell 6.6.6 does NOT repaint fill-mode from any scripting write
+    (verified live 2026-08-31: FillMode alone, +Image rewrite,
+    +reloadConfig, even an Image swap-away-and-back all left the render
+    pixel-identical) — only the first paint after a shell restart or a
+    manual KCM toggle honors the new mode. The theme is fully applied by
+    the time this runs, so a failure (or a machine without systemd) is a
+    logged warning telling the user to restart manually, never a failed
+    apply.
+    """
+    systemctl = shutil.which("systemctl")
+    if systemctl is None:
+        log.warning(
+            "systemctl not found — restart plasmashell manually (or log "
+            "out and back in) for the tiled wallpaper to repaint"
+        )
+        return
+    try:
+        _run_checked(
+            [systemctl, "--user", "restart", "plasma-plasmashell"],
+            "plasmashell restart",
+        )
+    except ApplyError as exc:
+        log.warning(
+            "could not restart plasmashell (%s) — the tiled wallpaper "
+            "repaints after the next login or a manual restart", exc,
+        )
+
+
 def _set_wallpaper_tiled(image: Path) -> None:
     """Set *image* as the wallpaper on all desktops, tiled.
 
     Two steps because ``plasma-apply-wallpaperimage`` cannot express a
     tiled fill (see :data:`_WALLPAPER_TILE_FILL_MODE_INT`): the tool sets
     the image (and broadcasts the change), then a plasmashell scripting
-    call writes ``FillMode`` on every desktop's Image wallpaper config —
-    verified live on Plasma 6.6.6 (2026-08-31) to take effect immediately.
+    call writes ``FillMode`` on every desktop's Image wallpaper config.
+    The CONFIG lands (the KCM shows Tiled) but the live render does not
+    pick it up until plasmashell restarts — see
+    :func:`_restart_plasmashell`, which ``apply_full`` runs last.
     """
     plasma_apply_wp = _which("plasma-apply-wallpaperimage")
     _run_checked(
@@ -584,6 +683,7 @@ def apply_full(
     legacy_plugin: bool = False,
     border_size: str | None = None,
     keep_buttons: bool = False,
+    restart_shell: bool = True,
 ) -> None:
     """Apply the whole installed Look-and-Feel bundle for *name* (the CLI
     default), always via the QML deco backend.
@@ -596,7 +696,7 @@ def apply_full(
     (REQUIRED: the LnF apply does not touch an explicit user-layer
     ``[General] ColorScheme`` — see :func:`_record_prev_colorscheme`) →
     when the Plasma Style package is installed, clear its Version-keyed SVG
-    cache (:func:`_clear_style_cache`) then ``plasma-apply-desktoptheme
+    cache (:func:`themey.install.clear_style_cache`) then ``plasma-apply-desktoptheme
     themey_<slug>`` (explicit for the same user-layer-shadowing reason —
     see :func:`_record_prev_plasmatheme`) → the
     same decoration write :func:`apply` uses (REQUIRED even though the LnF
@@ -612,7 +712,10 @@ def apply_full(
     content-sized, and a full-width bar reads as Plasma, not E16; previous
     modes recorded once in ``PrevPanelLengthModes``): the wallpaper step
     is the likeliest to raise, and a failed apply should still have
-    delivered the panel feel.
+    delivered the panel feel. The dedicated iconbox panel is created right
+    after the fit step (:func:`_ensure_iconbox` — after, so it never
+    pollutes the ``PrevPanelLengthModes`` baseline; before the wallpaper
+    fix-up for the same survive-a-wallpaper-failure reason).
 
     ``name == "Breeze"`` (case-insensitive) is the one exception: Breeze
     has no Look-and-Feel bundle to verify or baseline to record — it is
@@ -678,7 +781,7 @@ def apply_full(
         # apply is required, not belt-and-braces. The cache clear must come
         # first: plasmashell would otherwise repaint from the stale
         # Version-keyed kcache of a previous conversion.
-        _clear_style_cache(pkg_id)
+        clear_style_cache(pkg_id)
         plasma_apply_style = _which("plasma-apply-desktoptheme")
         _run_checked(
             [plasma_apply_style, pkg_id],
@@ -696,6 +799,12 @@ def apply_full(
     # raises), and the E16 panel feel must not be lost to it.
     _set_panels_fit(kw, kr)
 
+    # Iconbox AFTER the fit step (so the created panel never pollutes the
+    # PrevPanelLengthModes baseline snapshotted there) and, like it,
+    # before the wallpaper fix-up.
+    _ensure_iconbox(kw, kr)
+
+    tiled_set = False
     wallpaper_id = _read_default_wallpaper_id(lnf_dir)
     if wallpaper_id is not None:
         wallpaper_dir = paths.wallpapers() / wallpaper_id
@@ -703,8 +812,15 @@ def apply_full(
             image = _wallpaper_image_path(wallpaper_dir)
             if image is not None:
                 _set_wallpaper_tiled(image)
+                tiled_set = True
 
     _reconfigure()
+
+    # Dead last — a shell restart would race any earlier evaluateScript.
+    # Only when a tiled wallpaper was set: nothing else needs the repaint,
+    # and a non-tiled apply should not flicker the desktop.
+    if restart_shell and tiled_set:
+        _restart_plasmashell()
 
 
 def revert() -> bool:
@@ -720,7 +836,9 @@ def revert() -> bool:
     is typically a third-party theme, e.g.
     ``com.github.vinceliuice.MacVentura-Dark``, not Breeze), restores the
     deco triple (deleting any key that was ``@unset`` before), restores
-    the button layout, then deletes the marker(s) for whatever it actually
+    the button layout, removes the themey-created iconbox panel (before
+    the panel-mode restore, so that script iterates only surviving
+    panels), then deletes the marker(s) for whatever it actually
     restored.
 
     Returns False (no error, no side effects beyond the ``which()``
@@ -751,12 +869,14 @@ def revert() -> bool:
     prev_colors = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_COLORS_KEY)
     prev_plasma = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PLASMA_KEY)
     prev_panels = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PANELS_KEY)
+    prev_iconbox = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _ICONBOX_KEY)
     if (
         prev_deco is None
         and prev_lnf is None
         and prev_colors is None
         and prev_plasma is None
         and prev_panels is None
+        and prev_iconbox is None
     ):
         return False
 
@@ -843,6 +963,40 @@ def revert() -> bool:
                     prev_plasma, exc,
                 )
 
+    # Iconbox removal BEFORE the panel-mode restore, so the mode-restore
+    # script iterates only surviving panels. A missing panel prints
+    # 'absent' — still success, marker deleted. The printed sentinel is
+    # the real success signal (qdbus exits 0 even when the script throws,
+    # and the marker is the ONLY handle on the created panel — deleting it
+    # on a thrown script would leak the panel with no retry). A non-digit
+    # (tampered) marker is never interpolated: just dropped.
+    iconbox_error: ApplyError | None = None
+    if prev_iconbox is not None:
+        if _is_panel_id(prev_iconbox):
+            try:
+                reply = _evaluate_plasma_script(
+                    f"var p = panelById({prev_iconbox});"
+                    " if (p) { p.remove(); print('removed'); }"
+                    " else { print('absent'); }",
+                    "plasmashell iconbox removal script",
+                )
+                if reply not in ("removed", "absent"):
+                    raise ApplyError(
+                        "plasmashell iconbox removal script did not "
+                        f"confirm removal (got {reply!r})"
+                    )
+                _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, _ICONBOX_KEY)
+            except ApplyError as exc:
+                iconbox_error = exc
+                log.warning(
+                    "could not remove the themey iconbox panel (%s) — "
+                    "keeping the marker so a later `themey apply --revert` "
+                    "can retry it",
+                    exc,
+                )
+        else:
+            _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, _ICONBOX_KEY)
+
     panels_error: ApplyError | None = None
     if prev_panels is not None:
         try:
@@ -859,7 +1013,7 @@ def revert() -> bool:
 
     _reconfigure()
 
-    errors = (lnf_error, colors_error, plasma_error, panels_error)
+    errors = (lnf_error, colors_error, plasma_error, iconbox_error, panels_error)
     if any(e is not None for e in errors):
         failed = " and ".join(str(e) for e in errors if e is not None)
         raise ApplyError(

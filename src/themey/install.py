@@ -20,15 +20,45 @@ caller is responsible for staging to the right location.
 """
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 from pathlib import Path
 
 from . import paths
 
+log = logging.getLogger(__name__)
+
 
 class InstallError(Exception):
     """Atomic install failed; previous install (if any) was restored."""
+
+
+def clear_style_cache(pkg_id: str) -> None:
+    """Delete plasmashell's rendered-SVG caches for the themey style.
+
+    The ``plasma_theme_<name>[_v<version>].kcache`` files are keyed by the
+    package metadata ``Version``, which a re-convert never bumps — without
+    this, a re-converted Plasma Style would keep painting the PREVIOUS
+    conversion's panel art. Called from both deploy time (``pipeline``,
+    so a re-convert alone refreshes the art) and apply time (``apply``,
+    before ``plasma-apply-desktoptheme`` repaints). Environment is read at
+    call time (not import time) so tests can monkeypatch it, mirroring
+    ``paths.py``. Never raises: a cache that cannot be removed is a
+    warning, not a failed install.
+    """
+    cache_home = os.environ.get("XDG_CACHE_HOME")
+    cache_root = (
+        Path(cache_home)
+        if cache_home
+        else Path(os.environ.get("HOME", "/")) / ".cache"
+    )
+    for cache in cache_root.glob(f"plasma_theme_{pkg_id}*.kcache"):
+        try:
+            cache.unlink()
+            log.debug("removed stale style cache %s", cache)
+        except OSError as exc:
+            log.warning("could not remove style cache %s: %s", cache, exc)
 
 
 def deploy(theme_name: str, source_dir: Path, target_root: Path | None = None) -> Path:

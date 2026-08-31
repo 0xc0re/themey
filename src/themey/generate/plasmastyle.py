@@ -877,9 +877,29 @@ def _fg_for(
     return best, True
 
 
-def _regroup(group: ColorGroup, bg: RGB | None, fg: RGB) -> ColorGroup:
-    """*group* with a new bg/fg, derived fields recomputed for legibility."""
+def _regroup(
+    group: ColorGroup,
+    bg: RGB | None,
+    fg: RGB,
+    guards: tuple[RGB, ...] = (),
+) -> ColorGroup:
+    """*group* with a new bg/fg, derived fields recomputed for legibility.
+
+    *guards* lists EVERY background this group's text is painted on beyond
+    its own ``background_normal`` — for Colors:Window that is the panel
+    tint, which shares the group with the popup art. The derived
+    ``foreground_inactive``/``foreground_active`` prefer their usual
+    single-background derivation but fall back (to *fg*, itself already
+    guard-legible by construction, or to the black/white
+    maximize-the-minimum pick) when that derivation fails a guard.
+    """
     background = bg if bg is not None else group.background_normal
+    checks = (background, *guards)
+    inactive = _dimmed(fg, background)
+    if not all(contrast_ratio(inactive, b) >= MIN_CONTRAST for b in guards):
+        inactive = fg
+    active = _legible(group.foreground_active, background)
+    active, _ = _fg_for(active, active, checks)
     return replace(
         group,
         background_normal=background,
@@ -887,8 +907,8 @@ def _regroup(group: ColorGroup, bg: RGB | None, fg: RGB) -> ColorGroup:
             background if bg is not None else group.background_alternate
         ),
         foreground_normal=fg,
-        foreground_inactive=_dimmed(fg, background),
-        foreground_active=_legible(group.foreground_active, background),
+        foreground_inactive=inactive,
+        foreground_active=active,
     )
 
 
@@ -908,6 +928,16 @@ def style_scheme(theme: Theme, *, shipped: frozenset[str]) -> ColorScheme:
     sampled scheme. Text prefers the theme's own tclass colors
     (``MENU_TEXT``/``TT_TEXT``/``DIALOG_*``), WCAG-guarded; every override
     appends a ``plasmastyle:`` note naming its source.
+
+    Colors:Window is shared by the panel AND popups, so its ENTIRE
+    foreground set — ``ForegroundNormal`` and the derived
+    ``ForegroundInactive``/``ForegroundActive`` — is guarded against both
+    the popup art's background and the panel tint (see :func:`_regroup`'s
+    ``guards``). When both backgrounds cannot be satisfied at once (e.g.
+    black popups over a white panel) the black/white
+    maximize-the-minimum-contrast pick applies; a ``forced``
+    ``plasmastyle:`` note records it for ``ForegroundNormal`` (the derived
+    fields adjust silently).
     """
     scheme = theme.scheme if theme.scheme is not None else default_scheme()
 
@@ -937,7 +967,13 @@ def style_scheme(theme: Theme, *, shipped: frozenset[str]) -> ColorScheme:
             if bg is not None
         )
         fg, forced = _fg_for(candidate, scheme.window.foreground_normal, guards)
-        scheme = replace(scheme, window=_regroup(scheme.window, dialog_bg, fg))
+        # The panel tint joins the guard set for the DERIVED foregrounds
+        # too: dimmed/active text is painted on the panel just as much as
+        # ForegroundNormal is.
+        extra = (panel_bg,) if panel_bg is not None else ()
+        scheme = replace(
+            scheme, window=_regroup(scheme.window, dialog_bg, fg, guards=extra)
+        )
         theme.notes.append(
             "plasmastyle: colors Window (panel/popup) "
             + (

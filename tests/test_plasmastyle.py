@@ -477,6 +477,39 @@ def test_style_scheme_window_dual_guard_flips_to_black_or_white(
     assert any("forced" in n for n in theme.notes)
 
 
+def test_style_scheme_window_derived_foregrounds_clear_panel_tint(
+    tmp_path: Path,
+) -> None:
+    """ForegroundInactive/ForegroundActive share the Window group with the
+    panel, so they must clear AA against the panel tint too — not just the
+    popup art they were dimmed/guarded toward."""
+    from themey.analyze.colors import MIN_CONTRAST, contrast_ratio
+
+    dark_menu = _png(tmp_path, "menu.png", color=(30, 30, 40, 255))
+    mid_panel = _png(tmp_path, "bar.png", color=(60, 70, 65, 255))
+    theme = _theme(
+        tmp_path,
+        {
+            "MENU_BG": _iclass("MENU_BG", normal=dark_menu),
+            "DESKTOP_DRAGBUTTON_HORIZ": _iclass(
+                "DESKTOP_DRAGBUTTON_HORIZ", normal=mid_panel
+            ),
+        },
+        {"MENU_TEXT": _tclass("MENU_TEXT", fg=(240, 240, 240))},
+    )
+    scheme = plasmastyle.style_scheme(
+        theme,
+        shipped=frozenset({plasmastyle.DIALOG_SVG, plasmastyle.PANEL_SVG}),
+    )
+    assert scheme.window.background_normal == (30, 30, 40)
+    for field in ("foreground_normal", "foreground_inactive", "foreground_active"):
+        fg = getattr(scheme.window, field)
+        for bg in ((30, 30, 40), (60, 70, 65)):
+            assert contrast_ratio(fg, bg) >= MIN_CONTRAST, (
+                f"{field}={fg} is illegible on {bg}"
+            )
+
+
 def test_style_scheme_selection_from_hover_art(tmp_path: Path) -> None:
     hi = _png(tmp_path, "sel.png", color=(60, 20, 90, 255))
     theme = _theme(

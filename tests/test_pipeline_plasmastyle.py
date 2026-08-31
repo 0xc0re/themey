@@ -109,3 +109,31 @@ def test_style_failure_is_non_fatal_with_note(fake_home, tmp_path, monkeypatch):
     # The bundle must not reference a style that never installed.
     text = (result.lnf_dir / "contents" / "defaults").read_text()
     assert "[plasmarc][Theme]" not in text
+
+
+def test_install_mode_clears_stale_style_cache(fake_home, monkeypatch, tmp_path):
+    """A re-convert without a re-apply must not keep painting the previous
+    conversion's panel art from the Version-keyed kcache."""
+    cache = tmp_path / "xdg-cache"
+    cache.mkdir()
+    monkeypatch.setenv("XDG_CACHE_HOME", str(cache))
+    stale = cache / f"plasma_theme_{plugin_id('Aliens')}_v1.0.kcache"
+    stale.write_bytes(b"stale")
+    other = cache / "plasma_theme_themey_e13_v1.0.kcache"
+    other.write_bytes(b"keep")
+    convert(FIXTURES / "Aliens.etheme", scale=2, backend="qml")
+    assert not stale.exists()
+    assert other.exists()  # other themes' caches are left alone
+
+
+def test_output_dir_mode_leaves_style_cache_alone(fake_home, monkeypatch, tmp_path):
+    cache = tmp_path / "xdg-cache"
+    cache.mkdir()
+    monkeypatch.setenv("XDG_CACHE_HOME", str(cache))
+    stale = cache / f"plasma_theme_{plugin_id('Aliens')}_v1.0.kcache"
+    stale.write_bytes(b"stale")
+    convert(
+        FIXTURES / "Aliens.etheme", scale=2, backend="qml",
+        output_dir=tmp_path / "out",
+    )
+    assert stale.exists()
