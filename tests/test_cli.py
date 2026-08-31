@@ -98,6 +98,8 @@ def test_cli_output_dir_skips_install(fake_home, tmp_path, monkeypatch):
     assert (out / "Aliens.report.txt").is_file()
     assert (out / "Aliens.html").is_file()
     assert (out / "themey_Aliens.colors").is_file()
+    assert (out / "desktoptheme" / "themey_Aliens" / "metadata.json").is_file()
+    assert "Wrote (plasma style):" in result.output
     assert not (fake_home / ".local/share/aurorae").exists()
     assert not (fake_home / ".local/share/color-schemes").exists()
     assert "Wrote:" in result.output

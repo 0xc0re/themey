@@ -33,6 +33,8 @@ from .generate.aurorae import write as write_aurorae
 from .generate.colors import scheme_stem, write_colors
 from .generate.cursors import CursorTheme
 from .generate.cursors import write_theme as write_cursor_theme
+from .generate.plasmastyle import PlasmaStyleError
+from .generate.plasmastyle import write as write_plasma_style
 from .generate.wallpaper import WallpaperError, WallpaperPackage
 from .generate.wallpaper import pick_default as pick_default_wallpaper
 from .generate.wallpaper import write_package as write_wallpaper_package
@@ -74,6 +76,14 @@ class ConvertResult:
     ``output_dir``). None when the theme declares no ``__CURSOR`` blocks,
     xcursorgen is not on PATH, or no pointer could be converted — each
     leaves a ``cursors:`` note instead of failing the convert."""
+    desktop_theme_dir: Path | None = None
+    """Installed Plasma Style (desktop theme) package dir (or the copy
+    under ``output_dir``). None when the style failed to build — a
+    ``plasmastyle:`` note says why, and the convert still succeeds."""
+    desktop_theme_id: str | None = None
+    """Package dir name / ``plasmarc [Theme] name=`` value for the Plasma
+    Style — the same ``themey_<slug>`` string as ``qml_plugin_id``, in yet
+    another namespace (``plasma/desktoptheme/``)."""
     lnf_dir: Path | None = None
     """Installed Plasma Global Theme (Look-and-Feel) bundle dir (or the copy
     under ``output_dir``). Assembled LAST, from the artifact ids that
@@ -205,6 +215,8 @@ def convert(
         cursor_dir_name = cursor_theme_dir(theme_name)
         cursor_dir: Path | None = None
         cursor_theme: CursorTheme | None = None
+        style_dir: Path | None = None
+        style_id: str | None = None
         lnf_dir: Path | None = None
         wallpaper_dirs: list[Path] = []
         # One WallpaperPackage per installed wallpaper_dirs entry (same
@@ -261,6 +273,20 @@ def convert(
             if cursor_theme is not None:
                 cursor_dir = cursor_out
                 log.info("wrote cursor theme to %s", cursor_dir)
+            # The Plasma Style also lives under its own "desktoptheme/"
+            # subdir — its dir name is again pkg_id (see the look-and-feel
+            # comment below) and would collide with `qml_installed` flat.
+            style_out = output_dir / "desktoptheme" / pkg_id
+            if style_out.exists():
+                shutil.rmtree(style_out)
+            try:
+                style = write_plasma_style(theme, style_out)
+            except PlasmaStyleError as exc:
+                theme.notes.append(f"plasmastyle: skipped: {exc}")
+            else:
+                style_dir = style.dir
+                style_id = style.id
+                log.info("wrote Plasma Style to %s", style_dir)
 
             # LAST: assemble the Global Theme bundle from the ids that
             # actually deployed above, never from theme analysis — a
@@ -285,6 +311,7 @@ def convert(
                 default_wallpaper_image=_default_wallpaper_image(default_wp),
                 deco_library=deco_library,
                 deco_theme=deco_theme,
+                desktop_theme_name=style_id,
             )
             lnf_dir = bundle.dir
             log.info("wrote Look-and-Feel bundle to %s", lnf_dir)
@@ -361,6 +388,20 @@ def convert(
                         target_root=paths.cursor_themes(),
                     )
                     log.info("installed cursor theme to %s", cursor_dir)
+                # Staged under "desktoptheme/" for the same pkg_id
+                # collision reason as "look-and-feel/" below.
+                stage_style_dir = stage / "desktoptheme" / pkg_id
+                try:
+                    style = write_plasma_style(theme, stage_style_dir)
+                except PlasmaStyleError as exc:
+                    theme.notes.append(f"plasmastyle: skipped: {exc}")
+                else:
+                    style_dir = install.deploy(
+                        pkg_id, stage_style_dir,
+                        target_root=paths.desktop_themes(),
+                    )
+                    style_id = style.id
+                    log.info("installed Plasma Style to %s", style_dir)
 
                 # LAST: assemble + install the Global Theme bundle from the
                 # ids that actually deployed above (see the output_dir
@@ -381,6 +422,7 @@ def convert(
                     default_wallpaper_image=_default_wallpaper_image(default_wp),
                     deco_library=deco_library,
                     deco_theme=deco_theme,
+                    desktop_theme_name=style_id,
                 )
                 lnf_dir = install.deploy(
                     pkg_id, stage_lnf_dir, target_root=paths.look_and_feel()
@@ -400,6 +442,7 @@ def convert(
             cursor_theme=cursor_theme,
             lnf_id=pkg_id,
             lnf_dir=lnf_dir,
+            desktop_theme_id=style_id,
         )
         preview_path = render_preview(theme, previews / f"{theme_name}.html")
 
@@ -417,6 +460,8 @@ def convert(
         color_scheme_path=colors_path,
         wallpaper_dirs=tuple(wallpaper_dirs),
         cursor_theme_dir=cursor_dir,
+        desktop_theme_dir=style_dir,
+        desktop_theme_id=style_id,
         lnf_dir=lnf_dir,
         lnf_id=pkg_id,
     )

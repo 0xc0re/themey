@@ -28,6 +28,7 @@ def write(
     cursor_theme: CursorTheme | None = None,
     lnf_id: str | None = None,
     lnf_dir: Path | None = None,
+    desktop_theme_id: str | None = None,
 ) -> Path:
     """Write report.txt for *theme* to *out_path*.
 
@@ -43,7 +44,9 @@ def write(
     ``lnf_id``/``lnf_dir`` are the assembled Look-and-Feel bundle's
     ``KPlugin.Id`` and install path (Phase D); pass None for a caller that
     never assembled one (e.g. reporting straight from analysis, no install
-    step ran). Returns *out_path* so callers can chain.
+    step ran). ``desktop_theme_id`` is the installed Plasma Style package's
+    id, or None when the style failed to build (the ``plasmastyle:`` notes
+    say why). Returns *out_path* so callers can chain.
     """
     want_qml = backend in ("qml", "both")
     want_svg = backend in ("svg", "both")
@@ -132,6 +135,19 @@ def write(
             "- Pointer theme: not installed; the system cursor is left "
             "alone — see cursors: notes below."
         )
+    if desktop_theme_id is not None:
+        lines.append(
+            f"- Plasma Style: panel, popup, tooltip and widget chrome "
+            f"generated from the theme's own art (id {desktop_theme_id}); "
+            "anything without E16 counterpart art falls back to Breeze, "
+            "tinted by the bundled colors. Pick it under System Settings "
+            "-> Colors & Themes -> Plasma Style."
+        )
+    else:
+        lines.append(
+            "- Plasma Style: not installed; the panel and popups keep "
+            "their current look — see plasmastyle: notes below."
+        )
     if lnf_id is not None:
         lines.append(
             f"- Everything above is bundled as one Plasma Global Theme "
@@ -171,7 +187,7 @@ def write(
     # buried past line 20.
     _layout_prefixes = (
         "aurorae_rc:", "bundle:", "colors:", "composite:", "cursors:",
-        "qmldeco:", "wallpaper:",
+        "plasmastyle:", "qmldeco:", "wallpaper:",
     )
     layout_notes = [n for n in theme.notes if n.startswith(_layout_prefixes)]
     state_notes = [n for n in theme.notes if not n.startswith(_layout_prefixes)]

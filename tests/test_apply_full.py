@@ -391,6 +391,21 @@ def test_revert_retry_with_only_lnf_marker_succeeds(fake_kconfig: FakeKConfig) -
 # --- live 2026-08-31 on Plasma 6.6.6) ----------------------------------
 
 
+def _install_fake_style(name: str = "e13") -> Path:
+    style = paths.desktop_themes() / plugin_id(name)
+    style.mkdir(parents=True, exist_ok=True)
+    (style / "metadata.json").write_text("{}")
+    return style
+
+
+def _make_kcache(home: Path, pkg_id: str) -> Path:
+    cache = home / ".cache"
+    cache.mkdir(exist_ok=True)
+    kcache = cache / f"plasma_theme_{pkg_id}_v1.0.kcache"
+    kcache.write_bytes(b"stale")
+    return kcache
+
+
 def _install_fake_colors(name: str = "e13") -> Path:
     scheme = paths.color_schemes() / f"{plugin_id(name)}.colors"
     scheme.parent.mkdir(parents=True, exist_ok=True)
@@ -489,3 +504,157 @@ def test_revert_colorscheme_failure_keeps_marker_restores_rest(
     assert fake_kconfig.store["PrevColorScheme"] == "MacVenturaDark"
     assert fake_kconfig.store["theme"] == "Breeze"
     assert "ThemeyPrevDeco" not in fake_kconfig.store
+
+
+# --- explicit Plasma Style apply (plasmarc [Theme] name is an explicit
+# --- user-layer value on the reference machine — name=Otto — so the LnF
+# --- apply cannot be trusted to displace it; same shadowing as colors) --
+
+
+def test_apply_full_applies_style_and_records_marker(
+    fake_kconfig: FakeKConfig, monkeypatch, fake_home: Path,
+) -> None:
+    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    _install_fake_style("e13")
+    fake_kconfig.store["name"] = "Otto"  # plasmarc [Theme] name
+    kcache = _make_kcache(fake_home, "themey_e13")
+
+    apply_mod.apply_full("e13")
+
+    assert fake_kconfig.store["PrevPlasmaTheme"] == "Otto"
+    i_colors_or_lnf = fake_kconfig.index_of("plasma-apply-lookandfeel")
+    i_style = fake_kconfig.index_of("plasma-apply-desktoptheme")
+    i_deco = fake_kconfig.index_of("--key", "theme", "themey_e13")
+    assert fake_kconfig.calls[i_style][-1] == "themey_e13"
+    assert i_colors_or_lnf < i_style < i_deco
+    # The Version-keyed cache never invalidates on re-convert — apply
+    # must have deleted it before the style apply.
+    assert not kcache.exists()
+
+
+def test_apply_full_no_style_installed_skips_style_apply(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    apply_mod.apply_full("e13")
+    assert "PrevPlasmaTheme" not in fake_kconfig.store
+    with pytest.raises(AssertionError):
+        fake_kconfig.index_of("plasma-apply-desktoptheme")
+
+
+def test_apply_full_style_after_colors_before_deco(
+    fake_kconfig: FakeKConfig, monkeypatch,
+) -> None:
+    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+    _install_full("e13")
+    _install_fake_style("e13")
+    apply_mod.apply_full("e13")
+    i_record = fake_kconfig.index_of("kdeglobals", "PrevPlasmaTheme")
+    i_lnf = fake_kconfig.index_of("plasma-apply-lookandfeel")
+    i_colors = fake_kconfig.index_of("plasma-apply-colorscheme")
+    i_style = fake_kconfig.index_of("plasma-apply-desktoptheme")
+    i_deco = fake_kconfig.index_of("--key", "theme", "themey_e13")
+    assert i_record < i_lnf < i_colors < i_style < i_deco
+
+
+def test_apply_full_style_marker_written_once(
+    fake_kconfig: FakeKConfig, monkeypatch,
+) -> None:
+    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    _install_fake_style("e13")
+    fake_kconfig.store["name"] = "Otto"
+    apply_mod.apply_full("e13")
+    fake_kconfig.store["name"] = "themey_e13"
+    apply_mod.apply_full("e13")
+    assert fake_kconfig.store["PrevPlasmaTheme"] == "Otto"
+
+
+def test_apply_full_style_unset_sentinel(
+    fake_kconfig: FakeKConfig, monkeypatch,
+) -> None:
+    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    _install_fake_style("e13")
+    apply_mod.apply_full("e13")
+    assert fake_kconfig.store["PrevPlasmaTheme"] == "@unset"
+
+
+def test_apply_full_style_failure_raises_apply_error(
+    fake_kconfig: FakeKConfig, monkeypatch,
+) -> None:
+    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    _install_fake_style("e13")
+    fake_kconfig.fail_on["plasma-apply-desktoptheme"] = "no such theme"
+    with pytest.raises(apply_mod.ApplyError, match="plasma-apply-desktoptheme"):
+        apply_mod.apply_full("e13")
+
+
+def test_clear_style_cache_respects_xdg_cache_home(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    cache_dir = tmp_path / "xdg-cache"
+    cache_dir.mkdir()
+    stale = cache_dir / "plasma_theme_themey_e13.kcache"
+    stale.write_bytes(b"stale")
+    other = cache_dir / "plasma_theme_Otto.kcache"
+    other.write_bytes(b"keep")
+    monkeypatch.setenv("XDG_CACHE_HOME", str(cache_dir))
+    apply_mod._clear_style_cache("themey_e13")
+    assert not stale.exists()
+    assert other.exists()  # other themes' caches are left alone
+
+
+def test_revert_restores_prev_plasmatheme_and_clears_marker(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["PrevPlasmaTheme"] = "Otto"
+    assert apply_mod.revert() is True
+    i = fake_kconfig.index_of("plasma-apply-desktoptheme")
+    assert fake_kconfig.calls[i][-1] == "Otto"
+    assert "PrevPlasmaTheme" not in fake_kconfig.store
+
+
+def test_revert_plasmatheme_unset_deletes_user_key(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["PrevPlasmaTheme"] = "@unset"
+    fake_kconfig.store["name"] = "themey_e13"  # plasmarc [Theme] name
+    assert apply_mod.revert() is True
+    assert "name" not in fake_kconfig.store
+    assert "PrevPlasmaTheme" not in fake_kconfig.store
+    with pytest.raises(AssertionError):
+        fake_kconfig.index_of("plasma-apply-desktoptheme")
+
+
+def test_revert_plasmatheme_failure_keeps_marker_restores_rest(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["PrevPlasmaTheme"] = "Otto"
+    fake_kconfig.store["ThemeyPrevDeco"] = "org.kde.breeze|Breeze|@unset"
+    fake_kconfig.fail_on["plasma-apply-desktoptheme"] = "theme gone"
+    with pytest.raises(apply_mod.ApplyError, match="plasma-apply-desktoptheme"):
+        apply_mod.revert()
+    assert fake_kconfig.store["PrevPlasmaTheme"] == "Otto"
+    assert fake_kconfig.store["theme"] == "Breeze"
+    assert "ThemeyPrevDeco" not in fake_kconfig.store
+
+
+def test_revert_retry_with_only_plasma_marker_succeeds(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """After a failed style restore leaves only PrevPlasmaTheme behind,
+    a later revert retries just that half — not "nothing to revert"."""
+    fake_kconfig.store["PrevPlasmaTheme"] = "Otto"
+    assert apply_mod.revert() is True
+    i = fake_kconfig.index_of("plasma-apply-desktoptheme")
+    assert fake_kconfig.calls[i][-1] == "Otto"
+    assert "PrevPlasmaTheme" not in fake_kconfig.store
+    assert "library" not in fake_kconfig.store

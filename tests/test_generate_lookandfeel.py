@@ -141,6 +141,37 @@ def test_defaults_sections_omit_missing_artifacts() -> None:
     assert list(sections) == ["kdeglobals][General", "kwinrc][org.kde.kdecoration2"]
 
 
+def test_defaults_sections_desktop_theme_group_last_when_set() -> None:
+    """[plasmarc][Theme] name= goes LAST, matching the real third-party
+    bundles byte-verified on the reference machine."""
+    sections = build_defaults_sections(
+        color_scheme_stem="themey_Aliens",
+        cursor_theme_name=None,
+        default_wallpaper_id=None,
+        deco_library=PLUGINS["legacy"],
+        deco_theme="themey_Aliens",
+        desktop_theme_name="themey_Aliens",
+    )
+    assert list(sections) == [
+        "kdeglobals][General",
+        "kwinrc][org.kde.kdecoration2",
+        "plasmarc][Theme",
+    ]
+    assert sections["plasmarc][Theme"] == {"name": "themey_Aliens"}
+
+
+def test_defaults_sections_no_desktop_theme_group_when_none() -> None:
+    sections = build_defaults_sections(
+        color_scheme_stem=None,
+        cursor_theme_name=None,
+        default_wallpaper_id=None,
+        deco_library=PLUGINS["legacy"],
+        deco_theme="themey_X",
+        desktop_theme_name=None,
+    )
+    assert "plasmarc][Theme" not in sections
+
+
 def test_defaults_sections_deco_group_always_present() -> None:
     """The kwinrc group is unconditional: some deco backend always installs."""
     sections = build_defaults_sections(

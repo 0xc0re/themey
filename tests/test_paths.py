@@ -67,6 +67,7 @@ def test_global_theme_dirs_default(monkeypatch):
     assert str(paths.color_schemes()) == f"{base}/color-schemes"
     assert str(paths.wallpapers()) == f"{base}/wallpapers"
     assert str(paths.cursor_themes()) == "/tmp/abc/.icons"
+    assert str(paths.desktop_themes()) == f"{base}/plasma/desktoptheme"
     assert str(paths.look_and_feel()) == f"{base}/plasma/look-and-feel"
 
 
@@ -83,4 +84,5 @@ def test_global_theme_dirs_xdg_override(monkeypatch):
     # Kubuntu's build (and Plasma's cursor KCM on it) never scans
     # $XDG_DATA_HOME/icons — verified live 2026-08-31.
     assert str(paths.cursor_themes()).endswith("/.icons")
+    assert str(paths.desktop_themes()) == "/tmp/xdg/plasma/desktoptheme"
     assert str(paths.look_and_feel()) == "/tmp/xdg/plasma/look-and-feel"

@@ -11,6 +11,9 @@ Format (byte-verified against an installed Look-and-Feel package):
         [kcminputrc][Mouse]    cursorTheme=<XCursor theme dir name>
         [Wallpaper]            Image=<wallpaper package Id, never a path>
         [kwinrc][org.kde.kdecoration2]  library= + theme=
+        [plasmarc][Theme]      name=<Plasma Style package dir name> (last,
+                                          matching the real third-party
+                                          bundles on the reference machine)
     <lnf>/contents/previews/preview.png  optional, downscaled from the
                                           default wallpaper image
 
@@ -90,12 +93,14 @@ def build_defaults_sections(
     default_wallpaper_id: str | None,
     deco_library: str,
     deco_theme: str,
+    desktop_theme_name: str | None = None,
 ) -> dict[str, dict[str, str]]:
     """Assemble the ``contents/defaults`` section map.
 
-    Each of the first three groups is included only when its artifact
-    argument is not None; the deco group is unconditional (some backend
-    always installs). Order matches the byte-verified format census.
+    Each conditional group is included only when its artifact argument is
+    not None; the deco group is unconditional (some backend always
+    installs). Order matches the byte-verified format census, with the
+    Plasma Style group last as in real third-party bundles.
     """
     sections: dict[str, dict[str, str]] = {}
     if color_scheme_stem is not None:
@@ -108,6 +113,8 @@ def build_defaults_sections(
         "library": deco_library,
         "theme": deco_theme,
     }
+    if desktop_theme_name is not None:
+        sections["plasmarc][Theme"] = {"name": desktop_theme_name}
     return sections
 
 
@@ -160,16 +167,18 @@ def write(
     default_wallpaper_image: Path | None,
     deco_library: str,
     deco_theme: str,
+    desktop_theme_name: str | None = None,
 ) -> LookAndFeelBundle:
     """Write the Look-and-Feel bundle for *theme* under *out_dir*.
 
     ``out_dir``'s basename MUST be ``slug.plugin_id(theme.name)`` — Plasma
     matches Look-and-Feel packages by ``KPlugin.Id``, same contract as every
-    other themey package. The four keyword artifact args are each the id/
-    name/path that ARTIFACT was actually installed as in THIS conversion —
-    pass None for anything that wasn't (a theme with no wallpapers, no
-    convertible cursor art, ...) so ``build_defaults_sections`` omits the
-    matching key rather than pointing at nothing.
+    other themey package. The keyword artifact args (color scheme, cursor
+    theme, wallpaper, desktop theme) are each the id/name/path that
+    ARTIFACT was actually installed as in THIS conversion — pass None for
+    anything that wasn't (a theme with no wallpapers, no convertible
+    cursor art, a failed Plasma Style, ...) so ``build_defaults_sections``
+    omits the matching key rather than pointing at nothing.
 
     ``default_wallpaper_image`` is the source image (post-conversion, e.g. a
     wallpaper package's installed ``contents/images/<W>x<H>.<ext>``) used to
@@ -187,6 +196,7 @@ def write(
         default_wallpaper_id=default_wallpaper_id,
         deco_library=deco_library,
         deco_theme=deco_theme,
+        desktop_theme_name=desktop_theme_name,
     )
     contents_dir = out_dir / "contents"
     contents_dir.mkdir(parents=True, exist_ok=True)

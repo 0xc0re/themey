@@ -63,6 +63,11 @@ def cursor_themes() -> Path:
     return Path(os.environ.get("HOME", "/")) / ".icons"
 
 
+def desktop_themes() -> Path:
+    """Plasma Style (desktop theme) packages — panel/popup/tooltip chrome."""
+    return _xdg_data_home() / "plasma" / "desktoptheme"
+
+
 def look_and_feel() -> Path:
     """Plasma Global Theme (Look-and-Feel) packages."""
     return _xdg_data_home() / "plasma" / "look-and-feel"
