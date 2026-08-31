@@ -28,12 +28,13 @@ from . import install, paths
 from .analyze.build_theme import build_theme
 from .etheme.archive import extract
 from .etheme.parse import parse_tree
-from .generate import qmldeco
+from .generate import lookandfeel, qmldeco
 from .generate.aurorae import write as write_aurorae
 from .generate.colors import scheme_stem, write_colors
 from .generate.cursors import CursorTheme
 from .generate.cursors import write_theme as write_cursor_theme
-from .generate.wallpaper import WallpaperError
+from .generate.wallpaper import WallpaperError, WallpaperPackage
+from .generate.wallpaper import pick_default as pick_default_wallpaper
 from .generate.wallpaper import write_package as write_wallpaper_package
 from .images.upscale import UPSCALE_MODES
 from .ir import WallpaperSpec
@@ -73,6 +74,28 @@ class ConvertResult:
     ``output_dir``). None when the theme declares no ``__CURSOR`` blocks,
     xcursorgen is not on PATH, or no pointer could be converted — each
     leaves a ``cursors:`` note instead of failing the convert."""
+    lnf_dir: Path | None = None
+    """Installed Plasma Global Theme (Look-and-Feel) bundle dir (or the copy
+    under ``output_dir``). Assembled LAST, from the artifact ids that
+    actually deployed in this conversion — see ``generate/lookandfeel.py``.
+    Always set on a successful convert (some deco backend always runs)."""
+    lnf_id: str | None = None
+    """``KPlugin.Id`` of the bundle above — same string as ``qml_plugin_id``
+    (a different namespace), so ``themey apply <name>`` resolves either."""
+
+
+def _default_wallpaper_image(pkg: WallpaperPackage | None) -> Path | None:
+    """The installed image file for *pkg* (``pick_default``'s pick), or None.
+
+    Feeds ``lookandfeel.write``'s optional preview.png source; only ever
+    called on a package that already exists on disk at this point in the
+    pipeline (staged or installed), so an empty ``images/`` glob would mean
+    a ``write_wallpaper_package`` contract violation, not a normal case.
+    """
+    if pkg is None:
+        return None
+    images = sorted((pkg.dir / "contents" / "images").glob("*"))
+    return images[0] if images else None
 
 
 def convert(
@@ -169,7 +192,13 @@ def convert(
         cursor_dir_name = cursor_theme_dir(theme_name)
         cursor_dir: Path | None = None
         cursor_theme: CursorTheme | None = None
+        lnf_dir: Path | None = None
         wallpaper_dirs: list[Path] = []
+        # One WallpaperPackage per installed wallpaper_dirs entry (same
+        # order), with `.dir` rebased to the FINAL installed/output
+        # location — pick_default_wallpaper needs the real package to rank
+        # by area, and lookandfeel's bundle needs its final image path.
+        wallpaper_packages: list[WallpaperPackage] = []
         # Subset of theme.wallpaper_specs that actually made it to disk —
         # threaded into write_report so its status line can't overstate
         # what's installed when write_wallpaper_package fails partway
@@ -199,13 +228,14 @@ def convert(
                 if wp_out.exists():
                     shutil.rmtree(wp_out)
                 try:
-                    write_wallpaper_package(theme, spec, wp_out)
+                    pkg = write_wallpaper_package(theme, spec, wp_out)
                 except WallpaperError as exc:
                     theme.notes.append(
                         f"wallpaper: skipped {spec.path.name}: {exc}"
                     )
                     continue
                 wallpaper_dirs.append(wp_out)
+                wallpaper_packages.append(pkg)  # pkg.dir == wp_out already
                 installed_wallpaper_specs.append(spec)
                 log.info("wrote wallpaper package to %s", wp_out)
             cursor_out = output_dir / cursor_dir_name
@@ -215,6 +245,33 @@ def convert(
             if cursor_theme is not None:
                 cursor_dir = cursor_out
                 log.info("wrote cursor theme to %s", cursor_dir)
+
+            # LAST: assemble the Global Theme bundle from the ids that
+            # actually deployed above, never from theme analysis — a
+            # wallpaper that failed to convert must not be referenced.
+            # It lives under a "look-and-feel/" subdir, not output_dir
+            # directly: its Id is deliberately the same string as pkg_id
+            # (the QML package's own dirname), which would otherwise
+            # collide with `qml_installed` in this flat --output tree.
+            default_wp = pick_default_wallpaper(wallpaper_packages)
+            deco_library, deco_theme = lookandfeel.deco_defaults(
+                theme_name, want_qml=want_qml, pkg_id=pkg_id
+            )
+            lnf_out = output_dir / "look-and-feel" / pkg_id
+            if lnf_out.exists():
+                shutil.rmtree(lnf_out)
+            bundle = lookandfeel.write(
+                theme,
+                lnf_out,
+                color_scheme_stem=colors_path.stem if colors_path else None,
+                cursor_theme_name=cursor_theme.name if cursor_theme else None,
+                default_wallpaper_id=default_wp.id if default_wp else None,
+                default_wallpaper_image=_default_wallpaper_image(default_wp),
+                deco_library=deco_library,
+                deco_theme=deco_theme,
+            )
+            lnf_dir = bundle.dir
+            log.info("wrote Look-and-Feel bundle to %s", lnf_dir)
             previews = output_dir
         else:
             # Stage outputs under XDG_DATA_HOME so os.replace can rename
@@ -253,7 +310,7 @@ def convert(
                     wp_id = wallpaper_id(theme_name, spec.path.stem)
                     stage_wp_dir = stage / wp_id
                     try:
-                        write_wallpaper_package(theme, spec, stage_wp_dir)
+                        pkg = write_wallpaper_package(theme, spec, stage_wp_dir)
                     except WallpaperError as exc:
                         theme.notes.append(
                             f"wallpaper: skipped {spec.path.name}: {exc}"
@@ -263,6 +320,18 @@ def convert(
                         wp_id, stage_wp_dir, target_root=paths.wallpapers()
                     )
                     wallpaper_dirs.append(installed_wp)
+                    # Rebase pkg.dir from the (now gone) stage path to the
+                    # final installed one — the bundle's preview.png source
+                    # must resolve after this pipeline call returns.
+                    wallpaper_packages.append(
+                        WallpaperPackage(
+                            id=pkg.id,
+                            dir=installed_wp,
+                            width=pkg.width,
+                            height=pkg.height,
+                            fill_mode=pkg.fill_mode,
+                        )
+                    )
                     installed_wallpaper_specs.append(spec)
                     log.info("installed wallpaper package to %s", installed_wp)
                 stage_cursor_dir = stage / cursor_dir_name
@@ -273,6 +342,31 @@ def convert(
                         target_root=paths.icon_themes(),
                     )
                     log.info("installed cursor theme to %s", cursor_dir)
+
+                # LAST: assemble + install the Global Theme bundle from the
+                # ids that actually deployed above (see the output_dir
+                # branch's comment for why "look-and-feel/" namespaces the
+                # staging path — same pkg_id collision, this time against
+                # stage_pkg_dir).
+                default_wp = pick_default_wallpaper(wallpaper_packages)
+                deco_library, deco_theme = lookandfeel.deco_defaults(
+                    theme_name, want_qml=want_qml, pkg_id=pkg_id
+                )
+                stage_lnf_dir = stage / "look-and-feel" / pkg_id
+                lookandfeel.write(
+                    theme,
+                    stage_lnf_dir,
+                    color_scheme_stem=colors_path.stem if colors_path else None,
+                    cursor_theme_name=cursor_theme.name if cursor_theme else None,
+                    default_wallpaper_id=default_wp.id if default_wp else None,
+                    default_wallpaper_image=_default_wallpaper_image(default_wp),
+                    deco_library=deco_library,
+                    deco_theme=deco_theme,
+                )
+                lnf_dir = install.deploy(
+                    pkg_id, stage_lnf_dir, target_root=paths.look_and_feel()
+                )
+                log.info("installed Look-and-Feel bundle to %s", lnf_dir)
             previews = paths.themey_previews()
 
         # Report and preview MUST run inside the extract block: they call
@@ -285,6 +379,8 @@ def convert(
             backend=backend,
             wallpaper_specs=tuple(installed_wallpaper_specs),
             cursor_theme=cursor_theme,
+            lnf_id=pkg_id,
+            lnf_dir=lnf_dir,
         )
         preview_path = render_preview(theme, previews / f"{theme_name}.html")
 
@@ -302,4 +398,6 @@ def convert(
         color_scheme_path=colors_path,
         wallpaper_dirs=tuple(wallpaper_dirs),
         cursor_theme_dir=cursor_dir,
+        lnf_dir=lnf_dir,
+        lnf_id=pkg_id,
     )

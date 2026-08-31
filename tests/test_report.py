@@ -88,15 +88,44 @@ def test_report_includes_notes_in_approximated(tmp_path: Path) -> None:
     assert note in text
 
 
-def test_report_phase1_scaffold_section_for_phase2_3(tmp_path: Path) -> None:
+def test_report_no_longer_defers_the_bundle(tmp_path: Path) -> None:
+    """The Phase D bundle shipped; the old "deferred to later phase" /
+    BUNDLE-01 placeholder must be gone."""
     from themey.report import write
 
     theme = _make_theme()
     out = tmp_path / "report.txt"
     write(theme, out)
     text = out.read_text()
-    # Should mention that color/wallpaper/cursor is deferred to later phases
-    assert any(kw in text for kw in ("Phase 2", "Phase 3", "later phase"))
+    assert "deferred to later phase" not in text
+    assert "BUNDLE-01" not in text
+
+
+def test_report_mentions_the_bundle_when_lnf_id_given(tmp_path: Path) -> None:
+    from themey.report import write
+
+    theme = _make_theme()
+    out = tmp_path / "report.txt"
+    write(theme, out, lnf_id="themey_TestTheme", lnf_dir=tmp_path / "themey_TestTheme")
+    text = out.read_text()
+    preserved = text.split("## Approximated")[0]
+    assert "themey_TestTheme" in preserved
+    assert "Global Theme" in preserved
+    apply_section = text.split("## Apply")[1]
+    assert "themey apply TestTheme" in apply_section
+    assert "themey_TestTheme" in apply_section
+    assert "--deco-only" in apply_section
+
+
+def test_report_omits_bundle_lines_when_lnf_id_is_none(tmp_path: Path) -> None:
+    from themey.report import write
+
+    theme = _make_theme()
+    out = tmp_path / "report.txt"
+    write(theme, out)
+    text = out.read_text()
+    assert "Global Theme" not in text
+    assert "--deco-only" not in text
 
 
 def test_report_preserves_the_color_scheme(tmp_path: Path) -> None:
