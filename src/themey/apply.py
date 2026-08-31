@@ -51,8 +51,9 @@ not Breeze), restores the deco triple and the button layout, then deletes
 both markers. No markers present means no prior full apply on this
 machine: a friendly no-op, not an error.
 
-:func:`apply_full` also creates a dedicated E16 iconbox panel — a small
-bottom-left, content-sized panel whose icons-only task manager shows only
+:func:`apply_full` also creates a dedicated E16 furniture panel — a
+vertical left-edge, content-sized panel with the pager on top (E16 kept
+its pager top-left) and, below it, an icons-only task manager showing only
 MINIMIZED windows, E16's iconbox behavior — via plasmashell desktop
 scripting (:func:`_ensure_iconbox`). Its ``[Themey] IconboxPanel`` marker
 is the one marker that is NOT a ``Prev*`` baseline: it records a
@@ -240,10 +241,15 @@ _PREV_PANELS_KEY = "PrevPanelLengthModes"
 # overwritten whenever the recorded panel no longer exists and deleted when
 # revert removes the panel.
 _ICONBOX_KEY = "IconboxPanel"
+_ICONBOX_PAGER_WIDGET = "org.kde.plasma.pager"
 _ICONBOX_WIDGET = "org.kde.plasma.icontasks"
-_ICONBOX_LOCATION = "bottom"
+_ICONBOX_LOCATION = "left"
+#: On a vertical panel plasmashell's 'left' alignment means TOP — the
+#: pager hugs the top-left corner exactly where E16 kept its pager.
 _ICONBOX_ALIGNMENT = "left"
-_ICONBOX_HEIGHT = 44
+#: Panel thickness (width, for a vertical panel). 60 gives the pager
+#: cells roughly desktop aspect at a readable size.
+_ICONBOX_HEIGHT = 60
 
 
 def _is_panel_id(value: str) -> bool:
@@ -383,15 +389,19 @@ def _restore_panel_length_modes(kw: str, marker: str) -> None:
 
 
 def _create_iconbox_panel() -> str:
-    """Create the dedicated E16 iconbox panel; returns its containment id.
+    """Create the dedicated E16 furniture panel; returns its containment id.
 
-    A small bottom-left, content-sized panel holding an icons-only task
-    manager that shows ONLY minimized windows — E16's iconbox: icons appear
-    on iconify, vanish on restore. ``launchers`` is cleared because
-    icontasks ships default pinned launchers. ``qdbus`` exits 0 even when
-    the script throws, so the printed panel id is the real success signal.
-    ``p.floating`` is wrapped in try/catch: an unscriptable property
-    assignment would otherwise kill the whole script.
+    A vertical LEFT-edge, content-sized panel replaying e13-era E16 desktop
+    furniture: the PAGER at the top (E16 kept its pager top-left; a
+    vertical panel also gives the cells roughly desktop aspect at a
+    readable size, where bottom-panel cells shrink to unreadable slivers)
+    and, below it, an icons-only task manager showing ONLY minimized
+    windows — E16's iconbox: icons appear on iconify, vanish on restore.
+    ``launchers`` is cleared because icontasks ships default pinned
+    launchers. ``qdbus`` exits 0 even when the script throws, so the
+    printed panel id is the real success signal. ``p.floating`` is wrapped
+    in try/catch: an unscriptable property assignment would otherwise kill
+    the whole script.
     """
     reply = _evaluate_plasma_script(
         "var p = new Panel;"
@@ -401,6 +411,7 @@ def _create_iconbox_panel() -> str:
         " p.hiding = 'none';"
         " p.lengthMode = 'fit';"
         " try { p.floating = false; } catch (e) {}"
+        f" p.addWidget('{_ICONBOX_PAGER_WIDGET}');"
         f" var w = p.addWidget('{_ICONBOX_WIDGET}');"
         " w.currentConfigGroup = ['General'];"
         " w.writeConfig('showOnlyMinimized', true);"

@@ -759,18 +759,25 @@ def test_revert_panel_restore_failure_keeps_marker(
 def test_apply_full_creates_iconbox_panel_and_records_marker(
     fake_kconfig: FakeKConfig,
 ) -> None:
-    """The dedicated E16 iconbox: a bottom-left content-sized panel holding
-    an icons-only task manager showing only minimized windows."""
+    """The dedicated E16 furniture panel: a vertical LEFT-edge, content-sized
+    panel — pager on top (E16 kept its pager top-left), minimized-only
+    icons-only task manager below it (the iconbox)."""
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
     apply_mod.apply_full("e13")
     i = fake_kconfig.index_of("new Panel")
     script = fake_kconfig.calls[i][-1]
     assert "org.kde.plasmashell" in fake_kconfig.calls[i]
-    assert "p.location = 'bottom'" in script
-    assert "p.alignment = 'left'" in script
+    assert "p.location = 'left'" in script
+    assert "p.alignment = 'left'" in script  # 'left' == top on a vertical panel
     assert "p.lengthMode = 'fit'" in script
+    assert "p.height = 60" in script
+    assert "p.addWidget('org.kde.plasma.pager')" in script
     assert "p.addWidget('org.kde.plasma.icontasks')" in script
+    # Pager first: it must sit at the top of the panel, above the iconbox.
+    assert script.index("org.kde.plasma.pager") < script.index(
+        "org.kde.plasma.icontasks"
+    )
     assert "w.writeConfig('showOnlyMinimized', true)" in script
     assert "w.writeConfig('launchers', '')" in script
     assert "print(p.id)" in script
