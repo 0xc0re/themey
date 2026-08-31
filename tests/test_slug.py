@@ -70,3 +70,25 @@ def test_slug_only_special_raises() -> None:
 
     with pytest.raises(ValueError):
         slugify("!!!@@@")
+
+
+def test_cursor_theme_dir() -> None:
+    from themey.slug import cursor_theme_dir
+
+    assert cursor_theme_dir("Aliens") == "themey_Aliens-cursors"
+
+
+def test_cursor_theme_dir_sanitizes_and_keeps_hyphens() -> None:
+    """Unlike plugin_id, hyphens survive — the string is only ever a
+    directory name and a kcminputrc cursorTheme= value, never an
+    identifier."""
+    from themey.slug import cursor_theme_dir
+
+    assert cursor_theme_dir("Lite Gnome/../x") == "themey_x-cursors"
+    assert cursor_theme_dir("e13-dark") == "themey_e13-dark-cursors"
+
+
+def test_cursor_theme_dir_is_distinct_from_plugin_id() -> None:
+    from themey.slug import cursor_theme_dir, plugin_id
+
+    assert cursor_theme_dir("Aliens") != plugin_id("Aliens")

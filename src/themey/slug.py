@@ -58,3 +58,15 @@ def wallpaper_id(name: str, stem: str) -> str:
     ``KPlugin.Id`` values, so there's no reason to mangle them further.
     """
     return f"themey_{slugify(name)}_{slugify(stem)}"
+
+
+def cursor_theme_dir(name: str) -> str:
+    """Directory name for the XCursor theme: ``themey_<slug>-cursors``.
+
+    XCursor themes have no KPlugin id — the directory name under
+    ``icons/`` *is* the theme name that ``kcminputrc``'s ``cursorTheme=``
+    refers to, so this string is the whole contract. The ``-cursors``
+    suffix keeps it distinct from the decoration package, which shares the
+    ``themey_<slug>`` prefix in a different namespace.
+    """
+    return f"themey_{slugify(name)}-cursors"
