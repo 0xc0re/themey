@@ -1,0 +1,78 @@
+// themey QML runtime v1 — E16 BorderWinpartCalc geometry resolver.
+// KEEP IN LOCKSTEP with src/themey/generate/qmldeco/resolver.py (the
+// emitter/test-side mirror).
+//
+// Semantics: anchor = ((pct * ref) >> 10) + abs [+ origin part x/y];
+// percent is Q10 (1024 = 100%); bottom-right anchors are INCLUSIVE
+// (w = brX - tlX + 1); max clamps RE-CENTER (x += (w - max) >> 1); min
+// only grows; __FLAG_TITLE + __MAX_WIDTH 0 sizes the part to the caption
+// text plus iclass padding, positioned by tclass justification (vertical
+// analog for __MAX_HEIGHT 0).
+//
+// ALL math happens in E16 REFERENCE pixels; the result is multiplied by
+// theme.scale at the end. Computing in output pixels doubles the
+// inclusive "+1" and shifts max-clamped parts — part-model geometry
+// fields are UNSCALED ref px (insets/pixelSize/borders are the pre-scaled
+// display-only exceptions).
+.pragma library
+
+var RUNTIME_VERSION = 1;
+var MAX_ORIGIN_DEPTH = 8;
+
+// frameW/frameH and titleWidthFn results are OUTPUT px; so is the result.
+function partGeometry(theme, index, frameW, frameH, titleWidthFn) {
+    var scale = theme.scale;
+    var refW = Math.round(frameW / scale);
+    var refH = Math.round(frameH / scale);
+    var refTW = function (i) { return Math.ceil(titleWidthFn(i) / scale); };
+    var g = _geom(theme, index, refW, refH, refTW, 0);
+    return { x: g.x * scale, y: g.y * scale, w: g.w * scale, h: g.h * scale };
+}
+
+function _geom(theme, index, refW, refH, titleWidthFn, depth) {
+    if (depth > MAX_ORIGIN_DEPTH)
+        return { x: 0, y: 0, w: 0, h: 0 };
+    var p = theme.parts[index];
+
+    var tlBX = 0, tlBY = 0, tlRW = refW, tlRH = refH;
+    if (p.tlOrigin >= 0) {
+        var o = _geom(theme, p.tlOrigin, refW, refH, titleWidthFn, depth + 1);
+        tlBX = o.x; tlBY = o.y; tlRW = o.w; tlRH = o.h;
+    }
+    var brBX = 0, brBY = 0, brRW = refW, brRH = refH;
+    if (p.brOrigin >= 0) {
+        var o2 = _geom(theme, p.brOrigin, refW, refH, titleWidthFn, depth + 1);
+        brBX = o2.x; brBY = o2.y; brRW = o2.w; brRH = o2.h;
+    }
+
+    var x = ((p.tlXP * tlRW) >> 10) + p.tlXA + tlBX;
+    var y = ((p.tlYP * tlRH) >> 10) + p.tlYA + tlBY;
+    var x2 = ((p.brXP * brRW) >> 10) + p.brXA + brBX;
+    var y2 = ((p.brYP * brRH) >> 10) + p.brYA + brBY;
+    var w = x2 - x + 1;
+    var h = y2 - y + 1;
+
+    if (p.isTitle && !p.vertical && p.maxW === 0) {
+        var tw = titleWidthFn(index) + p.padLeft + p.padRight;
+        if (p.minW > 0 && tw < p.minW) tw = p.minW;
+        if (tw > w) tw = w;
+        x += ((w - tw) * p.justification) >> 10;
+        w = tw;
+    } else {
+        if (p.maxW > 0 && w > p.maxW) { x += (w - p.maxW) >> 1; w = p.maxW; }
+        if (p.minW > 0 && w < p.minW) w = p.minW;
+    }
+
+    if (p.isTitle && p.vertical && p.maxH === 0) {
+        var th = titleWidthFn(index) + p.padTop + p.padBottom;
+        if (p.minH > 0 && th < p.minH) th = p.minH;
+        if (th > h) th = h;
+        y += ((h - th) * p.justification) >> 10;
+        h = th;
+    } else {
+        if (p.maxH > 0 && h > p.maxH) { y += (h - p.maxH) >> 1; h = p.maxH; }
+        if (p.minH > 0 && h < p.minH) h = p.minH;
+    }
+
+    return { x: x, y: y, w: w, h: h };
+}

@@ -253,15 +253,42 @@ themey is a local Python CLI that converts Enlightenment DR16 (E16) `.etheme` ar
 Pipeline: `.etheme` → ingest → analyze → generate → install → report + preview.
 `pipeline.convert()` composes it; `cli.py` is the only entry point.
 
+Two backends. **`qml` is the default** (chris, 2026-08-30): a KWin/Decoration
+KPackage (`generate/qmldeco/`) installed under
+`~/.local/share/kwin/decorations/themey_<slug>/` and loaded by the v1 Aurorae
+plugin `org.kde.kwin.aurorae` — it replays E16's part model 1:1 (unclamped
+borders, text-sized title plaques, side-border button stacks, theme TTFs).
+The legacy SVG backend stays behind `--backend svg` as an escape hatch and
+receives no fidelity work.
+
 | Package | Role |
 |---------|------|
 | `etheme/` | `archive.py` (validating tar extract), `lex.py`, `parse.py`, `ast.py` — the E16 grammar front end |
-| `analyze/` | AST → frozen `ir.Theme`: iclass resolution, state collapse, button binning, coordinate math, palette, borders |
+| `analyze/` | AST → frozen `ir.Theme`: iclass resolution, state collapse, button binning, coordinate math, palette, borders, `fonts.py` (__FONTS scan) |
 | `images/` | `ninepatch.py`, `opaque.py`, `upscale.py`, `embed.py` — raster primitives, NEAREST only |
-| `generate/` | `aurorae.py` orchestrates `decoration_svg.py`, `aurorae_rc.py`, `aurorae_meta.py`, `button_svg.py`, `composite.py` |
+| `generate/qmldeco/` | DEFAULT backend: `theme_js.py` (part model), `resolver.py` (E16 geometry, Python mirror), `actions.py`, `package.py`, `runtime/` (4 verbatim QML/JS files) |
+| `generate/` (rest) | SVG backend: `aurorae.py` orchestrates `decoration_svg.py`, `aurorae_rc.py`, `aurorae_meta.py`, `button_svg.py`, `composite.py` |
 | root modules | `ir.py` (IR), `paths.py` (XDG), `install.py` (atomic deploy), `report.py`, `preview.py`, `kwin.py`, `render.py`, `apply.py`, `external.py`, `slug.py`, `log.py` |
 
-Three contracts govern the generated theme:
+QML-backend contracts:
+
+1. **resolver.js and resolver.py are the same algorithm** (E16
+   `BorderWinpartCalc`: Q10 percents, inclusive bottom-right anchors,
+   re-centering max clamps, `__FLAG_TITLE`+`MAX_WIDTH 0` text sizing). All
+   math runs in E16 REFERENCE px and multiplies by scale at the end —
+   output-space math shifts every max-clamped part. Change both together
+   and bump `RUNTIME_VERSION`; `tests/test_qmldeco_geometry.py` pins e13
+   ground truth (KILL 40x38@(0,0), stack x=9, plaque = textwidth+25).
+2. **theme.js is pure data** (`var theme = {...}` — no runtime I/O/XHR);
+   image state fallbacks and origin-topology validation happen at generate
+   time. Geometry fields are UNSCALED ref px; `borders`/`insets`/`pixelSize`
+   are pre-scaled.
+3. **KPlugin Id == package dir name == kwinrc `theme=`** (`slug.plugin_id`,
+   `themey_<slug>`). QML applies must NOT write BorderSize or
+   ButtonsOnLeft/Right — the theme draws its own buttons and unclamped
+   borders.
+
+Three contracts govern the SVG backend's theme:
 
 1. **Aurorae matches by element ID.** `decoration.svg` carries all 36
    `decoration-*` IDs (nine regions × active / inactive / maximized /
@@ -286,8 +313,10 @@ sources — so `report` and `render` can both use it without an import cycle. Bo
 plugins clamp side and bottom borders to the selected bracket, which is why wide
 corner art is folded into the title band instead.
 
-Visual verification: `themey render` (nested headless KWin) is the truth.
-`scripts/render_review.py` is a fast approximation and can disagree with KWin.
+Visual verification: `themey render` (nested headless KWin) is the truth —
+`--plugin qml` for the default backend, `legacy`/`v2` for SVG.
+`scripts/render_review.py` is a fast SVG approximation and can disagree with
+KWin; it knows nothing about the QML backend.
 
 ## Project Skills
 

@@ -33,6 +33,7 @@ from .buttons import bin_left_right, classify_button, title_part
 from .coords import REFERENCE_WINDOW_WIDTH, resolve
 from .cursors import extract_cursors
 from .fallback import discover_by_filename
+from .fonts import parse_fonts
 from .iclasses import build_iclasses
 from .states import collapse_image_states
 from .tclasses import build_tclasses
@@ -141,6 +142,12 @@ def build_theme(
     # ------------------------------------------------------------------
     tclass_blocks = _collect_blocks(ast_nodes, "__TCLASS")
     tclasses = build_tclasses(tclass_blocks)
+
+    # ------------------------------------------------------------------
+    # 3b. Fonts — standalone tolerant scan of fonts.theme.cfg / fonts.cfg
+    # (the main lexer cannot represent lowercase aliases; see analyze/fonts.py).
+    # ------------------------------------------------------------------
+    fonts = parse_fonts(asset_root)
 
     # ------------------------------------------------------------------
     # 4. AURORAE-04 state collapse: log dropped sticky/disabled variants.
@@ -307,4 +314,5 @@ def build_theme(
         wallpapers=wallpapers,
         notes=notes,
         skipped_borders=tuple(skipped),
+        fonts=fonts,
     )

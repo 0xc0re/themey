@@ -75,7 +75,7 @@ def test_decoration_svg_visual_phash(
     theme_name: str, tmp_path: Path, fake_home: Path, request: pytest.FixtureRequest
 ) -> None:
     """Decoration SVG must render within Hamming distance THRESHOLD of reference."""
-    result = convert(FIXTURES / f"{theme_name}.etheme", scale=2)
+    result = convert(FIXTURES / f"{theme_name}.etheme", scale=2, backend="svg")
     svg = result.installed_dir / "decoration.svg"
     png = tmp_path / f"{theme_name}.png"
     _render_svg(svg, png)
@@ -117,7 +117,7 @@ def test_decoration_svg_not_mostly_transparent(
     rendered as mostly-transparent or single-color blobs. Any rendered frame
     should have at least 5% of pixels with non-trivial alpha.
     """
-    result = convert(FIXTURES / f"{theme_name}.etheme", scale=2)
+    result = convert(FIXTURES / f"{theme_name}.etheme", scale=2, backend="svg")
     svg = result.installed_dir / "decoration.svg"
     png = tmp_path / f"{theme_name}.png"
     _render_svg(svg, png)

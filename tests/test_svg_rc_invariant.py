@@ -78,7 +78,7 @@ def test_svg_strip_dims_match_rc_borders(theme_name: str, fake_home: Path) -> No
     frame at the hint width under the client, so a column wider than the
     (KWin-clamped) border is how folded corner art escapes the clamp.
     """
-    result = convert(FIXTURES / f"{theme_name}.etheme", scale=2)
+    result = convert(FIXTURES / f"{theme_name}.etheme", scale=2, backend="svg")
     svg = result.installed_dir / "decoration.svg"
     rc = result.installed_dir / f"{theme_name}rc"
 
@@ -120,7 +120,7 @@ def test_corner_dims_match_adjacent_strips(theme_name: str, fake_home: Path) -> 
     width, >= the rc BorderLeft/Right) and the height of the adjacent
     top/bottom strip (== BorderTop/BorderBottom).
     """
-    result = convert(FIXTURES / f"{theme_name}.etheme", scale=2)
+    result = convert(FIXTURES / f"{theme_name}.etheme", scale=2, backend="svg")
     svg = result.installed_dir / "decoration.svg"
     L = _read_layout(result.installed_dir / f"{theme_name}rc")
 
@@ -142,7 +142,7 @@ def test_svg_canvas_size_matches_strip_thicknesses(
     theme_name: str, fake_home: Path
 ) -> None:
     """SVG canvas = left + middle + right by top + middle + bottom."""
-    result = convert(FIXTURES / f"{theme_name}.etheme", scale=2)
+    result = convert(FIXTURES / f"{theme_name}.etheme", scale=2, backend="svg")
     svg = result.installed_dir / "decoration.svg"
     L = _read_layout(result.installed_dir / f"{theme_name}rc")
 

@@ -1,0 +1,344 @@
+"""Theme → theme.js part model for the generic QML runtime.
+
+Contract: the emitted ``theme.js`` is pure data (``var theme = {...};``,
+imported by main.qml via ``import "theme.js" as ThemeData`` — never
+runtime JSON/XHR, which Qt6 gates behind QML_XHR_ALLOW_FILE_READ).
+Geometry fields (anchors, min/max, pads) stay in UNSCALED E16 reference
+pixels — the resolver computes in ref space and multiplies by scale at
+the end (see resolver.py: output-space math shifts max-clamped parts).
+Display-only fields ARE pre-scaled: ``borders``, ``insets`` (BorderImage
+insets on the upscaled PNGs) and ``text.pixelSize``. Image state
+fallbacks are resolved HERE so the runtime only ever binds concrete
+filenames; origin topology is validated HERE (an origin must reference an
+earlier-declared part — violations degrade to window-relative with a
+``qmldeco:`` note).
+
+The part model keys are the shared vocabulary with runtime/resolver.js and
+resolver.py — change all three together and bump RUNTIME_VERSION.
+"""
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+from themey.ir import ButtonPart, IClassSpec, Theme
+
+from .actions import button_kind
+from .resolver import RUNTIME_VERSION, part_geometry
+
+# Reference frame (ref px, pre-scale) for the emitter-side maximized
+# side-zone detection — mirrors analyze/coords.py's binning reference.
+REFERENCE_W = 800
+REFERENCE_H = 600
+# Caption width stand-in for the reference resolve; only title parts read
+# it and they always live in the top band, so precision is irrelevant here.
+REFERENCE_TITLE_W = 120
+
+_SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9_]+")
+
+# E16 TextclassCreate default justification (Q10 center).
+DEFAULT_JUSTIFICATION = 512
+DEFAULT_TITLE_SIZE = 10
+
+# (model key, filename suffix) per E16 state; fallback chains below.
+_STATE_ATTRS: tuple[tuple[str, str], ...] = (
+    ("normal", "normal"),
+    ("normal_active", "normal_active"),
+    ("hilited", "hilited"),
+    ("hilited_active", "hilited_active"),
+    ("clicked", "clicked"),
+    ("clicked_active", "clicked_active"),
+)
+
+# Runtime image slot → E16 state fallback chain (first existing wins).
+_SLOT_CHAINS: dict[str, tuple[str, ...]] = {
+    "normal": ("normal",),
+    "normalActive": ("normal_active", "normal"),
+    "hover": ("hilited", "normal"),
+    "hoverActive": ("hilited_active", "hilited", "normal_active", "normal"),
+    "pressed": ("clicked", "normal"),
+    "pressedActive": ("clicked_active", "clicked", "normal_active", "normal"),
+}
+_BUTTON_SLOTS = tuple(_SLOT_CHAINS)
+_CHROME_SLOTS = ("normal", "normalActive")
+
+
+def safe_name(iclass_name: str) -> str:
+    """Filesystem-safe lowercase image basename stem for an iclass."""
+    return _SAFE_NAME_RE.sub("_", iclass_name).strip("_").lower() or "part"
+
+
+def _existing_states(ic: IClassSpec) -> dict[str, Path]:
+    out: dict[str, Path] = {}
+    for attr, suffix in _STATE_ATTRS:
+        path = getattr(ic, attr)
+        if path is not None and path.is_file():
+            out[suffix] = path
+    return out
+
+
+def _resolve_images(
+    ic: IClassSpec | None,
+    slots: tuple[str, ...],
+    manifest: dict[str, Path],
+) -> dict[str, str] | None:
+    """Resolve slot → package-relative image URL, registering exports.
+
+    Returns None when the iclass has no usable image at all.
+    """
+    if ic is None:
+        return None
+    states = _existing_states(ic)
+    if not states:
+        return None
+    stem = safe_name(ic.name)
+    resolved: dict[str, str] = {}
+    for slot in slots:
+        for state in _SLOT_CHAINS[slot]:
+            if state in states:
+                relname = f"{stem}_{state}.png"
+                manifest[relname] = states[state]
+                resolved[slot] = f"../images/{relname}"
+                break
+        else:
+            # No chain member exists; fall back to any existing state so the
+            # slot is never absent (the runtime binds unconditionally).
+            state, path = next(iter(states.items()))
+            relname = f"{stem}_{state}.png"
+            manifest[relname] = path
+            resolved[slot] = f"../images/{relname}"
+    return resolved
+
+
+def _rgb(color: tuple[int, int, int] | None, fallback: str) -> str:
+    if color is None:
+        return fallback
+    r, g, b = (max(0, min(255, c)) for c in color)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _clamped_insets(
+    ic: IClassSpec | None, scale: int
+) -> dict[str, int]:
+    """BorderImage insets = __EDGE_SCALING x scale, clamped to the source
+    image so left+right ≤ width and top+bottom ≤ height (Qt renders a
+    zero-width middle fine; negative middles it does not)."""
+    if ic is None:
+        return {"left": 0, "right": 0, "top": 0, "bottom": 0}
+    left, right, top, bottom = (v * scale for v in ic.edge_scaling)
+    img = ic.normal or ic.normal_active or ic.hilited or ic.clicked
+    if img is not None and img.is_file():
+        try:
+            from PIL import Image
+
+            with Image.open(img) as im:
+                iw, ih = im.width * scale, im.height * scale
+            if left + right > iw:
+                over = left + right - iw
+                right = max(0, right - over)
+                left = min(left, iw - right)
+            if top + bottom > ih:
+                over = top + bottom - ih
+                bottom = max(0, bottom - over)
+                top = min(top, ih - bottom)
+        except OSError:
+            pass
+    return {"left": left, "right": right, "top": top, "bottom": bottom}
+
+
+def _font_index(
+    theme: Theme,
+    part: ButtonPart,
+    fonts_model: list[dict],
+    font_sources: list[Path],
+) -> tuple[int, int]:
+    """Return (fontIndex, pixelSize) for a title part; fontIndex -1 = system."""
+    tclass = theme.tclasses.get(part.tclass_name or "")
+    alias = tclass.font_alias if tclass is not None else None
+    spec = theme.fonts.get(alias) if alias else None
+    if spec is None or spec.ttf_path is None:
+        size = spec.size if spec is not None else DEFAULT_TITLE_SIZE
+        return (-1, size * theme.scale)
+    for i, src in enumerate(font_sources):
+        if src == spec.ttf_path:
+            return (i, spec.size * theme.scale)
+    style = ""
+    try:
+        from PIL import ImageFont
+
+        style = (ImageFont.truetype(str(spec.ttf_path)).getname()[1] or "").lower()
+    except OSError:
+        pass
+    fonts_model.append(
+        {
+            "source": f"../fonts/{spec.ttf_path.name}",
+            "family": spec.family or spec.ttf_path.stem,
+            "italic": "italic" in style or "oblique" in style,
+            "bold": "bold" in style,
+        }
+    )
+    font_sources.append(spec.ttf_path)
+    return (len(fonts_model) - 1, spec.size * theme.scale)
+
+
+def build_theme_data(
+    theme: Theme,
+) -> tuple[dict, dict[str, Path], list[Path]]:
+    """Build the theme.js data dict + image manifest + font source list.
+
+    Appends ``qmldeco:`` fidelity notes to ``theme.notes``. Must run inside
+    the ``with extract(...)`` block — it reads part images and TTFs from
+    ``theme.asset_root``.
+    """
+    scale = theme.scale
+    manifest: dict[str, Path] = {}
+    fonts_model: list[dict] = []
+    font_sources: list[Path] = []
+    parts: list[dict] = []
+
+    for i, part in enumerate(theme.border.parts):
+        kind = button_kind(part)
+        ic = theme.iclasses.get(part.iclass_name)
+        slots = _BUTTON_SLOTS if kind is not None else _CHROME_SLOTS
+        images = _resolve_images(ic, slots, manifest)
+        if images is None:
+            theme.notes.append(
+                f"qmldeco: part '{part.iclass_name}' has no usable image "
+                "— rendered as empty space"
+            )
+
+        tl_origin, br_origin = part.tl_origin, part.br_origin
+        for label, origin in (("topleft", tl_origin), ("bottomright", br_origin)):
+            if origin >= i:
+                theme.notes.append(
+                    f"qmldeco: part '{part.iclass_name}' {label} origin {origin} "
+                    "does not reference an earlier-declared part — "
+                    "degraded to window-relative"
+                )
+        if tl_origin >= i:
+            tl_origin = -1
+        if br_origin >= i:
+            br_origin = -1
+
+        is_title = "__FLAG_TITLE" in part.flags
+        vertical = bool(is_title and part.max_w > 0 and part.max_h == 0)
+
+        pad_l = pad_r = pad_t = pad_b = 0
+        if ic is not None:
+            pad_l, pad_r, pad_t, pad_b = ic.padding
+
+        text: dict | None = None
+        justification = DEFAULT_JUSTIFICATION
+        if is_title:
+            tclass = theme.tclasses.get(part.tclass_name or "")
+            if tclass is not None and tclass.justification_q10 is not None:
+                justification = tclass.justification_q10
+            font_index, pixel_size = _font_index(
+                theme, part, fonts_model, font_sources
+            )
+            shadow = bool(
+                tclass is not None
+                and tclass.effect is not None
+                and "SHADOW" in tclass.effect.upper()
+            )
+            text = {
+                "colorNormal": _rgb(
+                    tclass.fg_normal if tclass else None, "#c0c0c0"
+                ),
+                "colorActive": _rgb(
+                    (tclass.fg_active or tclass.fg_normal) if tclass else None,
+                    "#ffffff",
+                ),
+                "shadow": shadow,
+                "shadowColor": _rgb(
+                    tclass.effect_color if tclass else None, "#000000"
+                ),
+                "fontIndex": font_index,
+                "pixelSize": pixel_size,
+            }
+
+        parts.append(
+            {
+                "id": part.iclass_name,
+                "tlXP": part.tl_x_pct,
+                "tlXA": part.tl_x_abs,
+                "tlYP": part.tl_y_pct,
+                "tlYA": part.tl_y_abs,
+                "brXP": part.br_x_pct,
+                "brXA": part.br_x_abs,
+                "brYP": part.br_y_pct,
+                "brYA": part.br_y_abs,
+                "tlOrigin": tl_origin,
+                "brOrigin": br_origin,
+                "minW": part.min_w,
+                "maxW": part.max_w,
+                "minH": part.min_h,
+                "maxH": part.max_h,
+                "isTitle": is_title,
+                "vertical": vertical,
+                "padLeft": pad_l,
+                "padRight": pad_r,
+                "padTop": pad_t,
+                "padBottom": pad_b,
+                "justification": justification,
+                "keepWhenShaded": part.keep_when_shaded,
+                "hideWhenMaximized": False,  # filled below
+                "button": kind,
+                "insets": _clamped_insets(ic, scale),
+                "images": images,
+                "text": text,
+            }
+        )
+
+    border = theme.border
+    data = {
+        "runtimeVersion": RUNTIME_VERSION,
+        "name": theme.name,
+        "scale": scale,
+        "borders": {
+            "left": border.border_size_left * scale,
+            "right": border.border_size_right * scale,
+            "top": border.border_size_top * scale,
+            "bottom": border.border_size_bottom * scale,
+        },
+        "fonts": fonts_model,
+        "parts": parts,
+    }
+
+    _mark_hidden_when_maximized(theme, data)
+    return data, manifest, font_sources
+
+
+def _mark_hidden_when_maximized(theme: Theme, data: dict) -> None:
+    """When maximized only the title band survives (side/bottom borders
+    collapse to 0), so any part that does not fit inside the band — the
+    side rails, the bottom strip, side-stack buttons below the band — is
+    hidden. Detection resolves every part at the reference frame with the
+    shared resolver; a corner button that lives within the band's rows
+    (e13's KILL) stays visible."""
+    scale = theme.scale
+    frame_w, frame_h = REFERENCE_W * scale, REFERENCE_H * scale
+    band_h = data["borders"]["top"]
+    for i, p in enumerate(data["parts"]):
+        _x, y, _w, h = part_geometry(
+            data, i, frame_w, frame_h, lambda _i: REFERENCE_TITLE_W * scale
+        )
+        if y + h > band_h:
+            p["hideWhenMaximized"] = True
+            if p["button"] is not None:
+                theme.notes.append(
+                    f"qmldeco: button '{p['id']}' sits below the title band "
+                    "and is hidden while the window is maximized (side and "
+                    "bottom borders collapse to 0 there)"
+                )
+
+
+def render_theme_js(data: dict) -> str:
+    """Render the theme.js source text (stable, snapshot-friendly)."""
+    payload = json.dumps(data, indent=2, sort_keys=True)
+    return (
+        f"// Generated by themey — QML decoration data (runtime v{RUNTIME_VERSION}).\n"
+        "// Pure data: imported by main.qml as ThemeData; no runtime I/O.\n"
+        f"var theme = {payload};\n"
+    )
