@@ -209,6 +209,21 @@ class CursorSpec:
 
 
 @dataclass(frozen=True)
+class WallpaperSpec:
+    """One background image declared in ``desktops.cfg``, with its fill mode.
+
+    ``fill_mode`` is ``"tiled"`` for ``ADD_BACKGROUND_TILED*`` macros and
+    ``"scaled"`` for ``ADD_BACKGROUND_SCALED``/``BG_FILE`` — it becomes the
+    wallpaper package's ``X-Themey-FillMode`` (see
+    ``generate/wallpaper.py``), so ``apply`` can read tiled-ness back out of
+    the installed package without re-parsing the E16 source.
+    """
+
+    path: Path  # under asset_root
+    fill_mode: str  # "tiled" | "scaled"
+
+
+@dataclass(frozen=True)
 class Theme:
     """Complete analyzed representation of one E16 theme.
 
@@ -233,6 +248,9 @@ class Theme:
     palette: Palette
     cursors: tuple[CursorSpec, ...] = ()
     wallpapers: tuple[Path, ...] = ()
+    # Additive alongside `wallpapers` (which stays the bare-path view some
+    # older call sites read); carries the fill-mode `wallpapers` cannot.
+    wallpaper_specs: tuple[WallpaperSpec, ...] = ()
     # Sampled KDE color scheme. ``palette`` above is derived from it, so the
     # two always agree. Defaulted so hand-built Themes in existing tests stay
     # valid; ``generate/colors.py`` falls back to the sampler's default when
