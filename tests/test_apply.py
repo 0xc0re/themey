@@ -250,3 +250,23 @@ def test_record_prev_deco_written_once(fake_kconfig: FakeKConfig) -> None:
     fake_kconfig.store["library"] = "org.kde.kwin.aurorae"  # simulated apply
     apply_mod._record_prev_deco(kw, kr)
     assert fake_kconfig.store[apply_mod._PREV_DECO_KEY] == "org.kde.breeze|Breeze|@unset"
+
+
+def test_run_checked_uses_sanitized_env(monkeypatch) -> None:
+    """Every external write funnels through _run_checked, which must hand
+    the tools `paths.subprocess_env()` (snap XDG_DATA_HOME dropped)."""
+    import subprocess
+
+    from themey import apply as apply_mod
+
+    seen: dict = {}
+
+    def fake_run(argv, **kwargs):
+        seen["env"] = kwargs.get("env")
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(apply_mod.subprocess, "run", fake_run)
+    monkeypatch.setenv("XDG_DATA_HOME", "/home/u/snap/code/259/.local/share")
+    apply_mod._run_checked(["true"], "probe")
+    assert seen["env"] is not None
+    assert "XDG_DATA_HOME" not in seen["env"]

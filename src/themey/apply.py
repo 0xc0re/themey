@@ -178,6 +178,7 @@ def _cfg_read(kr: str, file: str, group: str, key: str) -> str | None:
         [kr, "--file", file, "--group", group, "--key", key],
         capture_output=True,
         text=True,
+        env=paths.subprocess_env(),
     )
     v = (out.stdout or "").rstrip("\n")
     return v if v else None
@@ -364,6 +365,7 @@ def _evaluate_plasma_script(script: str, what: str) -> str:
         ],
         capture_output=True,
         text=True,
+        env=paths.subprocess_env(),
     )
     if proc.returncode != 0:
         tail = (proc.stderr or "").strip()[-500:]
@@ -705,7 +707,9 @@ def _which_qdbus() -> str:
 
 def _reconfigure() -> None:
     subprocess.run(
-        [_which_qdbus(), "org.kde.KWin", "/KWin", "reconfigure"], check=False
+        [_which_qdbus(), "org.kde.KWin", "/KWin", "reconfigure"],
+        check=False,
+        env=paths.subprocess_env(),
     )
 
 
@@ -859,7 +863,9 @@ def _run_checked(argv: list[str], what: str) -> None:
     handler catches only :class:`ApplyError`, so anything that escapes as a
     raw ``CalledProcessError`` reaches the user as a traceback.
     """
-    proc = subprocess.run(argv, capture_output=True, text=True)
+    proc = subprocess.run(
+        argv, capture_output=True, text=True, env=paths.subprocess_env()
+    )
     if proc.returncode != 0:
         tail = (proc.stderr or "").strip()[-500:]
         raise ApplyError(f"{what} failed (exit {proc.returncode}): {tail}")
