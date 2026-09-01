@@ -305,8 +305,14 @@ def test_apply_full_tile_modes_dispatch_to_script_and_restart(
     i_script = fake_kconfig.index_of(f"writeConfig('FillMode', {qml_int})")
     assert "reloadConfig()" in fake_kconfig.calls[i_script][-1]
     assert i_tool < i_script
-    i_restart = fake_kconfig.index_of("systemctl")
+    i_restart = fake_kconfig.index_of("systemctl", "restart")
     assert i_restart == len(fake_kconfig.calls) - 1
+    # Graceful quit first so plasmashell syncs its lazily-flushed panel
+    # config (stale iconbox thickness reloaded after a SIGTERM restart,
+    # live 2026-09-01); the restart itself stays dead last.
+    i_quit = fake_kconfig.index_of("kquitapp")
+    assert i_quit < i_restart
+    assert fake_kconfig.calls[i_quit][-1] == "plasmashell"
 
 
 def test_apply_full_fit_with_solid_writes_letterbox_color(
@@ -1325,7 +1331,7 @@ def test_apply_full_tiled_wallpaper_restarts_plasmashell_last(
     _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tile")
     _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
     apply_mod.apply_full("e13")
-    i_restart = fake_kconfig.index_of("systemctl")
+    i_restart = fake_kconfig.index_of("systemctl", "restart")
     cmd = fake_kconfig.calls[i_restart]
     assert cmd[1:] == ["--user", "restart", "plasma-plasmashell"]
     i_reconf = fake_kconfig.index_of("org.kde.KWin", "reconfigure")
