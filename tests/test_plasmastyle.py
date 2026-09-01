@@ -1966,3 +1966,111 @@ def test_panel_west_east_prefer_iconbox_art_over_vertical_dragbar(
     assert any(
         "vertical panels from DESKTOP_DRAGBUTTON_VERT" in n for n in theme2.notes
     )
+
+
+# ------------------------------------------------------------------ #
+# Popup background from the E16 menu style
+# ------------------------------------------------------------------ #
+
+
+def _with_menu_style(theme: Theme, **fields) -> Theme:
+    from dataclasses import replace
+
+    from themey.ir import MenuStyleSpec
+
+    spec = MenuStyleSpec(name=fields.pop("name", "DEFAULT"), **fields)
+    return replace(theme, menu_styles={spec.name: spec})
+
+
+def _center_rgb(svg: ET.Element) -> tuple[int, int, int]:
+    import base64
+    import io
+
+    for e in svg.iter():
+        if e.get("id") != "center":
+            continue
+        img = e if e.tag.endswith("image") else next(
+            (c for c in e.iter() if c.tag.endswith("image")), None
+        )
+        if img is not None:
+            data = base64.b64decode(img.get(XLINK).split(",", 1)[1])
+            return Image.open(io.BytesIO(data)).convert("RGB").getpixel((1, 1))
+        style = e.get("style", "")
+        hexv = style.split("fill:")[1][:7]
+        return tuple(int(hexv[i:i + 2], 16) for i in (1, 3, 5))  # type: ignore[return-value]
+    raise AssertionError("no center element")
+
+
+def test_dialog_source_uses_menu_style_bg_iclass_over_conventional_names(
+    tmp_path: Path,
+) -> None:
+    """The DEFAULT menu style's __BG_ICLASS is what E16 painted the menu
+    window with (menus.c MenuRedraw) — whatever it is named. It outranks
+    the MENU_BG/DIALOG name convention."""
+    custom = _png(tmp_path, "custom.png", size=(32, 32), color=(10, 200, 10, 255))
+    dialog = _png(tmp_path, "dialog.png", size=(32, 32), color=(0, 0, 0, 255))
+    theme = _theme(tmp_path, {
+        "MY_MENU_BACK": _iclass("MY_MENU_BACK", edge=(2, 2, 2, 2), normal=custom),
+        "DIALOG": _iclass("DIALOG", edge=(0, 0, 0, 0), normal=dialog),
+    })
+    theme = _with_menu_style(theme, bg_iclass="MY_MENU_BACK", item_iclass="MENU_SEL")
+    svg = plasmastyle.build_dialog_background(theme)
+    assert svg is not None
+    assert _center_rgb(svg) == (10, 200, 10)
+    assert any("from iclass MY_MENU_BACK" in n for n in theme.notes)
+
+
+def test_dialog_item_backgrounds_tile_item_art(tmp_path: Path) -> None:
+    """OldE: NeXTSTEP style, __USE_ITEM_BACKGROUNDS __ON. E16 drew no menu
+    background at all — every row wore MENU_SEL's normal art — so the
+    popup is that art repeated (hint-tile-center), never the DIALOG art."""
+    item = _png(tmp_path, "item.png", size=(64, 16), color=(40, 40, 40, 255))
+    dialog = _png(tmp_path, "dialog.png", size=(32, 32), color=(0, 0, 0, 255))
+    theme = _theme(tmp_path, {
+        "MENU_SEL": _iclass("MENU_SEL", edge=(3, 3, 3, 3), normal=item),
+        "DIALOG": _iclass("DIALOG", edge=(0, 0, 0, 0), normal=dialog),
+    })
+    theme = _with_menu_style(theme, bg_iclass=None, item_iclass="MENU_SEL", use_item_bg=True)
+    svg = plasmastyle.build_dialog_background(theme)
+    assert svg is not None
+    ids = _ids(svg)
+    assert "hint-tile-center" in ids
+    assert _center_rgb(svg) == (40, 40, 40)
+    assert any("item backgrounds" in n and "MENU_SEL" in n for n in theme.notes)
+
+
+def test_dialog_menu_style_shaped_bg_falls_through(tmp_path: Path) -> None:
+    """A shaped menu-style background is rejected like a shaped MENU_BG."""
+    shaped = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
+    for x in range(32):
+        for y in range(8):
+            shaped.putpixel((x, y), (200, 0, 0, 255))
+    p = tmp_path / "shaped.png"
+    shaped.save(p)
+    dialog = _png(tmp_path, "dialog.png", size=(32, 32), color=(0, 0, 0, 255))
+    theme = _theme(tmp_path, {
+        "SHAPED_BG": _iclass("SHAPED_BG", edge=(0, 0, 0, 0), normal=p),
+        "DIALOG": _iclass("DIALOG", edge=(0, 0, 0, 0), normal=dialog),
+    })
+    theme = _with_menu_style(theme, bg_iclass="SHAPED_BG", item_iclass="MENU_SEL")
+    svg = plasmastyle.build_dialog_background(theme)
+    assert svg is not None
+    assert _center_rgb(svg) == (0, 0, 0)
+    assert any("SHAPED_BG art is shaped" in n for n in theme.notes)
+
+
+def test_style_scheme_window_color_follows_menu_style_bg(tmp_path: Path) -> None:
+    """The colors file's Window group samples the same source, so Kickoff's
+    header/footer strips match the popup body."""
+    custom = _png(tmp_path, "custom.png", size=(32, 32), color=(10, 200, 10, 255))
+    dialog = _png(tmp_path, "dialog.png", size=(32, 32), color=(0, 0, 0, 255))
+    theme = _theme(tmp_path, {
+        "MY_MENU_BACK": _iclass("MY_MENU_BACK", edge=(2, 2, 2, 2), normal=custom),
+        "DIALOG": _iclass("DIALOG", edge=(0, 0, 0, 0), normal=dialog),
+    })
+    theme = _with_menu_style(theme, bg_iclass="MY_MENU_BACK", item_iclass="MENU_SEL")
+    out = tmp_path / "themey_TestStyle"
+    style = plasmastyle.write(theme, out)
+    colors = (style.dir / "colors").read_text()
+    window = colors.split("[Colors:Window]")[1].split("[")[0]
+    assert "BackgroundNormal=10,200,10" in window

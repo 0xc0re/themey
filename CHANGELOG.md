@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **E16 menu styles** — `menustyles.cfg` is parsed: `#include <definitions>`
+  now resolves to a bundled copy of E16's macro file (function-like macros
+  only), so the `NORMAL_/NEXTSTEP_MENU_STYLE_VERTICAL` blocks every corpus
+  theme uses expand into `__MENU_STYLE` blocks (`analyze/menus.py`,
+  `ir.MenuStyleSpec`). The Plasma popup background follows the DEFAULT
+  style's `__BG_ICLASS` whatever its name, and a NeXTSTEP style
+  (`__USE_ITEM_BACKGROUNDS __ON` — OldE, OPENSTEP, NewSTEP) repeats the
+  `__ITEM_ICLASS` row art that E16 stacked per menu row instead of falling
+  back to a flat DIALOG; the `colors` Window group samples the same source.
+  11 corpus themes change popup source, all to what E16 drew.
+
 ### Fixed
 
 - **Style re-apply reload** — `themey apply` bounces the Plasma Style

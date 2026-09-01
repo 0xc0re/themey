@@ -315,3 +315,67 @@ def test_macro_body_with_adjacent_quoted_pieces_yields_one_name(tmp_path: Path) 
     normal = _kv(iclass, "__NORMAL")
     assert name is not None and name.values == ("BUTTON_ICONIFY",)
     assert normal is not None and normal.values == ("artwork/button_iconify_1.png",)
+
+
+# ---------------------------------------------------------------------------
+# E16's own <definitions> macro file (bundled copy)
+# ---------------------------------------------------------------------------
+
+_MENUSTYLE_CFG = (
+    "#include <definitions>\n"
+    "__E_CFG_VERSION 1\n"
+    'NORMAL_MENU_STYLE_VERTICAL("DEFAULT", "MENU", "MENU_TEXT", "MENU_BG", '
+    '"MENU_SEL", "MENU_SUB", 40)\n'
+)
+
+
+def test_angle_definitions_expands_e16_menu_style_macro(tmp_path: Path) -> None:
+    """Every corpus menustyles.cfg (223/223) declares its styles through
+    the NORMAL_/NEXTSTEP_MENU_STYLE_* macros of E16's ``config/definitions``
+    — a file no archive ships. The bundled copy must expand them."""
+    (tmp_path / "menustyles.cfg").write_text(_MENUSTYLE_CFG)
+    nodes = parse_tree(tmp_path, ["menustyles.cfg"])
+    styles = _blocks(nodes, "__MENU_STYLE")
+    assert len(styles) == 1
+    style = styles[0]
+    assert _kv(style, "__NAME") is not None
+    assert _kv(style, "__NAME").values == ("DEFAULT",)
+    assert _kv(style, "__BG_ICLASS").values == ("MENU_BG",)
+    assert _kv(style, "__ITEM_ICLASS").values == ("MENU_SEL",)
+    assert _kv(style, "__MAXIMUM_NUMBER_OF_ROWS").values == (40,)
+
+
+def test_definitions_keyword_ids_stay_identifiers(tmp_path: Path) -> None:
+    """definitions also ``#define``s every ``__KEYWORD`` (and ``__BGN``/
+    ``__END``/``__ON``/``__OFF``) as E16's numeric config id. Those must
+    NOT be expanded — themey's grammar is keyword-based, and ``__OFF`` in a
+    macro body has to reach the analyzer as the identifier."""
+    (tmp_path / "menustyles.cfg").write_text(
+        _MENUSTYLE_CFG + "__ICLASS __BGN\n  __NAME MENU_BG\n__END\n"
+    )
+    nodes = parse_tree(tmp_path, ["menustyles.cfg"])
+    assert len(_blocks(nodes, "__ICLASS")) == 1
+    style = _blocks(nodes, "__MENU_STYLE")[0]
+    assert _kv(style, "__USE_ITEM_BACKGROUNDS").values == ("__OFF",)
+
+
+def test_theme_define_overrides_bundled_definitions(tmp_path: Path) -> None:
+    """A theme's own ``#define`` of a definitions macro name wins (cpp:
+    last definition in effect), so hand-rolled variants keep working."""
+    (tmp_path / "menustyles.cfg").write_text(
+        "#include <definitions>\n"
+        "#define NORMAL_MENU_STYLE_VERTICAL(a,b,c,d,e,f,g) __MENU_STYLE __BGN;"
+        " __NAME a; __BG_ICLASS f; __END\n"
+        'NORMAL_MENU_STYLE_VERTICAL("X", "B", "T", "BG", "IT", "SUB", 1)\n'
+    )
+    nodes = parse_tree(tmp_path, ["menustyles.cfg"])
+    style = _blocks(nodes, "__MENU_STYLE")[0]
+    assert _kv(style, "__BG_ICLASS").values == ("SUB",)
+
+
+def test_default_entry_files_include_menustyles(tmp_path: Path) -> None:
+    """E16's ThemeConfigLoad (config.c) loads menustyles.cfg; so must the
+    default entry list."""
+    (tmp_path / "menustyles.cfg").write_text(_MENUSTYLE_CFG)
+    nodes = parse_tree(tmp_path)
+    assert len(_blocks(nodes, "__MENU_STYLE")) == 1

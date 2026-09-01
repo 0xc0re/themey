@@ -129,7 +129,7 @@ from themey.generate.qmldeco.resolver import scale_px
 from themey.images.embed import image_to_b64_uri
 from themey.images.ninepatch import slice_9patch
 from themey.images.upscale import upscale_part
-from themey.ir import FILL_STRETCH, ColorGroup, ColorScheme, IClassSpec, Theme
+from themey.ir import FILL_STRETCH, ColorGroup, ColorScheme, IClassSpec, MenuStyleSpec, Theme
 from themey.slug import plugin_id
 
 log = logging.getLogger(__name__)
@@ -365,13 +365,53 @@ def _transparent_fraction(path: Path) -> float:
     return sum(1 for a in alpha if a < 128) / len(alpha)
 
 
-def _dialog_source(theme: Theme) -> IClassSpec | None:
-    """MENU_BG, else DIALOG — skipping SHAPED art (see
-    ``SHAPED_ART_MAX_TRANSPARENT``): E16 shaped the menu window to such
-    art's outline, but a Plasma popup is a rectangle. The note is
-    deduplicated because ``style_scheme`` resolves the source again.
+#: Menu style names tried for the popup source, in order: E16 opens every
+#: app/desktop menu with DEFAULT; ROOT dresses the root menu.
+_MENU_STYLE_ORDER = ("DEFAULT", "ROOT")
+
+
+def _menu_style(theme: Theme) -> MenuStyleSpec | None:
+    for name in _MENU_STYLE_ORDER:
+        if name in theme.menu_styles:
+            return theme.menu_styles[name]
+    return next(iter(theme.menu_styles.values()), None)
+
+
+def _dialog_candidates(theme: Theme) -> list[tuple[str, bool]]:
+    """``(iclass name, tiled)`` sources for the popup background, best
+    first.
+
+    The parsed ``__MENU_STYLE`` leads because it names what E16 actually
+    painted the menu window with (menus.c ``MenuRedraw``), whatever the
+    iclass is called: its ``__BG_ICLASS`` stretched like any frame, or —
+    ``__USE_ITEM_BACKGROUNDS __ON``, the NeXTSTEP style (OldE, 8 corpus
+    themes) — the ``__ITEM_ICLASS`` normal art, which E16 applied to every
+    menu row so the menu was a stack of those strips and never had a
+    background of its own; FrameSvg can only repeat it (``tiled``), at the
+    strip's own height rather than per row. Then the classic name
+    convention: ``MENU_BG``, then ``DIALOG``.
     """
+    out: list[tuple[str, bool]] = []
+    style = _menu_style(theme)
+    if style is not None:
+        if style.use_item_bg and style.item_iclass:
+            out.append((style.item_iclass, True))
+        elif style.bg_iclass:
+            out.append((style.bg_iclass, False))
     for name in ("MENU_BG", "DIALOG"):
+        if all(name != n for n, _ in out):
+            out.append((name, False))
+    return out
+
+
+def _resolve_dialog_source(theme: Theme) -> tuple[IClassSpec, bool] | None:
+    """First :func:`_dialog_candidates` entry with unshaped normal art, as
+    ``(spec, tiled)`` — skipping SHAPED art (``SHAPED_ART_MAX_TRANSPARENT``):
+    E16 shaped the menu window to such art's outline, but a Plasma popup is
+    a rectangle. Notes are deduplicated because ``style_scheme`` resolves
+    the source again.
+    """
+    for name, tiled in _dialog_candidates(theme):
         spec = theme.iclasses.get(name)
         path = _state_image(spec, "normal")
         if spec is None or path is None:
@@ -379,7 +419,7 @@ def _dialog_source(theme: Theme) -> IClassSpec | None:
         try:
             frac = _transparent_fraction(path)
         except OSError:
-            return spec  # unreadable art fails later with a skip note
+            return spec, tiled  # unreadable art fails later with a skip note
         if frac > SHAPED_ART_MAX_TRANSPARENT:
             note = (
                 f"plasmastyle: {name} art is shaped ({frac:.0%} transparent"
@@ -389,8 +429,22 @@ def _dialog_source(theme: Theme) -> IClassSpec | None:
             if note not in theme.notes:
                 theme.notes.append(note)
             continue
-        return spec
+        return spec, tiled
     return None
+
+
+def _dialog_source(theme: Theme) -> IClassSpec | None:
+    """The popup background iclass (see :func:`_resolve_dialog_source`)."""
+    found = _resolve_dialog_source(theme)
+    return found[0] if found is not None else None
+
+
+def _item_background_note(spec: IClassSpec) -> str:
+    return (
+        f" (E16 item backgrounds — __USE_ITEM_BACKGROUNDS: the menu had no "
+        f"background of its own, every row wore {spec.name}'s normal art, so "
+        "the popup repeats that strip at its authored height)"
+    )
 
 
 def _panel_art_guard(spec: IClassSpec, *, wordmark: bool = False) -> str | None:
@@ -959,6 +1013,7 @@ def _emit_set(
     edge_override: Callable[[tuple[int, int, int, int], int, int], tuple[int, int, int, int]]
     | None = None,
     close_open_edges: bool = False,
+    tile_center: bool | None = None,
 ) -> tuple[int, int, int, int] | None:
     """One prefixed 9-part set (+ optional margin hints) for *spec*/*state*.
 
@@ -973,7 +1028,9 @@ def _emit_set(
     the mapping contract). ``edge_override`` maps ``(edge, src_w, src_h)``
     — post-trim values — to the edge actually used; the viewitem builder
     pins synthetic caps with it. ``close_open_edges`` (viewitem only)
-    runs :func:`_close_open_edges` on the overridden caps.
+    runs :func:`_close_open_edges` on the overridden caps. ``tile_center``
+    overrides the ``__FILLRULE``-derived choice (the popup builder tiles
+    E16 item-background art the menu repeated per row).
     """
     found = _state_attr(spec, state)
     if found is None:
@@ -1027,7 +1084,8 @@ def _emit_set(
     scale = _surface_scale(theme, spec, edge)
     img = upscale_part(src, scale)
     caps = _scaled_caps(edge, src_w, src_h, scale)
-    tile_center = spec.fill_for(state_attr) != FILL_STRETCH
+    if tile_center is None:
+        tile_center = spec.fill_for(state_attr) != FILL_STRETCH
     try:
         _frame_group(canvas, prefix, img, caps, tile_center=tile_center)
     except ValueError:
@@ -1393,7 +1451,8 @@ def _emit_composite_frame(
             continue
         loaded[corner] = _load_scaled(path, scale)
 
-    center_src = _dialog_source(theme)
+    resolved = _resolve_dialog_source(theme)
+    center_src, center_tiled = resolved if resolved is not None else (None, False)
     center_path = (
         _state_image(center_src, "normal") if center_src is not None else None
     )
@@ -1417,6 +1476,20 @@ def _emit_composite_frame(
                 items.append((element, img))
         if items:
             _emit_plain_row(canvas, items)
+    if center_img is not None and center_tiled:
+        ET.SubElement(
+            canvas.root,
+            f"{{{SVG_NS}}}rect",
+            {
+                "id": "hint-tile-center",
+                "x": "0",
+                "y": str(canvas.y),
+                "width": "1",
+                "height": "1",
+                "style": "opacity:0",
+            },
+        )
+        canvas.advance(1, 1)
     if center_img is None:
         # Mandatory center: a flat rect in the top-most strip's dominant.
         first = next(iter(strips.values()))
@@ -1471,12 +1544,14 @@ def build_dialog_background(theme: Theme) -> ET.Element | None:
             name for _, name in _MENU_STRIP_NAMES
             if _state_image(theme.iclasses.get(name), "normal") is not None
         )
-        center_src = _dialog_source(theme)
+        resolved = _resolve_dialog_source(theme)
+        center_src, tiled = resolved if resolved is not None else (None, False)
         theme.notes.append(
             "plasmastyle: popup/dialog frame composed from menu frame "
             f"pieces {piece_names}"
             + (
                 f" around a {center_src.name} center"
+                + (_item_background_note(center_src) if tiled else "")
                 if center_src is not None
                 else " around a flat center (no unshaped background art)"
             )
@@ -1485,16 +1560,21 @@ def build_dialog_background(theme: Theme) -> ET.Element | None:
         )
         return canvas.finish()
 
-    src = _dialog_source(theme)
-    if src is None:
+    resolved = _resolve_dialog_source(theme)
+    if resolved is None:
         return None
+    src, tiled = resolved
     canvas = _Canvas()
-    _emit_set(theme, canvas, "", src, "normal", hints=True)
+    _emit_set(
+        theme, canvas, "", src, "normal", hints=True,
+        tile_center=True if tiled else None,
+    )
     if canvas.is_empty:
         return None
     theme.notes.append(
-        f"plasmastyle: popup/dialog background from iclass {src.name}; no "
-        "shadow set is shipped, so popups render shadowless (E16 drew none)"
+        f"plasmastyle: popup/dialog background from iclass {src.name}"
+        + (_item_background_note(src) if tiled else "")
+        + "; no shadow set is shipped, so popups render shadowless (E16 drew none)"
     )
     return canvas.finish()
 
