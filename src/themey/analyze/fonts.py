@@ -64,17 +64,45 @@ def _resolve_ttf(name: str, asset_root: Path) -> Path | None:
     return None
 
 
+_BOLD_WEIGHTS = frozenset({"bold", "demibold", "semibold", "black", "heavy", "strong"})
+
+
 def _parse_xlfd(alias: str, value: str) -> FontSpec:
     fields = value.split("-")
     # ['-family-…'] splits to ['', foundry, family, weight, slant, setwidth,
     #  addstyle, pixel, point, …]
     family = fields[2] if len(fields) > 2 and fields[2] not in ("", "*") else None
+    weight = fields[3].lower() if len(fields) > 3 else ""
+    slant = fields[4].lower() if len(fields) > 4 else ""
     size = DEFAULT_SIZE
+    points = False
     if len(fields) > 7 and fields[7].isdigit():
         size = int(fields[7])
     elif len(fields) > 8 and fields[8].isdigit():
         size = max(1, int(fields[8]) // 10)
-    return FontSpec(alias=alias, ttf_path=None, family=family, size=size)
+        points = True
+    return FontSpec(
+        alias=alias, ttf_path=None, family=family, size=size, points=points,
+        bold=weight in _BOLD_WEIGHTS, italic=slant in ("i", "o"),
+    )
+
+
+_RE_XFT = re.compile(r"^xft:\s*([^:\-]+?)(?:-(\d+))?((?::[A-Za-z]+)*)\s*$", re.I)
+
+
+def _parse_xft(alias: str, value: str) -> FontSpec | None:
+    """``xft:family-size:style:...`` (XftFontOpenName pattern; 3 corpus
+    themes): size in points, ``:bold``/``:italic``/``:oblique`` flags."""
+    m = _RE_XFT.match(value)
+    if m is None:
+        return None
+    family = m.group(1).strip()
+    size = int(m.group(2)) if m.group(2) else DEFAULT_SIZE
+    flags = {f.lower() for f in m.group(3).split(":") if f}
+    return FontSpec(
+        alias=alias, ttf_path=None, family=family, size=size, points=True,
+        bold="bold" in flags, italic=bool(flags & {"italic", "oblique"}),
+    )
 
 
 def parse_fonts(asset_root: Path) -> dict[str, FontSpec]:
@@ -106,6 +134,11 @@ def _parse_file(path: Path, asset_root: Path) -> dict[str, FontSpec]:
         if value.startswith("-"):
             out[alias] = _parse_xlfd(alias, value)
             continue
+        if value.lower().startswith("xft:"):
+            xft = _parse_xft(alias, value)
+            if xft is not None:
+                out[alias] = xft
+                continue
         tm = _RE_TTF_SPEC.match(value)
         if tm is not None:
             name, size = tm.group(1), int(tm.group(2))
@@ -120,5 +153,6 @@ def _parse_file(path: Path, asset_root: Path) -> dict[str, FontSpec]:
             ttf_path=ttf,
             family=family or Path(name).stem,
             size=size,
+            points=True,  # Imlib2: FT_Set_Char_Size at 96 dpi
         )
     return out

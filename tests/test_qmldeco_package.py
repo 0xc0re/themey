@@ -96,6 +96,10 @@ def test_package_tree_and_asset_closure(fixture_pkg):
                 f"{name}: {part['id']}.{slot} → {url} not exported"
             )
     for font in data["fonts"]:
+        if not font.get("source"):
+            # Server (XLFD/xft) font: family/weight only, nothing to ship.
+            assert font.get("family")
+            continue
         assert (ui / font["source"]).resolve().is_file(), (
             f"{name}: font {font['source']} not copied"
         )
@@ -136,7 +140,8 @@ def test_e13_package_specifics(tmp_path):
     assert by_id["FIN"]["button"] is None          # ACTION_MOVE → chrome
     assert by_id["WIN_SIDE_RIGHT"]["button"] is None  # ACTION_RESIZE_H → chrome
     assert by_id["TITLEBAR"]["isTitle"] is True
-    assert by_id["TITLEBAR"]["text"]["pixelSize"] == 18  # ariali/9 x scale 2
+    # ariali/9 is 9 pt at Imlib2's 96 dpi = 12 px, x scale 2.
+    assert by_id["TITLEBAR"]["text"]["pixelSize"] == 24
     assert by_id["TITLEBAR"]["justification"] == 0  # E16 last-wins → flush left
     # FIN's declared __EDGE_SCALING right=129 pins the fin art to the right
     # edge (whole 129px source is the right cap, x2).
@@ -555,3 +560,37 @@ def test_runtime_caption_elides_middle_and_rotates_by_orientation():
     assert "Text.ElideMiddle" in qml
     assert "Text.ElideRight" not in qml
     assert "orientation" in qml and "-90" in qml
+
+
+def test_xlfd_title_font_carries_family_and_bold(tmp_path):
+    """102 corpus themes title with an XLFD, 38 of them bold. Without a
+    TTF the fonts model still carries family/bold/italic (no source) so
+    fontFamilyAt/fontStyleAt serve them; sizes from the pixel field are px."""
+    from dataclasses import replace
+
+    from themey.analyze.build_theme import build_theme
+    from themey.etheme.archive import extract
+    from themey.etheme.parse import parse_tree
+    from themey.generate.qmldeco.theme_js import build_theme_data
+    from themey.ir import FontSpec
+
+    with extract(FIXTURES / "e13.etheme") as raw:
+        theme = build_theme(
+            raw.asset_root, parse_tree(raw.asset_root), name="e13",
+            display_name="e13", scale=2,
+        )
+        title = next(p for p in theme.border.parts if "__FLAG_TITLE" in p.flags)
+        alias = theme.tclasses[title.tclass_name or "TEXT1"].font_alias
+        assert alias
+        theme = replace(theme, fonts={alias: FontSpec(
+            alias=alias, ttf_path=None, family="helvetica", size=14,
+            bold=True, italic=False, points=False,
+        )})
+        data, _manifest, font_sources = build_theme_data(theme)
+    text = next(p for p in data["parts"] if p["isTitle"])["text"]
+    assert text["fontIndex"] >= 0
+    entry = data["fonts"][text["fontIndex"]]
+    assert entry["family"] == "helvetica" and entry["bold"] is True
+    assert not entry.get("source")
+    assert text["pixelSize"] == 28
+    assert font_sources == []
