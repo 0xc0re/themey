@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Style re-apply reload** — `themey apply` bounces the Plasma Style
+  through Breeze's `default` when the themey style is already current:
+  `plasma-apply-desktoptheme` with the current name is a no-op, so a
+  re-converted style (fresh package and cleared kcache) kept painting the
+  previous conversion's SVGs from plasmashell's memory (OldE's rejected
+  "Enlightenment" wordmark cap survived a re-convert + apply, live
+  2026-09-01).
 - **Plasma Style highlights** — Kickoff/list selection art (`MENU_SEL`) now
   clamps its FrameSvg caps to 12 ref px (101 corpus themes shipped caps up
   to 199 px, smearing whole menu backgrounds into a 30 px row), honors the
