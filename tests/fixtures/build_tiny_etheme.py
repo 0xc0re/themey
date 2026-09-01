@@ -81,18 +81,20 @@ __FORGROUND_COLOR 255 255 200
 __END
 """
 
-# Minimal valid 8×8 transparent PNG (IHDR + IDAT + IEND)
-# Generated from a known-good hex sequence for a 1×1 transparent PNG
-# and extended to 8×8 so Pillow can open it without complaints.
-# Source: https://www.nayuki.io/page/tiny-png-output
-PNG_8x8 = bytes.fromhex(
-    "89504e470d0a1a0a"          # PNG signature
-    "0000000d49484452"          # IHDR chunk length + type
-    "000000080000000808060000"  # 8×8, 8-bit RGBA
-    "00c40fbe8b"                # IHDR CRC
-    "0000000a4944415478da6300010000000500010d0a2db4"  # IDAT (minimal empty)
-    "0000000049454e44ae426082"  # IEND
-)
+# Minimal 8×8 transparent PNG, written by Pillow so it decodes cleanly. The
+# earlier hand-rolled byte string carried an empty IDAT that Pillow rejected
+# ("broken data stream"); it went unnoticed only because the lexer of the
+# time dropped the unquoted ``__NORMAL btn_close.png`` paths, so nothing
+# ever opened these images.
+def _png_8x8() -> bytes:
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGBA", (8, 8), (0, 0, 0, 0)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+PNG_8x8 = _png_8x8()
 
 
 def _add(tar: tarfile.TarFile, name: str, content: bytes) -> None:
