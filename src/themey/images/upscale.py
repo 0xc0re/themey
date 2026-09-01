@@ -9,8 +9,9 @@ produces visible scaling seams.
 uses — so BorderImage insets always match the shipped art (mismatched
 rounding smears the 9-patch caps). The opt-in ``quality`` mode
 (``--upscale quality``) runs the pure-Python hqx port; fractional scales
-there go hqx(ceil(scale)) then LANCZOS *down* to target. That LANCZOS
-call is the ONLY permitted one under src/themey/images/ — it downsamples
+there go hqx(max(2, ceil(scale))) then LANCZOS *down* to target (hqx has
+no 1x, so sub-1 scales upsample via hqx2 first). That LANCZOS call is
+the ONLY permitted one under src/themey/images/ — it downsamples
 already-smoothed hqx output, never raw pixel art (CLAUDE.md carve-out).
 
 Wallpapers never come through here: ``generate/wallpaper.py`` copies them
@@ -56,10 +57,11 @@ def upscale_part(
 
     Args:
         img: Source Pillow Image.
-        scale: Output scale in [1, 3]; may be fractional (e.g. 1.5).
+        scale: Output scale in [0.5, 3]; may be fractional (e.g. 1.5 or
+            0.5 — NEAREST decimation is the pixel-art-honest downscale).
         mode: ``"nearest"`` (default, pixel-art sharp) or ``"quality"``
             (hqx edge-directed smoothing; fractional scales downsample
-            hqx(ceil(scale)) output with LANCZOS).
+            hqx(max(2, ceil(scale))) output with LANCZOS).
 
     Raises:
         ValueError: If ``mode`` is unknown.
@@ -84,5 +86,7 @@ def upscale_part(
         return img.copy()
     if is_int:
         return hqx(img, int(scale))  # type: ignore[arg-type]  # 2 or 3 here
-    big = hqx(img, math.ceil(scale))  # type: ignore[arg-type]  # 2 or 3 here
+    # max(2, ...): hqx has no 1x, and ceil of a sub-1 scale is 1 — a 0.75
+    # target goes hqx2 then LANCZOS down, staying inside the carve-out.
+    big = hqx(img, max(2, math.ceil(scale)))  # type: ignore[arg-type]  # 2 or 3 here
     return big.resize(target, resample=Image.Resampling.LANCZOS)

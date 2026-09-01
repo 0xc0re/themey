@@ -135,20 +135,38 @@ def test_convert_fractional_scale_qml(tmp_path):
 
 @needs_e13
 @pytest.mark.parametrize("backend", ["svg", "both"])
-def test_convert_fractional_scale_rejected_for_svg(tmp_path, backend):
+@pytest.mark.parametrize("scale", [1.5, 0.5])
+def test_convert_fractional_scale_rejected_for_svg(tmp_path, backend, scale):
     from themey.pipeline import convert
 
     with pytest.raises(ValueError, match="integer"):
-        convert(E13, scale=1.5, output_dir=tmp_path / "out", backend=backend)
+        convert(E13, scale=scale, output_dir=tmp_path / "out", backend=backend)
 
 
 @needs_e13
-@pytest.mark.parametrize("scale", [0.5, 0.99, 3.5, 4])
+@pytest.mark.parametrize("scale", [0.49, 0.4, 3.5, 4])
 def test_convert_scale_out_of_range_rejected(tmp_path, scale):
     from themey.pipeline import convert
 
     with pytest.raises(ValueError, match="scale"):
         convert(E13, scale=scale, output_dir=tmp_path / "out", backend="qml")
+
+
+@needs_e13
+def test_convert_scale_below_one_qml(tmp_path):
+    """0.5 shrinks borders below native — e13's 40/6/46/6 ref borders land
+    at 20/3/23/3 output px, half of the scale-1 render."""
+    from themey.generate.qmldeco.resolver import scale_px
+    from themey.pipeline import convert
+
+    out = tmp_path / "out"
+    convert(E13, scale=0.5, output_dir=out, backend="qml")
+    data = _theme_js(out / "themey_e13")
+    assert data["scale"] == 0.5
+    assert data["borders"] == {
+        "left": scale_px(40, 0.5), "right": scale_px(6, 0.5),
+        "top": scale_px(46, 0.5), "bottom": scale_px(6, 0.5),
+    } == {"left": 20, "right": 3, "top": 23, "bottom": 3}
 
 
 @needs_e13

@@ -176,6 +176,7 @@ download yourself.
 themey Aliens.etheme                     # convert + install + open the preview
 themey convert Aliens.etheme --scale 3   # same thing, explicit subcommand
 themey Aliens.etheme --scale 1.5         # fractional scale (QML backend only)
+themey e13.etheme --scale 0.5            # smaller than native — e13's 40 px borders become 20
 themey Aliens.etheme --output /tmp/out   # write to a directory; install nothing
 themey Aliens.etheme --no-open           # skip the browser
 ```
@@ -184,7 +185,7 @@ themey Aliens.etheme --no-open           # skip the browser
 
 | Flag | Meaning |
 |------|---------|
-| `--scale N` | Border/image upscale factor in `[1, 3]`. Default `2`. Fractional values (e.g. `1.5`) are accepted only with the QML backend — the SVG backend requires an integer. |
+| `--scale N` | Border/image upscale factor in `[0.5, 3]`. Default `2`. Values below 1 shrink borders below their native E16 size (0.5 is the floor — below that, 1-px pixel-art features vanish). Fractional values (e.g. `1.5` or `0.5`) are accepted only with the QML backend — the SVG backend requires an integer. |
 | `--upscale MODE` | Part-art scaler: `nearest` (default, pixel-art sharp, NEAREST resampling) or `quality` (hqx smoothing, then a LANCZOS *downsample* to the fractional target). `quality` is QML-backend-only. |
 | `--backend NAME` | Decoration backend: `qml` (default — the E16-faithful QML KPackage), `svg` (the legacy Aurorae SVG theme), or `both`. |
 | `--shade-button ACTION` | QML-backend-only. KWin removed window shading in Plasma 6, so E16's shade button is dead weight; this remaps it instead. One of `maximize` (default), `keepAbove`, `keepBelow`, `menu`, `hide`, or `none` (today's inert disabled button, which still absorbs clicks). e13, for example, has no maximize button of its own, so the dead shade slot becomes the missing action. |
@@ -219,6 +220,12 @@ skip it (the config still lands; the repaint then waits for your next
 login). `--deco-only` keeps the original behavior: it writes only
 `kwinrc [org.kde.kdecoration2]` and asks KWin to reconfigure — nothing else
 on the desktop changes.
+
+**Re-converting the theme you are currently running?** Run `themey apply
+<name>` again afterwards. A bare re-convert installs the new package files,
+but the live KWin keeps rendering its cached copy of the decoration (and
+plasmashell its cached Plasma Style) until an apply flushes them — the
+window frames will not change on their own.
 
 **Panels get resized.** A full apply sets *every* plasmashell panel to
 fit-content length (`lengthMode = fit`), because E16's iconbox and dragbar

@@ -121,9 +121,11 @@ def convert(
 
     Args:
         etheme_path: Path to a ``.etheme`` archive (gzipped tar).
-        scale: Border/image upscale factor in [1, 3]; quantized to two
+        scale: Border/image upscale factor in [0.5, 3]; quantized to two
             decimals, int-valued floats normalized to int. Fractional
-            values are accepted only with ``backend="qml"``.
+            values (every sub-1 value included) are accepted only with
+            ``backend="qml"``. The 0.5 floor is deliberate: below it,
+            1-px pixel-art features vanish entirely.
         output_dir: When given, skip the XDG install entirely and write the
             output tree(s) under ``output_dir`` plus ``<name>.report.txt``
             and ``<name>.html`` next to them. Nothing under
@@ -156,8 +158,8 @@ def convert(
         InstallError: If the atomic install rename fails.
     """
     scale = round(float(scale), 2)
-    if not 1 <= scale <= 3:
-        raise ValueError(f"scale must be in [1, 3] (got {scale})")
+    if not 0.5 <= scale <= 3:
+        raise ValueError(f"scale must be in [0.5, 3] (got {scale})")
     if scale == int(scale):
         scale = int(scale)
     if backend not in BACKENDS:

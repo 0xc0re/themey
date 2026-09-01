@@ -9,7 +9,8 @@ Subcommands:
     themey apply   <name> ...              point the live KWin at an installed theme
 
 Flags (convert):
-    --scale=N     in [1, 3]; fractional (e.g. 1.5) is QML-backend-only; default 2
+    --scale=N     in [0.5, 3]; fractional (e.g. 1.5 or 0.5) is
+                  QML-backend-only; default 2
     --output DIR  write the theme tree + report + preview under DIR instead
                   of installing to ~/.local/share (nothing outside DIR is touched)
     --upscale M   part-art scaler: nearest (default) or quality (QML-only hqx)
@@ -116,11 +117,11 @@ def convert_cmd(
         float,
         typer.Option(
             "--scale",
-            min=1,
+            min=0.5,
             max=3,
             help=(
-                "Border/image upscale factor in [1, 3]; fractional values "
-                "(e.g. 1.5) are QML-backend-only (default 2)"
+                "Border/image upscale factor in [0.5, 3]; fractional values "
+                "(e.g. 1.5 or 0.5) are QML-backend-only (default 2)"
             ),
         ),
     ] = 2,
@@ -298,9 +299,9 @@ def render_cmd(
         float,
         typer.Option(
             "--scale",
-            min=1,
+            min=0.5,
             max=3,
-            help="Border/image upscale factor in [1, 3]; fractional needs --plugin qml",
+            help="Border/image upscale factor in [0.5, 3]; fractional needs --plugin qml",
         ),
     ] = 2,
     upscale: Annotated[

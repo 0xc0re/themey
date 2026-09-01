@@ -139,9 +139,11 @@ def test_cli_fractional_scale_rejected_for_svg_backend(tmp_path, monkeypatch):
     assert result.exit_code != 0
 
 
-def test_cli_scale_below_1_rejected():
+def test_cli_scale_below_half_rejected():
+    # 0.5 is the floor (accepted, QML-only — covered in the pipeline
+    # tests); anything below it fails at the option layer.
     result = CliRunner().invoke(
-        app, ["--scale=0.5", str(FIXTURES / "Aliens.etheme")]
+        app, ["--scale=0.4", str(FIXTURES / "Aliens.etheme")]
     )
     assert result.exit_code != 0
 
