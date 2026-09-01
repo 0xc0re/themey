@@ -153,12 +153,12 @@ def test_panel_margin_hints_hug_the_caps(tmp_path: Path) -> None:
 
 
 def test_panel_background_cap_guard_falls_back_to_tint(tmp_path: Path) -> None:
-    """Wordmark-sized caps (the Aliens dragbar failure mode) trip the cap
-    guard; with no other candidate the panel degrades to the flat tint."""
-    png = _png(tmp_path, "dragbar.png", size=(160, 16))  # solid (200, 60, 60)
+    """Giant caps on the bar's THICKNESS axis trip the cap guard; with no
+    other candidate the panel degrades to the flat tint."""
+    png = _png(tmp_path, "dragbar.png", size=(160, 120))  # solid (200, 60, 60)
     theme = _theme(tmp_path, {
         "DESKTOP_DRAGBUTTON_HORIZ": _iclass(
-            "DESKTOP_DRAGBUTTON_HORIZ", edge=(133, 2, 0, 0), normal=png
+            "DESKTOP_DRAGBUTTON_HORIZ", edge=(4, 4, 50, 50), normal=png
         ),
     })
     svg = plasmastyle.build_panel_background(theme)
@@ -198,13 +198,14 @@ def test_panel_background_shaped_guard_falls_back(tmp_path: Path) -> None:
 def test_panel_background_guard_falls_through_to_next_source(
     tmp_path: Path,
 ) -> None:
-    """Aliens' census shape: dragbar rejected (giant cap) -> the iconbox
-    trough (small caps) backs the panel instead."""
-    big = _png(tmp_path, "dragbar.png", size=(160, 16))
+    """Aliens' census shape: dragbar rejected (133+28 length caps past
+    PANEL_MAX_REF_LENGTH_CAPS) -> the iconbox trough (small caps) backs the
+    panel instead."""
+    big = _png(tmp_path, "dragbar.png", size=(216, 23))
     small = _png(tmp_path, "iconbox.png", color=(20, 90, 20, 255))
     theme = _theme(tmp_path, {
         "DESKTOP_DRAGBUTTON_HORIZ": _iclass(
-            "DESKTOP_DRAGBUTTON_HORIZ", edge=(133, 2, 0, 0), normal=big
+            "DESKTOP_DRAGBUTTON_HORIZ", edge=(133, 28, 0, 0), normal=big
         ),
         "ICONBOX_HORIZONTAL": _iclass(
             "ICONBOX_HORIZONTAL", edge=(4, 4, 4, 4), normal=small
@@ -216,6 +217,49 @@ def test_panel_background_guard_falls_through_to_next_source(
         "panel background from iclass ICONBOX_HORIZONTAL" in n
         for n in theme.notes
     )
+
+
+def test_panel_wordmark_caps_accepted_on_length_axis(tmp_path: Path) -> None:
+    """AE's dragbar (128x16, edge 50 4 4 4): the 50 px cap is the theme's
+    wordmark, pinned at the bar's left exactly as E16 drew it. Length-axis
+    caps up to PANEL_MAX_REF_LENGTH_CAPS are allowed; the margin hints hug
+    the cap so content starts right after the wordmark."""
+    png = _png(tmp_path, "dragbar.png", size=(128, 16))
+    theme = _theme(tmp_path, {
+        "DESKTOP_DRAGBUTTON_HORIZ": _iclass(
+            "DESKTOP_DRAGBUTTON_HORIZ", edge=(50, 4, 4, 4), normal=png
+        ),
+    })
+    assert plasmastyle._panel_art_guard(theme.iclasses["DESKTOP_DRAGBUTTON_HORIZ"]) is None
+    svg = plasmastyle.build_panel_background(theme)
+    assert any(e.tag.endswith("image") for e in svg.iter())
+    assert any(
+        "panel background from iclass DESKTOP_DRAGBUTTON_HORIZ" in n
+        for n in theme.notes
+    )
+    assert not any("rejected for the panel background" in n for n in theme.notes)
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    assert by_id["hint-left-margin"].get("width") == str(50 - 4)
+
+
+def test_panel_guard_is_axis_aware(tmp_path: Path) -> None:
+    """Length axis (L+R for a horizontal bar, T+B for a vertical one) is
+    generous; the thickness axis keeps the strict PANEL_MAX_REF_CAPS."""
+    wide = _png(tmp_path, "h.png", size=(300, 120))
+    tall = _png(tmp_path, "v.png", size=(120, 300))
+    horiz_ok = _iclass("DESKTOP_DRAGBUTTON_HORIZ", edge=(50, 4, 4, 4), normal=wide)
+    horiz_thick = _iclass("DESKTOP_DRAGBUTTON_HORIZ", edge=(50, 50, 50, 50), normal=wide)
+    horiz_long = _iclass("DESKTOP_DRAGBUTTON_HORIZ", edge=(200, 2, 0, 0), normal=wide)
+    vert_ok = _iclass("DESKTOP_DRAGBUTTON_VERT", edge=(4, 4, 50, 4), normal=tall)
+    vert_thick = _iclass("DESKTOP_DRAGBUTTON_VERT", edge=(50, 4, 4, 4), normal=tall)
+    assert plasmastyle._panel_art_guard(horiz_ok) is None
+    assert plasmastyle._panel_art_guard(vert_ok) is None
+    reason = plasmastyle._panel_art_guard(horiz_thick)
+    assert reason is not None and "thickness" in reason
+    reason = plasmastyle._panel_art_guard(horiz_long)
+    assert reason is not None and str(plasmastyle.PANEL_MAX_REF_LENGTH_CAPS) in reason
+    reason = plasmastyle._panel_art_guard(vert_thick)
+    assert reason is not None and "thickness" in reason
 
 
 def test_panel_background_scheme_fallback_without_art(tmp_path: Path) -> None:
@@ -594,6 +638,32 @@ def test_button_prefixes_include_focus_and_state_fallback(tmp_path: Path) -> Non
     assert not any(i.startswith("toolbutton-") for i in ids)
 
 
+def test_button_prefers_dialog_widget_button(tmp_path: Path) -> None:
+    """DIALOG_WIDGET_BUTTON is E16's real push button (dialog.c:844);
+    DIALOG_BUTTON dresses the background-chooser thumbnails. 62/229 corpus
+    themes author them differently."""
+    widget = _png(tmp_path, "widget.png", color=(10, 200, 10, 255))
+    chooser = _png(tmp_path, "chooser.png", color=(200, 10, 10, 255))
+    theme = _theme(tmp_path, {
+        "DIALOG_BUTTON": _iclass("DIALOG_BUTTON", normal=chooser),
+        "DIALOG_WIDGET_BUTTON": _iclass("DIALOG_WIDGET_BUTTON", normal=widget),
+    })
+    svg = plasmastyle.build_button(theme)
+    assert svg is not None
+    assert _tile_image(svg, "normal-center").getpixel((0, 0))[:3] == (10, 200, 10)
+    assert any("widget buttons from iclass DIALOG_WIDGET_BUTTON" in n for n in theme.notes)
+    scheme = plasmastyle.style_scheme(theme, shipped=frozenset({plasmastyle.BUTTON_SVG}))
+    assert scheme.button.background_normal == (10, 200, 10)
+    assert any("colors Button from DIALOG_WIDGET_BUTTON art" in n for n in theme.notes)
+
+    only_chooser = _theme(tmp_path, {
+        "DIALOG_BUTTON": _iclass("DIALOG_BUTTON", normal=chooser),
+    })
+    svg = plasmastyle.build_button(only_chooser)
+    assert svg is not None
+    assert _tile_image(svg, "normal-center").getpixel((0, 0))[:3] == (200, 10, 10)
+
+
 def test_viewitem_selected_plus_hover_and_normal_omission(tmp_path: Path) -> None:
     hi = _png(tmp_path, "sel.png")
     theme = _theme(tmp_path, {
@@ -679,12 +749,35 @@ def test_scrollbar_size_hint_clamped_for_oversized_knob(tmp_path: Path) -> None:
 
 
 def test_viewitem_caps_pin_highlight_cross_section() -> None:
-    """Zero declared edge on pill art → caps at the cross-section radius;
-    larger declared caps survive."""
-    assert plasmastyle._viewitem_caps((0, 0, 0, 0), 164, 20) == (9, 9, 9, 9)
-    assert plasmastyle._viewitem_caps((20, 20, 2, 2), 202, 31) == (20, 20, 14, 14)
+    """Zero declared edge on PILL art → caps at the cross-section radius;
+    larger declared caps survive up to VIEWITEM_MAX_REF_CAP."""
+    caps, branch = plasmastyle._viewitem_caps((0, 0, 0, 0), 164, 20)
+    assert caps == (9, 9, 9, 9) and branch == "pill"
+    caps, branch = plasmastyle._viewitem_caps((20, 20, 2, 2), 202, 31)
+    assert caps == (12, 12, 12, 12) and branch == "pill"
     # Tiny art never degenerates below a 1-px cap or above the half-size.
-    assert plasmastyle._viewitem_caps((0, 0, 0, 0), 3, 3) == (1, 1, 1, 1)
+    caps, _ = plasmastyle._viewitem_caps((0, 0, 0, 0), 3, 3)
+    assert caps == (1, 1, 1, 1)
+
+
+def test_viewitem_caps_honor_declared_edge_for_menu_backgrounds() -> None:
+    """47 corpus themes point MENU_SEL at a whole menu background (64x64 …
+    484x400); E16 squished it into a ~30 px row keeping only the declared
+    caps crisp. The radius heuristic turned those into 31-199 px caps on a
+    Kickoff row — the declared edge is honored instead, clamped to
+    VIEWITEM_MAX_REF_CAP."""
+    caps, branch = plasmastyle._viewitem_caps((6, 22, 1, 1), 256, 256)
+    assert caps == (6, 12, 1, 1) and branch == "declared"
+    caps, branch = plasmastyle._viewitem_caps((0, 0, 0, 0), 64, 64)
+    assert branch == "declared"
+    assert all(c <= plasmastyle.VIEWITEM_MAX_REF_CAP for c in caps)
+    # StarEnli: 210x27 pill with a 64 px declared left cap → clamped, symmetric.
+    caps, branch = plasmastyle._viewitem_caps((64, 14, 3, 3), 210, 27)
+    assert branch == "pill"
+    assert caps[0] == caps[1] == plasmastyle.VIEWITEM_MAX_REF_CAP
+    # Every cap also stays under half the art on its axis.
+    caps, _ = plasmastyle._viewitem_caps((30, 30, 30, 30), 41, 9)
+    assert caps[2] <= 4 and caps[3] <= 4
 
 
 def _tile_image(svg: ET.Element, element_id: str) -> Image.Image:
@@ -702,13 +795,248 @@ def _tile_image(svg: ET.Element, element_id: str) -> Image.Image:
     raise AssertionError(f"no element {element_id}")
 
 
+_YELLOW_FILL = (255, 218, 2, 255)
+_YELLOW_DARK = (20, 20, 20, 255)
+#: Per row of Yellow's m_selected.png: (first opaque column, dark columns
+#: from there; None = the whole row is border). Rows 0-1/20-21 are blank.
+_YELLOW_ROWS: dict[int, tuple[int, int | None]] = {
+    2: (7, None), 3: (4, None), 4: (3, 4), 5: (2, 3), 6: (1, 3), 7: (1, 2),
+    8: (1, 2), 9: (0, 2), 10: (0, 2), 11: (0, 2), 12: (0, 2), 13: (1, 2),
+    14: (1, 2), 15: (1, 3), 16: (2, 3), 17: (3, 4), 18: (4, None), 19: (7, None),
+}
+
+
+def _yellow_pill(tmp_path: Path) -> Path:
+    """Replica of Yellow's ``artwork/menustyles/m_selected.png`` (58x22):
+    2 px dark top/bottom rows, a dark ROUNDED left end, a flat OPEN right
+    end at x=43 (fill straight to the edge, no rim), then 14 fully
+    transparent columns."""
+    img = Image.new("RGBA", (58, 22), (0, 0, 0, 0))
+    for y, (first, dark) in _YELLOW_ROWS.items():
+        for x in range(first, 44):
+            is_dark = dark is None or x < first + dark
+            img.putpixel((x, y), _YELLOW_DARK if is_dark else _YELLOW_FILL)
+    png = tmp_path / "m_selected.png"
+    img.save(png)
+    return png
+
+
+def _outer_right_rim_is_dark(tile: Image.Image) -> bool:
+    """Every row's RIGHTMOST opaque pixel is dark (a border/rim), and there
+    is at least one such pixel."""
+    seen = False
+    for y in range(tile.height):
+        for x in range(tile.width - 1, -1, -1):
+            r, g, b, a = tile.getpixel((x, y))
+            if a >= 128:
+                seen = True
+                if (r + g + b) / 3 >= 80:
+                    return False
+                break
+    return seen
+
+
+def test_viewitem_closes_yellow_open_right_end(tmp_path: Path) -> None:
+    """Yellow's MENU_SEL pill has a bordered rounded LEFT end and a flat
+    OPEN right end (E16 showed the menu background through the gap). The
+    right cap sliced from columns 36-43 is pure fill — the border was
+    never painted, not clipped — and the highlight rendered with no right
+    border on the desktop (chris, 2026-09-01; the E16-faithful see-through
+    gutter shipped before f85b1cf was reported as the same defect). The
+    open end is closed with the mirrored left cap and the caps go
+    symmetric (10/10)."""
+    png = _yellow_pill(tmp_path)
+    theme = _theme(tmp_path, {
+        "MENU_SEL": _iclass("MENU_SEL", edge=(10, 18, 5, 5), hilited=png),
+    })
+    svg = plasmastyle.build_viewitem(theme)
+    assert svg is not None
+    for element_id in ("hover-topright", "hover-right", "hover-bottomright"):
+        tile = _tile_image(svg, element_id)
+        assert _outer_right_rim_is_dark(tile), f"{element_id} has an open right end"
+    left = _tile_image(svg, "hover-left")
+    right = _tile_image(svg, "hover-right")
+    assert left.size == right.size == (10, right.height)
+    assert _tile_image(svg, "hover-topleft").size == _tile_image(svg, "hover-topright").size
+    # The set spans the opaque art (44 px), not the padded canvas (58 px).
+    xs = [
+        int(el.get("x", "0")) + int(el.get("width", "0"))
+        for el in svg.iter()
+        if el.tag.endswith("image")
+    ]
+    assert max(xs) == 44
+    assert any("trimmed" in n and "MENU_SEL" in n for n in theme.notes)
+    assert any(
+        "MENU_SEL" in n and "open" in n and "right" in n and "closed" in n
+        for n in theme.notes
+    )
+
+
+def test_close_open_edges_mirrors_only_open_trimmed_sides(tmp_path: Path) -> None:
+    png = _yellow_pill(tmp_path)
+    with Image.open(png) as im:
+        src = im.convert("RGBA")
+    trimmed = plasmastyle._opaque_trim(src, (10, 18, 5, 5))
+    assert trimmed is not None
+    img, edge, trims = trimmed
+    assert img.size == (44, 18) and trims == (0, 14, 2, 2) and edge == (10, 4, 3, 3)
+    caps, _ = plasmastyle._viewitem_caps(edge, 44, 18)
+    closed_img, closed_caps, closed = plasmastyle._close_open_edges(img, caps, trims)
+    assert closed == ("right",)
+    assert closed_caps == (10, 10, caps[2], caps[3])
+    from PIL import ImageOps
+    left_cap = img.crop((0, 0, 10, 18))
+    right_cap = closed_img.crop((34, 0, 44, 18))
+    assert right_cap.tobytes() == ImageOps.mirror(left_cap).tobytes()
+    # Top/bottom were trimmed too but carry their own border rows: untouched.
+    assert closed_img.crop((10, 0, 34, 18)).tobytes() == img.crop((10, 0, 34, 18)).tobytes()
+    # Untrimmed art (trims None) is returned as-is.
+    same_img, same_caps, none_closed = plasmastyle._close_open_edges(img, caps, None)
+    assert same_img is img and same_caps == caps and none_closed == ()
+
+
+def test_viewitem_full_bbox_bevel_is_not_mirrored(tmp_path: Path) -> None:
+    """Pager-style bevel art (dark top/left, light bottom/right, opaque to
+    every edge) has no transparent margin — nothing is trimmed, so no side
+    is ever 'open' and the asymmetric bevel survives untouched."""
+    img = Image.new("RGBA", (24, 12), (140, 140, 140, 255))
+    for x in range(24):
+        img.putpixel((x, 0), (30, 30, 30, 255))
+        img.putpixel((x, 11), (240, 240, 240, 255))
+    for y in range(12):
+        img.putpixel((0, y), (30, 30, 30, 255))
+        img.putpixel((23, y), (240, 240, 240, 255))
+    png = tmp_path / "p_sel.png"
+    img.save(png)
+    theme = _theme(tmp_path, {
+        "MENU_SEL": _iclass("MENU_SEL", edge=(2, 2, 2, 2), hilited=png),
+    })
+    svg = plasmastyle.build_viewitem(theme)
+    assert svg is not None
+    right = _tile_image(svg, "hover-right")
+    assert right.getpixel((right.width - 1, 0))[:3] == (240, 240, 240)
+    assert not any("closed" in n for n in theme.notes)
+    assert not any("trimmed" in n for n in theme.notes)
+
+
+def _nebula_bevel(tmp_path: Path) -> Path:
+    """Replica of Nebula's menu-item-lit.png (68x20): 2 px transparent
+    margins, light fill, a dark RIGHT column and BOTTOM row (drop shadow),
+    light top/left (lit edges), top-right/bottom-right corners rounded by
+    1 px. A raised bevel — its lit top is not an open end."""
+    img = Image.new("RGBA", (68, 20), (0, 0, 0, 0))
+    for y in range(1, 19):
+        for x in range(2, 66):
+            img.putpixel((x, y), (90, 170, 190, 255))
+    for y in range(2, 19):
+        img.putpixel((66, y), (25, 40, 45, 255))
+    for x in range(3, 66):
+        img.putpixel((x, 18), (25, 40, 45, 255))
+    png = tmp_path / "menu-item-lit.png"
+    img.save(png)
+    return png
+
+
+def _detroit_soft_pill(tmp_path: Path) -> Path:
+    """Replica of Detroit's mb2_menu.png (29x11): 1 px transparent margin,
+    a light rimless pill with 1 px rounded corners and a 4 px dark
+    decorative mark on the bottom row."""
+    img = Image.new("RGBA", (29, 11), (0, 0, 0, 0))
+    for y in range(1, 10):
+        x0, x1 = (2, 27) if y in (1, 9) else (1, 28)
+        for x in range(x0, x1):
+            img.putpixel((x, y), (200, 200, 210, 255))
+    for x in range(5, 9):
+        img.putpixel((x, 9), (30, 30, 30, 255))
+    png = tmp_path / "mb2_menu.png"
+    img.save(png)
+    return png
+
+
+@pytest.mark.parametrize("make", [_nebula_bevel, _detroit_soft_pill])
+def test_close_open_edges_leaves_bevels_and_soft_pills_alone(tmp_path: Path, make) -> None:
+    """Corpus audit 2026-09-01: a looser rule boxed in Nebula's raised
+    bevel (dark shadow mirrored onto its lit top) and doubled Detroit's
+    decorative mark. Neither is a sliced-open rim."""
+    png = make(tmp_path)
+    theme = _theme(tmp_path, {
+        "MENU_SEL": _iclass("MENU_SEL", edge=(4, 4, 3, 3), hilited=png),
+    })
+    svg = plasmastyle.build_viewitem(theme)
+    assert svg is not None
+    assert not any("end was open" in n for n in theme.notes)
+    with Image.open(png) as im:
+        src = im.convert("RGBA")
+    trimmed = plasmastyle._opaque_trim(src, (4, 4, 3, 3))
+    assert trimmed is not None
+    img, edge, trims = trimmed
+    caps, _ = plasmastyle._viewitem_caps(edge, *img.size)
+    out, out_caps, closed = plasmastyle._close_open_edges(img, caps, trims)
+    assert closed == () and out is img and out_caps == caps
+
+
+def test_close_open_edges_ignores_large_backgrounds(tmp_path: Path) -> None:
+    """EvilJester's 100x150 MENU_SEL background is framed on top/left only;
+    it is not a pill and is left alone."""
+    img = Image.new("RGBA", (100, 150), (0, 0, 0, 0))
+    for y in range(1, 149):
+        for x in range(1, 99):
+            img.putpixel((x, y), (120, 60, 140, 255))
+    for x in range(1, 99):
+        img.putpixel((x, 1), (230, 200, 240, 255))
+    for y in range(1, 149):
+        img.putpixel((1, y), (230, 200, 240, 255))
+    trimmed = plasmastyle._opaque_trim(img, (4, 4, 4, 4))
+    assert trimmed is not None
+    art, edge, trims = trimmed
+    caps, branch = plasmastyle._viewitem_caps(edge, *art.size)
+    assert branch == "declared"
+    assert plasmastyle._close_open_edges(art, caps, trims)[2] == ()
+
+
+def test_viewitem_fully_transparent_art_not_shipped(tmp_path: Path) -> None:
+    """Aphex2/ChromiumNoise/Cronos/Ecdysis/Inferno point MENU_SEL at fully
+    transparent art: a shipped-but-blank viewitem.svg blocks the Breeze
+    fallback and leaves every list without a selection highlight."""
+    png = tmp_path / "blank.png"
+    Image.new("RGBA", (16, 16), (0, 0, 0, 0)).save(png)
+    theme = _theme(tmp_path, {
+        "MENU_SEL": _iclass("MENU_SEL", edge=(0, 0, 0, 0), hilited=png),
+    })
+    assert plasmastyle.build_viewitem(theme) is None
+    assert any(
+        "MENU_SEL" in n and "fully transparent" in n and "not shipped" in n
+        for n in theme.notes
+    )
+
+
+def test_tasks_fully_transparent_art_not_shipped(tmp_path: Path) -> None:
+    png = tmp_path / "blank.png"
+    Image.new("RGBA", (16, 16), (0, 0, 0, 3)).save(png)  # below the 128 cutoff
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass("DEFAULT_ICON_BUTTON", normal=png),
+        **_arrow_iclasses(tmp_path),
+    })
+    assert plasmastyle.build_tasks(theme) is None
+
+
+def test_write_skips_fully_transparent_viewitem_and_mirrors(tmp_path: Path) -> None:
+    png = tmp_path / "blank.png"
+    Image.new("RGBA", (16, 16), (0, 0, 0, 0)).save(png)
+    theme = _theme(tmp_path, {
+        "MENU_SEL": _iclass("MENU_SEL", edge=(0, 0, 0, 0), hilited=png),
+    })
+    out = tmp_path / "pkg" / plasmastyle.plugin_id(theme.name)
+    style = plasmastyle.write(theme, out)
+    assert plasmastyle.VIEWITEM_SVG not in style.shipped
+    for variant in ("", "solid", "opaque"):
+        assert not (out / variant / plasmastyle.VIEWITEM_SVG).exists()
+
+
 def test_viewitem_trims_transparent_margins_before_slicing(tmp_path: Path) -> None:
     """Shape-masked art with fully transparent margins is trimmed to its
-    opaque box before slicing — Yellow's MENU_SEL is 58x22 with the pill at
-    (0,2)-(44,20): E16's shape mask hid the blank right third, but sliced
-    untrimmed its 18 px right cap is cut from the blank region and the
-    highlight renders with NO right border (chris's desktop/Kickoff/systray
-    screenshots, 2026-09-01)."""
+    opaque box before slicing: sliced untrimmed, an 18 px right cap is cut
+    from the blank region and paints nothing."""
     img = Image.new("RGBA", (58, 22), (0, 0, 0, 0))
     for x in range(44):
         for y in range(2, 20):
@@ -728,13 +1056,8 @@ def test_viewitem_trims_transparent_margins_before_slicing(tmp_path: Path) -> No
             f"{element_id} is {1 - opaque:.0%} transparent — sliced from the "
             "shape-mask margin instead of the opaque art"
         )
-    # The set spans the opaque art (44 px), not the padded canvas (58 px).
-    xs = [
-        int(el.get("x", "0")) + int(el.get("width", "0"))
-        for el in svg.iter()
-        if el.tag.endswith("image")
-    ]
-    assert max(xs) == 44
+    # Borderless on BOTH ends: nothing to mirror, no side is closed.
+    assert not any("closed" in n for n in theme.notes)
     assert any("trimmed" in n and "MENU_SEL" in n for n in theme.notes)
 
 

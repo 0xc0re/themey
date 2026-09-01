@@ -145,3 +145,28 @@ def test_output_dir_mode_leaves_style_cache_alone(fake_home, monkeypatch, tmp_pa
         output_dir=tmp_path / "out",
     )
     assert stale.exists()
+
+
+def test_aliens_viewitem_caps_clamped(fake_home, tmp_path):
+    """Aliens' MENU_SEL is a 202x31 pill with a 2 px declared edge; the
+    cross-section radius (14) is pinned but clamped to VIEWITEM_MAX_REF_CAP
+    so a Kickoff row keeps a real stretching middle."""
+    import xml.etree.ElementTree as ET
+
+    from themey.generate.qmldeco.resolver import scale_px
+
+    out = tmp_path / "out"
+    result = convert(
+        FIXTURES / "Aliens.etheme", scale=2, backend="qml", output_dir=out
+    )
+    assert result.desktop_theme_dir is not None
+    root = ET.parse(result.desktop_theme_dir / plasmastyle.VIEWITEM_SVG).getroot()
+    ns = "{http://www.w3.org/2000/svg}"
+    dims = {
+        g.get("id"): (int(img.get("width", "0")), int(img.get("height", "0")))
+        for g in root.iter(f"{ns}g")
+        if (img := g.find(f"{ns}image")) is not None
+    }
+    limit = scale_px(plasmastyle.VIEWITEM_MAX_REF_CAP, 2)
+    assert dims["hover-left"][0] == dims["hover-right"][0] == limit
+    assert dims["hover-top"][1] <= limit and dims["hover-bottom"][1] <= limit

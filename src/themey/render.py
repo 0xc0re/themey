@@ -252,9 +252,26 @@ _STYLE_PROBE_CELLS: tuple[tuple[str, str], ...] = (
     ("widgets/tasks", "minimized"),
     ("widgets/button", "normal"),
     ("widgets/viewitem", "hover"),
+    ("widgets/viewitem", "selected"),
     ("widgets/slider", "groove"),
     ("widgets/frame", "raised"),
 )
+
+_STYLE_PROBE_COLUMNS = 5
+_STYLE_PROBE_ROWS = 3  # ceil(len(_STYLE_PROBE_CELLS) / columns)
+
+#: Per-cell shape hints; cells absent here get the uniform grid cell. The
+#: viewitem pair is deliberately stretched WIDE (hover: a full column, 30
+#: px tall) and TALL (selected: 30 px wide, a full row): an open pill end
+#: or an oversized cap only shows once the middle has to stretch far past
+#: the art's own size (Yellow's MENU_SEL, 2026-09-01). Cell sizes are
+#: computed in QML from the applet's ACTUAL size — plasmoidviewer gives
+#: it less than the requested implicit size, and fixed px cells clipped
+#: the last column (verified 2026-09-01).
+_STYLE_PROBE_CELL_SHAPES: dict[tuple[str, str], str] = {
+    ("widgets/viewitem", "hover"): "wide",
+    ("widgets/viewitem", "selected"): "tall",
+}
 
 _STYLE_PROBE_ID = "org.themey.styleprobe"
 
@@ -280,13 +297,18 @@ PlasmoidItem {{
     height: {h}
     preferredRepresentation: fullRepresentation
     fullRepresentation: Rectangle {{
+        id: sheet
         color: "#b06060"
         implicitWidth: {w}
         implicitHeight: {h}
+        // Cell sizes follow the ACTUAL applet size (plasmoidviewer hands
+        // out less than the implicit size); 12 = label + spacing.
+        readonly property int cellW: Math.floor((width - 12 - 6 * ({columns} - 1)) / {columns})
+        readonly property int cellH: Math.floor((height - 12 - 4 * ({rows} - 1)) / {rows}) - 12
         Grid {{
             anchors.fill: parent
             anchors.margins: 6
-            columns: 4
+            columns: {columns}
             columnSpacing: 6
             rowSpacing: 4
             Repeater {{
@@ -294,14 +316,19 @@ PlasmoidItem {{
                 delegate: Column {{
                     spacing: 1
                     Text {{
+                        // Elided to the cell: a wider label would widen
+                        // its whole grid column and push the last one
+                        // off the applet.
+                        width: sheet.cellW
+                        elide: Text.ElideRight
                         text: modelData.path
                               + (modelData.prefix ? " [" + modelData.prefix + "]" : "")
                         color: "black"
                         font.pixelSize: 10
                     }}
                     KSvg.FrameSvgItem {{
-                        width: {cell_w}
-                        height: {cell_h}
+                        width: modelData.shape === "tall" ? 30 : sheet.cellW
+                        height: modelData.shape === "wide" ? 30 : sheet.cellH
                         imagePath: modelData.path
                         prefix: modelData.prefix
                     }}
@@ -320,12 +347,15 @@ def _write_style_probe(data: Path) -> None:
     pkg = data / "plasma" / "plasmoids" / _STYLE_PROBE_ID
     (pkg / "contents" / "ui").mkdir(parents=True, exist_ok=True)
     (pkg / "metadata.json").write_text(_STYLE_PROBE_METADATA, encoding="utf-8")
-    model = [{"path": p, "prefix": pre} for p, pre in _STYLE_PROBE_CELLS]
+    model = [
+        {"path": p, "prefix": pre, "shape": _STYLE_PROBE_CELL_SHAPES.get((p, pre), "")}
+        for p, pre in _STYLE_PROBE_CELLS
+    ]
     qml = _STYLE_PROBE_QML_TEMPLATE.format(
         w=SCREEN_W - 200,
         h=SCREEN_H - 160,
-        cell_w=(SCREEN_W - 200) // 4 - 10,
-        cell_h=(SCREEN_H - 160) // 3 - 30,
+        columns=_STYLE_PROBE_COLUMNS,
+        rows=_STYLE_PROBE_ROWS,
         model_json=_json.dumps(model),
     )
     (pkg / "contents" / "ui" / "main.qml").write_text(qml, encoding="utf-8")
@@ -394,7 +424,8 @@ def render_style(
     ``themey_<slug>`` desktoptheme with a scratch probe applet that paints
     one labeled FrameSvgItem per interesting (imagePath, prefix) pair —
     panel background (plain + west), popup/dialog background, tooltip, task
-    frames, buttons. Selection happens via the nested session's ``plasmarc``
+    frames, buttons, viewitem hover (wide) + selected (tall). Selection
+    happens via the nested session's ``plasmarc``
     (not plasmoidviewer's ``-t``, which resolves the theme before our
     XDG_DATA_HOME package would be scanned on some installs).
     """

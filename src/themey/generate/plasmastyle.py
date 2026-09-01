@@ -21,13 +21,19 @@ inside a ``Plasma/Theme`` KPackage under
   panel is opaque E16 art and mirrors byte-identically like everything
   else.
 * The panel background ships real dragbar/iconbox art when a candidate
-  passes two guards (:func:`_panel_art_guard`): not shaped, and cap sums ≤
-  ``PANEL_MAX_REF_CAPS`` per axis. The guards exist because E16 authors
-  baked wordmarks ("ENLIGHTENMENT", theme logos) into the CAP regions —
-  stretched across a 40 px Plasma panel they make every widget unreadable
-  (verified live 2026-08-31) — so wordmark-sized caps fall through to the
-  next candidate and ultimately to a flat translucent tint of the art's
-  dominant color (scheme fallback), letting the wallpaper show through.
+  passes two guards (:func:`_panel_art_guard`): not shaped, and cap sums
+  within the per-AXIS ceilings — ``PANEL_MAX_REF_LENGTH_CAPS`` along the
+  bar's length (L+R for a horizontal source, T+B for a
+  ``_PANEL_VERT_SOURCES`` one), ``PANEL_MAX_REF_CAPS`` across its
+  thickness. E16 authors baked wordmarks ("AE", "ALIENS",
+  "Enlightenment") into the length-axis caps and E16 pinned them at the
+  bar's left; FrameSvg pins a cap the same way, and ``_panel_margins``
+  hugs it so content starts right after the wordmark — so those caps are
+  ALLOWED (~70 corpus dragbars, 2026-09-01). A thickness-axis cap past 32
+  ref px would be stretched to the panel's 40 px and turn unreadable, so
+  that axis stays strict; failures fall through to the next candidate and
+  ultimately to a flat translucent tint of the art's dominant color
+  (scheme fallback), letting the wallpaper show through.
   The art panel's middle STRETCHES when E16 stretched it (the default
   ``__FILLRULE``; tiling repeated photographic troughs across the bar —
   HandOfGod, NorthernLights, live 2026-09-01) and TILES only when E16
@@ -106,7 +112,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from themey.analyze.colors import (
     MIN_CONTRAST,
@@ -301,14 +307,22 @@ _PANEL_VERT_SOURCES: tuple[str, ...] = (
     "DESKTOP_DRAGBUTTON_VERT", "ICONBOX_VERTICAL",
 )
 
-#: Ref-px ceiling for the panel art's cap sum per axis. Caps become fixed
-#: FrameSvg borders, and themey's furniture panels are fit-content — a
-#: 133-px wordmark cap (Aliens' dragbar) would be a giant dead margin
-#: swallowing the whole iconbox. Census: Aliens dragbar 133+28 rejected →
-#: its ICONBOX_HORIZONTAL (4/4) accepted; e13 dragbar 60/60 (post-_fit_caps)
-#: rejected → iconbox trough (5/5); OPENSTEP DragBar 24+2 accepted (the
-#: NeXT cube stays pinned left, exactly its E16 look).
+#: Ref-px ceiling for the panel art's cap sum across the bar's THICKNESS
+#: axis (T+B for a horizontal source, L+R for a vertical one). A cap on
+#: this axis is stretched to the panel's thickness, so a giant one smears
+#: unreadably across a 40 px panel; measured after ``_fit_caps``.
 PANEL_MAX_REF_CAPS = 32
+
+#: Ref-px ceiling for the cap sum along the bar's LENGTH axis. These caps
+#: are the theme's wordmarks ("AE" 50 px, "Enlightenment" ~60 px) which
+#: E16 pinned at the bar's start; FrameSvg pins them identically and the
+#: cap-hugging margin hints put the first widget right after them, so
+#: they render exactly as E16 did (chris, 2026-09-01). Beyond this the
+#: pinned art would swallow a fit-content furniture panel outright.
+#: Census: AE 50+4 accepted; e13 60+60 (post-_fit_caps) accepted; Aliens
+#: 133+28 = 161 still rejected → its ICONBOX_HORIZONTAL (4/4) backs the
+#: panel; OPENSTEP DragBar 24+2 accepted (the NeXT cube stays pinned).
+PANEL_MAX_REF_LENGTH_CAPS = 160
 
 
 def _panel_source(theme: Theme) -> IClassSpec | None:
@@ -366,10 +380,14 @@ def _panel_art_guard(spec: IClassSpec) -> str | None:
 
     Two guards (the ``_dialog_source`` idiom): shaped art
     (``SHAPED_ART_MAX_TRANSPARENT`` — a 1-bit-masked bar over a rectangular
-    panel leaks wallpaper through its holes) and giant caps
-    (``PANEL_MAX_REF_CAPS`` — cap sums become fixed FrameSvg borders, i.e.
-    dead margins on fit-content panels; measured after ``_fit_caps`` so an
-    E16 overlapping-cap declaration is judged by what would render).
+    panel leaks wallpaper through its holes) and giant caps, judged per
+    AXIS: along the bar's length (L+R for a horizontal source, T+B for a
+    ``_PANEL_VERT_SOURCES`` one) wordmark caps are allowed up to
+    ``PANEL_MAX_REF_LENGTH_CAPS`` — they stay pinned exactly as E16 drew
+    them — while the thickness axis keeps ``PANEL_MAX_REF_CAPS`` (a cap
+    there is stretched to the panel's thickness). Measured after
+    ``_fit_caps`` so an E16 overlapping-cap declaration is judged by what
+    would render.
     """
     found = _state_attr(spec, "normal")
     if found is None:
@@ -388,11 +406,21 @@ def _panel_art_guard(spec: IClassSpec) -> str | None:
     declared = spec.edge_for(state_attr)
     edge = _fit_caps(declared, w, h) or declared
     left, right, top, bottom = edge
-    if left + right > PANEL_MAX_REF_CAPS or top + bottom > PANEL_MAX_REF_CAPS:
+    if spec.name in _PANEL_VERT_SOURCES:
+        length, thickness = (top, bottom, "v"), (left, right, "h")
+    else:
+        length, thickness = (left, right, "h"), (top, bottom, "v")
+    if thickness[0] + thickness[1] > PANEL_MAX_REF_CAPS:
         return (
-            f"caps {left}+{right} h / {top}+{bottom} v ref px exceed "
-            f"{PANEL_MAX_REF_CAPS} (giant caps become dead FrameSvg margins "
-            "on fit-content panels)"
+            f"thickness-axis caps {thickness[0]}+{thickness[1]} {thickness[2]} "
+            f"ref px exceed {PANEL_MAX_REF_CAPS} (a cap across the bar is "
+            "stretched to the panel's thickness and turns unreadable)"
+        )
+    if length[0] + length[1] > PANEL_MAX_REF_LENGTH_CAPS:
+        return (
+            f"length-axis caps {length[0]}+{length[1]} {length[2]} ref px "
+            f"exceed {PANEL_MAX_REF_LENGTH_CAPS} (pinned caps this large "
+            "swallow a fit-content panel)"
         )
     return None
 
@@ -442,6 +470,13 @@ class _Canvas:
         #: Breeze's own hints in prefixed files. Flat-rect sets skip the
         #: flag (stretch/tile invariant), keeping those files minimal.
         self.stretch_borders = False
+
+    @property
+    def is_empty(self) -> bool:
+        """No element has been emitted (every set was skipped) — the builder
+        must return None so Plasma falls back to Breeze for the file; a
+        shipped-but-blank SVG paints nothing and blocks that fallback."""
+        return len(self.root) == 0
 
     def advance(self, width: int, height: int) -> None:
         self.w = max(self.w, width)
@@ -654,7 +689,7 @@ def _margin_hints(
 
 def _opaque_trim(
     img: Image.Image, edge: tuple[int, int, int, int]
-) -> tuple[Image.Image, tuple[int, int, int, int], tuple[int, int, int, int] | None]:
+) -> tuple[Image.Image, tuple[int, int, int, int], tuple[int, int, int, int] | None] | None:
     """Crop fully transparent margins (E16 shape-mask padding) off *img*.
 
     E16 cut the widget window to the art's opaque outline, so art was often
@@ -665,12 +700,17 @@ def _opaque_trim(
     cropped image, the declared edge re-anchored into the cropped frame
     (caps lose exactly the blank part the mask hid), and the trimmed
     margin widths (L R T B) — or the inputs unchanged and None when there
-    is nothing to trim. Alpha ≥ 128 is DR16's shape-mask cutoff, the same
-    threshold ``_transparent_fraction`` uses.
+    is nothing to trim. Returns None outright when the art is FULLY
+    transparent below the cutoff (Aphex2's ``blank.png`` MENU_SEL): there
+    is nothing to slice, and a shipped-but-blank set would block Plasma's
+    per-file Breeze fallback. Alpha ≥ 128 is DR16's shape-mask cutoff, the
+    same threshold ``_transparent_fraction`` uses.
     """
     mask = img.getchannel("A").point([0] * 128 + [255] * 128)
     bbox = mask.getbbox()
-    if bbox is None or bbox == (0, 0, img.width, img.height):
+    if bbox is None:
+        return None
+    if bbox == (0, 0, img.width, img.height):
         return img, edge, None
     x0, y0, x1, y1 = bbox
     trims = (x0, img.width - x1, y0, img.height - y1)
@@ -684,6 +724,183 @@ def _opaque_trim(
     return img.crop(bbox), edge, trims
 
 
+#: Ref-px cross-section (post-trim ``min(w, h)``) at or below which
+#: MENU_SEL art is a highlight PILL — a strip authored at item height,
+#: whose rounded ends and vertical shading the radius pin keeps crisp.
+#: Anything larger is a menu BACKGROUND pointed at MENU_SEL (47 corpus
+#: themes: 64x64 tiles up to Ganymede's 484x400).
+VIEWITEM_PILL_MAX_REF = 40
+
+#: Ref-px ceiling for any viewitem cap. A Kickoff row is ~30 px; the old
+#: unclamped radius gave 94/215 corpus themes caps past this (IceBerg's
+#: 256x256 background → 127 px caps, StarEnli 64 left / 14 right) with
+#: no stretching middle left at all.
+VIEWITEM_MAX_REF_CAP = 12
+
+#: Per-pixel contrast (0-1: luminance delta for two painted pixels, 1.0
+#: when the shape mask cuts exactly one of them) at or above which a pixel
+#: pair counts as OUTLINE — a painted rim or a rounded end's alpha edge.
+_RIM_PIXEL_CONTRAST = 0.25
+#: Share of a side's painted span that must be outline pixels (outer line
+#: vs the line ``cap // 2`` inward) for the side to count as RIMMED.
+#: Yellow's rounded left end scores 1.0; Detroit's soft pill bottom, whose
+#: only contrast is a 4-px decorative mark, scores ~0.2.
+_RIM_MIN_FRACTION = 0.5
+#: Share at or below which a side is flat fill running to the edge.
+_OPEN_MAX_FRACTION = 0.15
+
+_SIDE_INDEX = {"left": 0, "right": 1, "top": 2, "bottom": 3}
+_OPPOSITE = {"left": "right", "right": "left", "top": "bottom", "bottom": "top"}
+
+RGBA = tuple[int, int, int, int]
+
+
+def _edge_line(img: Image.Image, side: str, offset: int) -> list[RGBA]:
+    """RGBA pixels of the row/column *offset* px inward from *side*."""
+    w, h = img.size
+    if side == "left":
+        box = (offset, 0, offset + 1, h)
+    elif side == "right":
+        box = (w - 1 - offset, 0, w - offset, h)
+    elif side == "top":
+        box = (0, offset, w, offset + 1)
+    else:
+        box = (0, h - 1 - offset, w, h - offset)
+    data = img.crop(box).tobytes()
+    return [
+        (data[i], data[i + 1], data[i + 2], data[i + 3])
+        for i in range(0, len(data), 4)
+    ]
+
+
+def _pixel_contrast(p: RGBA, q: RGBA) -> float | None:
+    """0-1 contrast of a pixel pair; None when neither is painted."""
+    cut_p, cut_q = p[3] < 128, q[3] < 128
+    if cut_p and cut_q:
+        return None
+    if cut_p != cut_q:
+        return 1.0
+    return abs((p[0] + p[1] + p[2]) - (q[0] + q[1] + q[2])) / 765
+
+
+def _edge_profile(img: Image.Image, side: str, cap: int) -> tuple[bool, float]:
+    """``(flat, rim_fraction)`` of *side*'s outermost line against the line
+    ``cap // 2`` inward: *flat* — both lines have the same shape mask (a
+    straight cut, no rounding); *rim_fraction* — share of the painted span
+    whose pixel pairs are outline (``_RIM_PIXEL_CONTRAST``)."""
+    depth = img.width if side in ("left", "right") else img.height
+    inward = min(max(1, cap // 2), depth - 1)
+    if inward <= 0:
+        return False, 0.0
+    outer = _edge_line(img, side, 0)
+    inner = _edge_line(img, side, inward)
+    contrasts = [_pixel_contrast(p, q) for p, q in zip(outer, inner, strict=True)]
+    painted = [c for c in contrasts if c is not None]
+    if not painted:
+        return False, 0.0
+    flat = all((p[3] < 128) == (q[3] < 128) for p, q in zip(outer, inner, strict=True))
+    rim = sum(1 for c in painted if c >= _RIM_PIXEL_CONTRAST) / len(painted)
+    return flat, rim
+
+
+def _cut_carries_rims(img: Image.Image, side: str) -> bool:
+    """True when the outermost line's first and last painted pixels
+    contrast with its middle third — the perpendicular sides' rims run
+    straight into the cut, the signature of a rimmed shape sliced open
+    (Yellow's right end: dark top/bottom rows, fill between). A bevel's lit
+    edge (Nebula) or a soft pill (Detroit) is uniform end to end."""
+    painted = [p for p in _edge_line(img, side, 0) if p[3] >= 128]
+    n = len(painted)
+    if n < 3:
+        return False
+    third = painted[n // 3 : n - n // 3] or painted
+    lum = sum(p[0] + p[1] + p[2] for p in third) / len(third)
+    mid: RGBA = (int(lum / 3), int(lum / 3), int(lum / 3), 255)
+    return all(
+        (_pixel_contrast(end, mid) or 0.0) >= _RIM_PIXEL_CONTRAST
+        for end in (painted[0], painted[-1])
+    )
+
+
+def _mirror_cap_onto(img: Image.Image, side: str, cap: int) -> Image.Image:
+    """Copy of *img* with the OPPOSITE side's *cap*-px band mirrored onto
+    *side* (pixels replaced, alpha included — a rounded end brings its
+    transparent corners along)."""
+    w, h = img.size
+    out = img.copy()
+    if side == "right":
+        out.paste(ImageOps.mirror(img.crop((0, 0, cap, h))), (w - cap, 0))
+    elif side == "left":
+        out.paste(ImageOps.mirror(img.crop((w - cap, 0, w, h))), (0, 0))
+    elif side == "bottom":
+        out.paste(ImageOps.flip(img.crop((0, 0, w, cap))), (0, h - cap))
+    else:
+        out.paste(ImageOps.flip(img.crop((0, h - cap, w, h))), (0, 0))
+    return out
+
+
+def _close_open_edges(
+    img: Image.Image,
+    caps: tuple[int, int, int, int],
+    trims: tuple[int, int, int, int] | None,
+) -> tuple[Image.Image, tuple[int, int, int, int], tuple[str, ...]]:
+    """Close a pill's OPEN end with its bordered opposite end, mirrored.
+
+    Yellow's MENU_SEL (``m_selected.png``, 58x22) is authored with a
+    rounded, rimmed LEFT end, rimmed top/bottom rows, and a flat OPEN
+    right end at x=43 — fill straight to the edge, then 14 fully
+    transparent columns. E16 drew that as authored: the highlight's right
+    end was open, with the menu background showing through the gap. That
+    exact look was on the desktop before f85b1cf (a see-through gutter)
+    and was reported as a missing right border; after f85b1cf the trimmed
+    8 px right cap was cut from columns 36-43 — pure fill, no rim — and was
+    reported again. The rim was never painted, so no slicing fix can
+    restore it: this repair DIVERGES FROM E16 on purpose and is noted in
+    ``report.txt``.
+
+    Only PILL art (``min(w, h) <= VIEWITEM_PILL_MAX_REF``) is considered;
+    full-canvas art (``trims`` None — pager ``p_sel.png``/``bg_win.png``
+    bevels, whose light bottom/right edges are authored asymmetry) is
+    returned as-is. Per axis, a side is closed only when ALL of: it was
+    TRIMMED (``trims[side] > 0`` — the art stopped short of its canvas
+    there); it is a straight cut with fill running to the edge
+    (:func:`_edge_profile`: flat mask, rim fraction ≤
+    ``_OPEN_MAX_FRACTION``); the perpendicular rims run into that cut
+    (:func:`_cut_carries_rims`); and the opposite side is rimmed (rim
+    fraction ≥ ``_RIM_MIN_FRACTION``). The opposite cap band is then
+    mirrored onto it and the side's cap becomes the opposite cap (Yellow:
+    10/8 → 10/10). The rim-into-cut test is what separates a sliced-open
+    rimmed pill from art that is merely lit on one side: a raised bevel
+    with alpha margins (Nebula — light top/left, dark right/bottom
+    shadow) and a soft pill whose only bottom contrast is a decorative
+    mark (Detroit) were closed by a looser rule (corpus audit
+    2026-09-01) and came out boxed in. *caps* are the source-px caps in
+    force (post ``edge_override``). Returns ``(image, caps, closed
+    sides)``.
+    """
+    if trims is None or min(img.size) > VIEWITEM_PILL_MAX_REF:
+        return img, caps, ()
+    out = img
+    new_caps = list(caps)
+    closed: list[str] = []
+    for side in ("left", "right", "top", "bottom"):
+        i = _SIDE_INDEX[side]
+        opp = _OPPOSITE[side]
+        o = _SIDE_INDEX[opp]
+        depth = out.width if side in ("left", "right") else out.height
+        if trims[i] <= 0 or new_caps[o] <= 0 or new_caps[o] > depth:
+            continue
+        flat, rim = _edge_profile(out, side, new_caps[i])
+        if not flat or rim > _OPEN_MAX_FRACTION or not _cut_carries_rims(out, side):
+            continue
+        if _edge_profile(out, opp, new_caps[o])[1] < _RIM_MIN_FRACTION:
+            continue
+        out = _mirror_cap_onto(out, side, new_caps[o])
+        new_caps[i] = new_caps[o]
+        closed.append(side)
+    return out, (new_caps[0], new_caps[1], new_caps[2], new_caps[3]), tuple(closed)
+
+
 def _emit_set(
     theme: Theme,
     canvas: _Canvas,
@@ -694,18 +911,22 @@ def _emit_set(
     hints: bool = False,
     edge_override: Callable[[tuple[int, int, int, int], int, int], tuple[int, int, int, int]]
     | None = None,
+    close_open_edges: bool = False,
 ) -> tuple[int, int, int, int] | None:
     """One prefixed 9-part set (+ optional margin hints) for *spec*/*state*.
 
     Returns the painted cap sizes (L R T B, output px, post-shave) so the
     panel builder can derive cap-hugging margin hints, or None when the
-    state resolves to no image at all. The art is first trimmed to its
-    opaque box (:func:`_opaque_trim` — shape-mask padding must not become
-    invisible border slices); oversized caps degrade to a center-only set
-    with a ``plasmastyle:`` note rather than failing (per the mapping
-    contract). ``edge_override`` maps ``(edge, src_w, src_h)`` — post-trim
-    values — to the edge actually used; the viewitem builder pins
-    synthetic caps with it.
+    state resolves to no image at all OR the art is fully transparent
+    (nothing emitted, ``plasmastyle:`` note — the builder must then leave
+    the file to Breeze via ``_Canvas.is_empty``). The art is first trimmed
+    to its opaque box (:func:`_opaque_trim` — shape-mask padding must not
+    become invisible border slices); oversized caps degrade to a
+    center-only set with a ``plasmastyle:`` note rather than failing (per
+    the mapping contract). ``edge_override`` maps ``(edge, src_w, src_h)``
+    — post-trim values — to the edge actually used; the viewitem builder
+    pins synthetic caps with it. ``close_open_edges`` (viewitem only)
+    runs :func:`_close_open_edges` on the overridden caps.
     """
     found = _state_attr(spec, state)
     if found is None:
@@ -713,7 +934,16 @@ def _emit_set(
     state_attr, path = found
     with Image.open(path) as im:
         src = im.convert("RGBA")
-    src, edge, trims = _opaque_trim(src, spec.edge_for(state_attr))
+    trimmed = _opaque_trim(src, spec.edge_for(state_attr))
+    if trimmed is None:
+        note = (
+            f"plasmastyle: {spec.name} {path.name} is fully transparent "
+            "below the shape-mask cutoff; set not shipped (Breeze fills in)"
+        )
+        if note not in theme.notes:
+            theme.notes.append(note)
+        return None
+    src, edge, trims = trimmed
     if trims is not None:
         note = (
             f"plasmastyle: {spec.name} {path.name} trimmed by "
@@ -726,6 +956,19 @@ def _emit_set(
     src_w, src_h = src.size
     if edge_override is not None:
         edge = edge_override(edge, src_w, src_h)
+    if close_open_edges:
+        src, edge, closed = _close_open_edges(src, edge, trims)
+        for side in closed:
+            note = (
+                f"plasmastyle: {spec.name} {path.name} {side} end was open "
+                "(fill to the edge, no rim — E16 showed the menu background "
+                f"through the gap); closed with the mirrored {_OPPOSITE[side]} "
+                f"cap ({side} cap now {edge[_SIDE_INDEX[side]]} ref px), "
+                "diverging from E16 on purpose (the open end read as a "
+                "missing border)"
+            )
+            if note not in theme.notes:
+                theme.notes.append(note)
     fitted = _fit_caps(edge, src_w, src_h)
     if fitted is not None:
         theme.notes.append(
@@ -917,12 +1160,18 @@ def _panel_art_svg(theme: Theme, src: IClassSpec) -> ET.Element:
     the border elements (those FrameSvg tiles by default).
     """
     canvas = _Canvas()
-    caps = _emit_set(theme, canvas, "", src, "normal") or (0, 0, 0, 0)
+    caps = _emit_set(theme, canvas, "", src, "normal")
+    if caps is None:
+        # Unreachable past _panel_art_guard (fully transparent art is
+        # shaped), kept so a blank panel can never ship.
+        raise ValueError("panel art is fully transparent")
     _panel_margins(canvas, "", caps, theme.scale)
     vert = _panel_art_source(theme, _PANEL_VERT_SOURCES)
     if vert is not None:
         for prefix in ("west-", "east-"):
-            vcaps = _emit_set(theme, canvas, prefix, vert, "normal") or (0, 0, 0, 0)
+            vcaps = _emit_set(theme, canvas, prefix, vert, "normal")
+            if vcaps is None:
+                break
             _panel_margins(canvas, prefix, vcaps, theme.scale)
     theme.notes.append(
         f"plasmastyle: panel background from iclass {src.name} art, middle "
@@ -946,10 +1195,11 @@ def build_panel_background(theme: Theme) -> ET.Element:
     the guards, else a flat translucent tint.
 
     The art path (:func:`_panel_art_svg`) ships the dragbar/iconbox art
-    with a stretched middle; :func:`_panel_art_guard` rejects shaped art and
-    wordmark-sized caps (the failure mode that originally forced the flat
-    tint — a 133-px "ENLIGHTENMENT" cap stretched across a 40 px panel
-    buries every widget). The tint fallback keeps the theme's color
+    with a stretched middle; :func:`_panel_art_guard` rejects shaped art,
+    thickness-axis caps past ``PANEL_MAX_REF_CAPS`` (stretched across a
+    40 px panel they bury every widget) and length-axis caps past
+    ``PANEL_MAX_REF_LENGTH_CAPS`` (wordmark caps below that stay pinned,
+    exactly E16's look). The tint fallback keeps the theme's color
     character while the wallpaper shows through; never returns None — a
     colors-only theme still gets a scheme-tinted panel.
     """
@@ -1154,6 +1404,8 @@ def build_dialog_background(theme: Theme) -> ET.Element | None:
         return None
     canvas = _Canvas()
     _emit_set(theme, canvas, "", src, "normal", hints=True)
+    if canvas.is_empty:
+        return None
     theme.notes.append(
         f"plasmastyle: popup/dialog background from iclass {src.name}; no "
         "shadow set is shipped, so popups render shadowless (E16 drew none)"
@@ -1168,17 +1420,27 @@ def build_tooltip(theme: Theme) -> ET.Element | None:
         return None
     canvas = _Canvas()
     _emit_set(theme, canvas, "", src, "normal", hints=True)
+    if canvas.is_empty:
+        return None
     theme.notes.append(f"plasmastyle: tooltip background from iclass {src.name}")
     return canvas.finish()
 
 
+#: Push-button art, in preference order: ``DIALOG_WIDGET_BUTTON`` is E16's
+#: real dialog push button (dialog.c:844 ``DITEM_BUTTON``); ``DIALOG_BUTTON``
+#: dresses the background-chooser thumbnails (backgrounds.c:1689) and only
+#: falls back to the widget button. 62/229 corpus themes author them
+#: differently (2026-09-01 census), so the order matters.
+_BUTTON_SOURCES: tuple[str, ...] = ("DIALOG_WIDGET_BUTTON", "DIALOG_BUTTON")
+
+
 def build_button(theme: Theme) -> ET.Element | None:
-    """``widgets/button.svg`` from ``DIALOG_BUTTON``.
+    """``widgets/button.svg`` from ``_BUTTON_SOURCES``.
 
     ``focus-`` reuses the hilited art — E16 has no focus-ring concept. No
     ``toolbutton-*`` sets: PC3 falls back per-prefix to Breeze for those.
     """
-    src = _iclass_with_art(theme, "DIALOG_BUTTON")
+    src = _iclass_with_art(theme, *_BUTTON_SOURCES)
     if src is None:
         return None
     canvas = _Canvas()
@@ -1189,6 +1451,8 @@ def build_button(theme: Theme) -> ET.Element | None:
         ("focus-", "hover"),
     ):
         _emit_set(theme, canvas, prefix, src, state, hints=True)
+    if canvas.is_empty:
+        return None
     theme.notes.append(
         f"plasmastyle: widget buttons from iclass {src.name} "
         "(focus ring reuses the hilited art)"
@@ -1198,27 +1462,43 @@ def build_button(theme: Theme) -> ET.Element | None:
 
 def _viewitem_caps(
     edge: tuple[int, int, int, int], w: int, h: int
-) -> tuple[int, int, int, int]:
-    """Synthetic caps for highlight art, in source ref px.
+) -> tuple[tuple[int, int, int, int], str]:
+    """Synthetic caps for highlight art, in source ref px, plus the branch
+    taken (``"pill"`` / ``"declared"``) for the fidelity note.
 
     E16 only ever stretched menu-item art HORIZONTALLY — an item's height
     equals the art's height — but Plasma paints ``widgets/viewitem`` over
     grid cells and wide dropdown rows, stretching both axes. A glow pill
     stretched whole (MENU_SEL commonly declares ``__EDGE_SCALING 0 0 0 0``)
     smears into a blurry bright blob (verified live on e13's Kickoff,
-    2026-08-31). Pinning caps at roughly the art's cross-section radius
-    keeps the pill's rounded ends and its vertical shading crisp at any
-    rendered size; only the near-uniform middle band stretches. Declared
-    caps larger than the radius are kept.
+    2026-08-31).
+
+    Two branches on the post-trim art's cross-section:
+
+    * PILL (``min(w, h) <= VIEWITEM_PILL_MAX_REF``): caps are pinned at
+      the cross-section radius (declared caps larger than it survive) so
+      the rounded ends and vertical shading stay crisp; only the
+      near-uniform middle band stretches.
+    * DECLARED (larger art — a whole menu background): the declared edge
+      is honored. E16 squished such art into the item, and the declared
+      caps are exactly what it kept crisp; the radius heuristic turned a
+      64x64 tile into 31 px caps and IceBerg's 256x256 into 127.
+
+    In both branches every cap is clamped to ``VIEWITEM_MAX_REF_CAP`` and
+    to ``(dim - 1) // 2`` so a real center always survives; the clamp also
+    symmetrizes asymmetric ``__EDGE_SCALING`` (StarEnli 64/14 → 12/12).
     """
-    radius = max(1, (min(w, h) - 2) // 2)
     left, right, top, bottom = edge
-    return (
-        min(max(left, radius), (w - 1) // 2),
-        min(max(right, radius), (w - 1) // 2),
-        min(max(top, radius), (h - 1) // 2),
-        min(max(bottom, radius), (h - 1) // 2),
-    )
+    if min(w, h) <= VIEWITEM_PILL_MAX_REF:
+        radius = max(1, (min(w, h) - 2) // 2)
+        left, right, top, bottom = (max(v, radius) for v in edge)
+        branch = "pill"
+    else:
+        branch = "declared"
+    max_x = min(VIEWITEM_MAX_REF_CAP, (w - 1) // 2)
+    max_y = min(VIEWITEM_MAX_REF_CAP, (h - 1) // 2)
+    caps = (min(left, max_x), min(right, max_x), min(top, max_y), min(bottom, max_y))
+    return caps, branch
 
 
 def build_viewitem(theme: Theme) -> ET.Element | None:
@@ -1228,28 +1508,52 @@ def build_viewitem(theme: Theme) -> ET.Element | None:
     an always-painted normal set would draw menu-row chrome under every
     unhovered list row, which most E16 themes leave to the background.
     All sets use :func:`_viewitem_caps` in place of the declared edge —
-    see its docstring for why the declared edge cannot be trusted here.
+    see its docstring for why the declared edge cannot be trusted here —
+    and are the ONE caller of :func:`_close_open_edges` (an open pill end
+    reads as a missing border on a Plasma list). Fully transparent art
+    (five corpus themes) leaves the file to Breeze.
     """
     src = theme.iclasses.get("MENU_SEL")
     if _state_image(src, "hover") is None or src is None:
         return None
     canvas = _Canvas()
+    decisions: dict[tuple[str, tuple[int, int, int, int]], None] = {}
+
+    def caps_override(
+        edge: tuple[int, int, int, int], w: int, h: int
+    ) -> tuple[int, int, int, int]:
+        caps, branch = _viewitem_caps(edge, w, h)
+        decisions[(branch, caps)] = None
+        return caps
+
     has_normal_art = (src.normal is not None and src.normal.is_file()) or (
         src.normal_active is not None and src.normal_active.is_file()
     )
+    sets = [("hover-", "hover"), ("selected-", "selected"),
+            # Literal "+" in the id — FrameSvg's combined-state prefix.
+            ("selected+hover-", "selected")]
     if has_normal_art:
-        _emit_set(theme, canvas, "normal-", src, "normal", edge_override=_viewitem_caps)
-    _emit_set(theme, canvas, "hover-", src, "hover", edge_override=_viewitem_caps)
-    _emit_set(theme, canvas, "selected-", src, "selected", edge_override=_viewitem_caps)
-    # Literal "+" in the id — FrameSvg's combined-state prefix.
-    _emit_set(
-        theme, canvas, "selected+hover-", src, "selected", edge_override=_viewitem_caps
-    )
-    theme.notes.append(
-        f"plasmastyle: menu/list selection from iclass {src.name}; caps "
-        "pinned at the art's cross-section so highlights stay crisp at "
-        "grid-cell sizes (E16 never stretched item height)"
-    )
+        sets.insert(0, ("normal-", "normal"))
+    for prefix, state in sets:
+        _emit_set(
+            theme, canvas, prefix, src, state,
+            edge_override=caps_override, close_open_edges=True,
+        )
+    if canvas.is_empty:
+        return None
+    for branch, caps in decisions:
+        why = (
+            "pinned at the art's cross-section radius (pill art; E16 never "
+            "stretched item height)"
+            if branch == "pill"
+            else "the declared __EDGE_SCALING (menu-background art E16 "
+            "squished into the item)"
+        )
+        theme.notes.append(
+            f"plasmastyle: menu/list selection from iclass {src.name}; caps "
+            f"{why}, clamped to {VIEWITEM_MAX_REF_CAP} ref px → "
+            f"{caps[0]}/{caps[1]}/{caps[2]}/{caps[3]} (L/R/T/B)"
+        )
     return canvas.finish()
 
 
@@ -1267,7 +1571,8 @@ def build_scrollbar(theme: Theme) -> ET.Element | None:
     if knob is None:
         return None
     canvas = _Canvas()
-    _emit_set(theme, canvas, "slider-", knob, "normal")
+    if _emit_set(theme, canvas, "slider-", knob, "normal") is None:
+        return None
     _emit_set(theme, canvas, "mouseover-slider-", knob, "hover")
     base_v = _iclass_with_art(theme, "ICONBOX_SCROLLBAR_BASE_VERTICAL")
     if base_v is not None:
@@ -1365,7 +1670,8 @@ def build_pager(theme: Theme) -> ET.Element | None:
     bg = _iclass_with_art(theme, "PAGER_BACKGROUND")
     if bg is not None:
         _emit_set(theme, canvas, "normal-", bg, "normal")
-    _emit_set(theme, canvas, "active-", sel, "normal")
+    if _emit_set(theme, canvas, "active-", sel, "normal") is None:
+        return None
     _emit_set(theme, canvas, "hover-", sel, "hover")
     theme.notes.append(
         f"plasmastyle: pager cells from iclass {sel.name}"
@@ -1414,7 +1720,8 @@ def build_tasks(theme: Theme) -> ET.Element | None:
         ("progress-", "hover"),
         ("focus-", "pressed"),
     ):
-        _emit_set(theme, canvas, prefix, src, state, hints=True)
+        if _emit_set(theme, canvas, prefix, src, state, hints=True) is None:
+            return None  # transparent button art: the whole file is Breeze's
 
     expanders: list[tuple[str, Path]] = []
     for direction, name in _EXPANDER_SOURCES:
@@ -1522,7 +1829,7 @@ def build_checkmarks(theme: Theme) -> ET.Element | None:
         "plasmastyle: check/radio marks from the DIALOG_WIDGET check/radio "
         "checked art; the UNchecked checkbox wears the widgets/button "
         "normal frame (Plasma's CheckIndicator hardcodes it) — still this "
-        "theme's DIALOG_BUTTON art, just not the authored unchecked box"
+        "theme's push-button art, just not the authored unchecked box"
         + ("" if radio_path is not None else "; radio mark reuses the check art")
     )
     return canvas.finish()
@@ -1620,7 +1927,8 @@ def build_slider(theme: Theme) -> ET.Element | None:
 
     canvas = _Canvas()
     # hints=False: nothing lays out inside a groove.
-    _emit_set(theme, canvas, "groove-", base, "normal", edge_override=groove_caps)
+    if _emit_set(theme, canvas, "groove-", base, "normal", edge_override=groove_caps) is None:
+        return None
     _emit_set(
         theme, canvas, "groove-highlight-", base, "hover", edge_override=groove_caps
     )
@@ -1727,6 +2035,8 @@ def build_frame(theme: Theme) -> ET.Element | None:
         return None
     canvas = _Canvas()
     _emit_set(theme, canvas, "", src, "normal", hints=True)
+    if canvas.is_empty:
+        return None
     theme.notes.append(
         f"plasmastyle: group frames from iclass {src.name} (one unprefixed "
         "set; FrameSvg's adjustPrefix serves it for PC3's plain prefix)"
@@ -1945,17 +2255,18 @@ def style_scheme(theme: Theme, *, shipped: frozenset[str]) -> ColorScheme:
 
     # Colors:Button.
     if BUTTON_SVG in shipped:
-        src = _iclass_with_art(theme, "DIALOG_BUTTON")
+        src = _iclass_with_art(theme, *_BUTTON_SOURCES)
         path = _state_image(src, "normal")
         bg = extract_dominant(path) if path is not None else None
-        if bg is not None:
-            candidate = _tclass_fg(theme, "DIALOG_BUTTON") or _tclass_fg(
+        if bg is not None and src is not None:
+            # dialog.c pairs the push button's tclass with its iclass name.
+            candidate = _tclass_fg(theme, src.name) or _tclass_fg(
                 theme, "DIALOG_WIDGET_TEXT"
             )
             fg, forced = _fg_for(candidate, scheme.button.foreground_normal, (bg,))
             scheme = replace(scheme, button=_regroup(scheme.button, bg, fg))
             theme.notes.append(
-                "plasmastyle: colors Button from DIALOG_BUTTON art"
+                f"plasmastyle: colors Button from {src.name} art"
                 + (f"; text forced to rgb{fg} for contrast" if forced else "")
             )
 

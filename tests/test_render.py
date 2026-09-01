@@ -93,3 +93,24 @@ def test_recommended_border_size_brackets():
     assert render.recommended_border_size(8, 4, 20) == "Huge"
     assert render.recommended_border_size(48, 40, 48) == "Oversized"
     assert render.recommended_border_size(120, 0, 0) == "Oversized"
+
+
+def test_style_probe_paints_wide_and_tall_viewitem_cells(tmp_path):
+    """The probe must show a viewitem hover cell stretched WIDE and a
+    selected cell stretched TALL so an open end or an oversized cap is
+    visible in the screenshot."""
+    render._write_style_probe(tmp_path)
+    qml = (
+        tmp_path / "plasma" / "plasmoids" / render._STYLE_PROBE_ID
+        / "contents" / "ui" / "main.qml"
+    ).read_text()
+    cells = dict(render._STYLE_PROBE_CELLS)
+    assert cells.get("widgets/viewitem") is not None
+    prefixes = {pre for path, pre in render._STYLE_PROBE_CELLS if path == "widgets/viewitem"}
+    assert {"hover", "selected"} <= prefixes
+    shapes = render._STYLE_PROBE_CELL_SHAPES
+    assert shapes[("widgets/viewitem", "hover")] == "wide"
+    assert shapes[("widgets/viewitem", "selected")] == "tall"
+    assert '"shape": "wide"' in qml and '"shape": "tall"' in qml
+    # The grid must hold every cell: rows x columns >= cells.
+    assert render._STYLE_PROBE_ROWS * render._STYLE_PROBE_COLUMNS >= len(render._STYLE_PROBE_CELLS)
