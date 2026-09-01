@@ -1043,6 +1043,12 @@ def test_apply_full_second_apply_reuses_live_iconbox(
     assert len(creates) == 2  # one per furniture panel, first apply only
     assert fake_kconfig.store["IconboxPanel"] == "301"
     assert fake_kconfig.store["PagerPanel"] == "302"
+    # A live panel is brought back to spec: thickness, fit, min cleared
+    # (chris's iconbox had drifted to 120 px; live 2026-09-01).
+    reasserts = [c[-1] for c in fake_kconfig.calls if "reasserted" in c[-1]]
+    assert any("panelById(301)" in s and "p.height = 60" in s for s in reasserts)
+    assert any("panelById(302)" in s and "p.height = 130" in s for s in reasserts)
+    assert all("lengthMode = 'fit'" in s and "minimumLength = 0" in s for s in reasserts)
 
 
 def test_apply_full_recreates_iconbox_when_panel_gone(

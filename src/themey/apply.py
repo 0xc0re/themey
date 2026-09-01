@@ -518,8 +518,9 @@ def _panel_script(alignment: str, height: int, widgets: str) -> str:
     )
 
 
-def _furniture_specs() -> tuple[tuple[str, str, str], ...]:
-    """``(marker key, human name, creation script)`` per themey panel.
+def _furniture_specs() -> tuple[tuple[str, str, str, int], ...]:
+    """``(marker key, human name, creation script, thickness)`` per
+    themey panel.
 
     Pager panel: top-left, thick, one pager — E16's pager window spot.
     Iconbox panel: bottom-left, slim, an icons-only task manager showing
@@ -548,13 +549,34 @@ def _furniture_specs() -> tuple[tuple[str, str, str], ...]:
         " w.reloadConfig();",
     )
     return (
-        (_PAGER_KEY, "pager panel", pager),
-        (_ICONBOX_KEY, "iconbox panel", iconbox),
+        (_PAGER_KEY, "pager panel", pager, _PAGER_HEIGHT),
+        (_ICONBOX_KEY, "iconbox panel", iconbox, _ICONBOX_HEIGHT),
+    )
+
+
+def _furniture_reassert_script(panel_id: str, height: int) -> str:
+    """Bring a live furniture panel back to themey's spec.
+
+    A skipped-because-alive panel kept whatever thickness it had drifted
+    to — chris's iconbox panel sat at 120 px (twice ``_ICONBOX_HEIGHT``)
+    across several applies (live 2026-09-01). Thickness, fit length and
+    the cleared minimum are themey's spec, so every apply re-asserts them;
+    widget config and alignment are left to the user.
+    """
+    return (
+        f"var p = panelById({panel_id});"
+        f" if (p) {{ p.height = {height};"
+        " p.lengthMode = 'fit';"
+        " p.minimumLength = 0;"
+        " try { p.floating = false; } catch (e) {} }"
+        " print(p ? 'reasserted' : 'missing');"
     )
 
 
 def _ensure_furniture(kw: str, kr: str) -> None:
-    """Create each E16 furniture panel unless its recorded one is alive.
+    """Create each E16 furniture panel unless its recorded one is alive —
+    in which case its thickness/length spec is re-asserted
+    (:func:`_furniture_reassert_script`).
 
     Each marker is validated :func:`_is_panel_id` before it is ever
     interpolated into a plasmashell script — kdeglobals is user-editable,
@@ -564,7 +586,7 @@ def _ensure_furniture(kw: str, kr: str) -> None:
     stale marker (an earlier panel's marker survives the failure, so a
     retry skips it instead of doubling it).
     """
-    for key, name, script in _furniture_specs():
+    for key, name, script, height in _furniture_specs():
         marker = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, key)
         if marker is not None and _is_panel_id(marker):
             alive = _evaluate_plasma_script(
@@ -572,6 +594,10 @@ def _ensure_furniture(kw: str, kr: str) -> None:
                 f"plasmashell {name} existence check",
             )
             if alive == "exists":
+                _evaluate_plasma_script(
+                    _furniture_reassert_script(marker, height),
+                    f"plasmashell {name} re-assert script",
+                )
                 continue
         reply = _evaluate_plasma_script(
             script, f"plasmashell {name} creation script"
@@ -1165,7 +1191,7 @@ def revert() -> bool:
     prev_floating = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_FLOATING_KEY)
     prev_furniture = {
         key: _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, key)
-        for key, _name, _script in _furniture_specs()
+        for key, _name, _script, _height in _furniture_specs()
     }
     prev_rows = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_ROWS_KEY)
     if (
@@ -1271,7 +1297,7 @@ def revert() -> bool:
     # on a thrown script would leak the panel with no retry). A non-digit
     # (tampered) marker is never interpolated: just dropped.
     iconbox_error: ApplyError | None = None
-    for key, name, _script in _furniture_specs():
+    for key, name, _script, _height in _furniture_specs():
         prev_panel = prev_furniture[key]
         if prev_panel is None:
             continue

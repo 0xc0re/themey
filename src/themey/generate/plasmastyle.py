@@ -300,11 +300,20 @@ def _iclass_with_art(theme: Theme, *names: str) -> IClassSpec | None:
 
 
 #: Candidate iclasses for the panel's art, horizontal/vertical, in order.
+#: Horizontal: the user's own bar is E16's desktop drag bar analog, so
+#: the dragbar art (wordmark cap and all) leads. Vertical: the
+#: ``west-``/``east-`` sets dress themey's LEFT-EDGE FURNITURE — the
+#: pager and iconbox panels ``apply.py`` creates — which are E16's
+#: iconbox/pager windows, NOT a drag bar, so the iconbox trough art leads
+#: and the vertical dragbar is only the fallback. With the vertical
+#: dragbar first, e13's 12-px-wide bar (kept at 1x by
+#: ``SURFACE_MAX_REF_CHROME``, its 50 px knob cap) was stretched across a
+#: 60 px iconbox panel and read as a smeared rotated E (live 2026-09-01).
 _PANEL_ART_SOURCES: tuple[str, ...] = (
     "DESKTOP_DRAGBUTTON_HORIZ", "ICONBOX_HORIZONTAL", "DEFAULT_DOCK_BUTTON",
 )
 _PANEL_VERT_SOURCES: tuple[str, ...] = (
-    "DESKTOP_DRAGBUTTON_VERT", "ICONBOX_VERTICAL",
+    "ICONBOX_VERTICAL", "DESKTOP_DRAGBUTTON_VERT",
 )
 
 #: Ref-px ceiling for the panel art's cap sum across the bar's THICKNESS
