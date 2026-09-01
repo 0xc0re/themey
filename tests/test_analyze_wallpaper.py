@@ -145,14 +145,34 @@ def _extract_fixture(name: str) -> tuple[WallpaperSpec, ...]:
 def test_e13_fixture_one_tiled_tanbg() -> None:
     specs = _extract_fixture("e13")
     assert len(specs) == 1
+    assert specs[0].path is not None
     assert specs[0].path.name == "tanbg.png"
     assert specs[0].fill_mode == "tiled"
+    # tanbg.png is tiled over SET_SOLID("0 0 0") — the solid must ride along
+    # so the generator can flatten the RGBA tile over it.
+    assert specs[0].solid_rgb == (0, 0, 0)
 
 
 def test_aliens_fixture_four_scaled() -> None:
     specs = _extract_fixture("Aliens")
     assert len(specs) == 4
     assert all(s.fill_mode == "scaled" for s in specs)
+    # Each block's SET_SOLID rides along with its image spec.
+    by_stem = {s.stem: s for s in specs}
+    assert by_stem["Alien97"].solid_rgb == (100, 70, 40)
+    assert by_stem["giger045"].solid_rgb == (200, 200, 200)
+
+
+def test_aliens_fixture_commented_overlay_not_noted() -> None:
+    """Aliens' only ADD_OVERLAY_IMAGE_* lives inside a /* */ comment — no
+    overlay note may fire for it."""
+    from themey.etheme.archive import extract
+
+    fixture = Path(__file__).parent / "fixtures" / "Aliens.etheme"
+    notes: list[str] = []
+    with extract(fixture) as raw:
+        extract_wallpaper_specs(raw.asset_root, notes)
+    assert not any("overlay" in n.lower() for n in notes), notes
 
 
 def test_litegnome_fixture_one_tiled() -> None:
@@ -169,8 +189,17 @@ def test_mac3d_fixture_four_tiled() -> None:
     assert {s.path.stem for s in specs} == {"steel", "marble", "paper", "black"}
 
 
-def test_openstep_fixture_no_wallpapers() -> None:
-    assert _extract_fixture("OPENSTEP") == ()
+def test_openstep_fixture_solid_only_spec() -> None:
+    """OPENSTEP declares only SET_SOLID("200 200 200") — one solid-only spec
+    (previously dropped entirely, leaving the conversion with no wallpaper)."""
+    specs = _extract_fixture("OPENSTEP")
+    assert len(specs) == 1
+    s = specs[0]
+    assert s.path is None
+    assert s.solid_rgb == (200, 200, 200)
+    assert s.name == "OPENSTEP_Background"
+    assert s.stem == "OPENSTEP_Background"
+    assert s.fill_mode == "scaled"
 
 
 def test_tiny_fixture_no_wallpapers() -> None:
@@ -194,7 +223,7 @@ def test_forground_layer_excluded_but_noted(tmp_path: Path) -> None:
     )
     notes: list[str] = []
     specs = extract_wallpaper_specs(tmp_path, notes)
-    assert specs == (WallpaperSpec(path=p, fill_mode="tiled"),)
+    assert specs == (WallpaperSpec(path=p, fill_mode="tiled", name="Foo"),)
     assert any(
         n.startswith("wallpaper:") and "overlay.png" in n and "__FORGROUND_LAYER" in n
         for n in notes
@@ -234,3 +263,110 @@ def test_notes_default_none_does_not_raise(tmp_path: Path) -> None:
     """Callers that don't pass notes (e.g. the old call sites) still work."""
     _write_cfg(tmp_path, 'ADD_BACKGROUND_SCALED("missing.jpg")\n')
     assert extract_wallpaper_specs(tmp_path) == ()
+
+
+# --------------------------------------------------------------------- #
+# SET_SOLID: solid-only blocks, solid attached to image specs, comments
+# --------------------------------------------------------------------- #
+
+
+def test_solid_only_block_emits_solid_spec_with_note(tmp_path: Path) -> None:
+    _write_cfg(
+        tmp_path,
+        'BEGIN_BACKGROUND("Gray")\n'
+        '  SET_SOLID("200 200 200")\n'
+        '  ON_DESKTOP("0")\n'
+        "END_BACKGROUND\n",
+    )
+    notes: list[str] = []
+    specs = extract_wallpaper_specs(tmp_path, notes)
+    assert len(specs) == 1
+    assert specs[0].path is None
+    assert specs[0].solid_rgb == (200, 200, 200)
+    assert specs[0].name == "Gray"
+    assert any(n.startswith("wallpaper:") and "SET_SOLID" in n for n in notes), notes
+
+
+def test_solid_attached_to_image_spec(tmp_path: Path) -> None:
+    p = _touch(tmp_path, "tile.png")
+    _write_cfg(
+        tmp_path,
+        'BEGIN_BACKGROUND("T")\n'
+        '  SET_SOLID("0 0 0")\n'
+        '  ADD_BACKGROUND_TILED("tile.png")\n'
+        "END_BACKGROUND\n",
+    )
+    specs = extract_wallpaper_specs(tmp_path)
+    assert specs == (
+        WallpaperSpec(path=p, fill_mode="tiled", solid_rgb=(0, 0, 0), name="T"),
+    )
+
+
+def test_per_block_solid_does_not_bleed(tmp_path: Path) -> None:
+    a = _touch(tmp_path, "a.png")
+    b = _touch(tmp_path, "b.png")
+    _write_cfg(
+        tmp_path,
+        'BEGIN_BACKGROUND("A")\n'
+        '  SET_SOLID("1 2 3")\n'
+        '  ADD_BACKGROUND_TILED("a.png")\n'
+        "END_BACKGROUND\n"
+        'BEGIN_BACKGROUND("B")\n'
+        '  ADD_BACKGROUND_SCALED("b.png")\n'
+        "END_BACKGROUND\n",
+    )
+    specs = extract_wallpaper_specs(tmp_path)
+    assert specs[0].path == a
+    assert specs[0].solid_rgb == (1, 2, 3)
+    assert specs[1].path == b
+    assert specs[1].solid_rgb is None
+
+
+def test_commented_out_background_macro_ignored(tmp_path: Path) -> None:
+    """/* */ comments are stripped BEFORE macro scanning."""
+    _touch(tmp_path, "x.png")
+    _write_cfg(tmp_path, '/* ADD_BACKGROUND_SCALED("x.png") */\n')
+    assert extract_wallpaper_specs(tmp_path) == ()
+
+
+# --------------------------------------------------------------------- #
+# ADD_OVERLAY_IMAGE_* — note-only (no live overlays in the corpus)
+# --------------------------------------------------------------------- #
+
+
+def test_live_overlay_noted_background_kept(tmp_path: Path) -> None:
+    p = _touch(tmp_path, "bg.png")
+    _touch(tmp_path, "logo.png")
+    _write_cfg(
+        tmp_path,
+        'BEGIN_BACKGROUND("O")\n'
+        '  ADD_BACKGROUND_SCALED("bg.png")\n'
+        '  ADD_OVERLAY_IMAGE_CENTERED("logo.png")\n'
+        "END_BACKGROUND\n",
+    )
+    notes: list[str] = []
+    specs = extract_wallpaper_specs(tmp_path, notes)
+    assert len(specs) == 1
+    assert specs[0].path == p
+    assert any(
+        n.startswith("wallpaper:") and "logo.png" in n and "overlay" in n.lower()
+        for n in notes
+    ), notes
+
+
+def test_commented_overlay_verbatim_aliens_snippet_silent(tmp_path: Path) -> None:
+    """The exact commented-out line Aliens ships must not fire a note."""
+    _touch(tmp_path, "artwork/backgrounds/Alien97.jpg")
+    _write_cfg(
+        tmp_path,
+        'BEGIN_BACKGROUND("Aliens_Alien97")\n'
+        '  SET_SOLID("100 70 40")\n'
+        '  ADD_BACKGROUND_SCALED("artwork/backgrounds/Alien97.jpg")\n'
+        '/* ADD_OVERLAY_IMAGE_CENTERED("artwork/Elogo.png") */\n'
+        '  ON_DESKTOP("0")\n'
+        "END_BACKGROUND\n",
+    )
+    notes: list[str] = []
+    specs = extract_wallpaper_specs(tmp_path, notes)
+    assert len(specs) == 1
+    assert not any("overlay" in n.lower() for n in notes), notes

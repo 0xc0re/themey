@@ -18,6 +18,17 @@ can open but Plasma cannot (an animation, an XBM, ...) is decoded and
 re-saved as a static PNG — first frame only, since a wallpaper package
 holds one image, not an animation.
 
+Two SET_SOLID-driven exceptions (see ``analyze/wallpaper.py``):
+
+* a source with an alpha channel whose spec carries ``solid_rgb`` is
+  flattened over that solid before saving — E16 composites the tile over
+  the solid, so shipping the raw RGBA leaves Plasma tiling transparency
+  over an undefined color (e13's ``tanbg.png``);
+* a solid-only spec (``path=None``) becomes a small flat
+  ``_SOLID_WALLPAPER_SIZE``² PNG — deliberately small so
+  :func:`pick_default`'s area ranking (belt) plus the explicit ``solid``
+  flag (suspenders) never prefer it over real art.
+
 Guards the same decompression-bomb pitfall as ``analyze/colors.py``: an
 explicit width*height check against the header before any pixel is
 decoded, deliberately not ``Image.MAX_IMAGE_PIXELS`` (that would relax the
@@ -49,6 +60,14 @@ _PASSTHROUGH_EXTENSIONS: dict[str, str] = {
     "BMP": ".bmp",
 }
 
+# Solid-only wallpapers are a flat color; any size works, small keeps the
+# area ranking from ever preferring one over real art.
+_SOLID_WALLPAPER_SIZE = 128
+
+
+def _has_alpha(im: Image.Image) -> bool:
+    return im.mode in ("RGBA", "LA", "PA") or "transparency" in im.info
+
 
 class WallpaperError(Exception):
     """A wallpaper source image could not be converted into a package."""
@@ -63,6 +82,9 @@ class WallpaperPackage:
     width: int
     height: int
     fill_mode: str
+    # True for a SET_SOLID-only package; never outranks real art as the
+    # Look-and-Feel default.
+    solid: bool = False
 
 
 def write_package(theme: Theme, spec: WallpaperSpec, pkg_dir: Path) -> WallpaperPackage:
@@ -80,28 +102,58 @@ def write_package(theme: Theme, spec: WallpaperSpec, pkg_dir: Path) -> Wallpaper
     a directory this call owns exclusively (the pipeline stages/clears it
     first); nothing pre-existing under it survives a failure.
     """
-    stem = spec.path.stem
+    stem = spec.stem
     pkg_id = wallpaper_id(theme.name, stem)
     images_dir = pkg_dir / "contents" / "images"
+    solid_only = spec.path is None
 
     try:
-        with Image.open(spec.path) as im:
-            if im.width * im.height > MAX_IMAGE_PIXELS:
+        if spec.path is None:
+            if spec.solid_rgb is None:
                 raise WallpaperError(
-                    f"{spec.path.name} is {im.width}x{im.height} — over "
-                    f"the {MAX_IMAGE_PIXELS}-pixel guard"
+                    f"solid-only spec {stem!r} carries no solid_rgb"
                 )
             images_dir.mkdir(parents=True, exist_ok=True)
-            fmt = im.format or ""
-            if fmt in _PASSTHROUGH_EXTENSIONS:
-                width, height = im.width, im.height
-                dest = images_dir / f"{width}x{height}{_PASSTHROUGH_EXTENSIONS[fmt]}"
-                shutil.copyfile(spec.path, dest)
-            else:
-                frame = im.convert("RGBA")
-                width, height = frame.width, frame.height
-                dest = images_dir / f"{width}x{height}.png"
-                frame.save(dest, format="PNG")
+            width = height = _SOLID_WALLPAPER_SIZE
+            dest = images_dir / f"{width}x{height}.png"
+            Image.new("RGB", (width, height), spec.solid_rgb).save(
+                dest, format="PNG"
+            )
+        else:
+            with Image.open(spec.path) as im:
+                if im.width * im.height > MAX_IMAGE_PIXELS:
+                    raise WallpaperError(
+                        f"{spec.path.name} is {im.width}x{im.height} — over "
+                        f"the {MAX_IMAGE_PIXELS}-pixel guard"
+                    )
+                images_dir.mkdir(parents=True, exist_ok=True)
+                fmt = im.format or ""
+                if _has_alpha(im) and spec.solid_rgb is not None:
+                    # E16 composites the (partially transparent) image over
+                    # the block's SET_SOLID; Plasma has no such underlay.
+                    frame = im.convert("RGBA")
+                    width, height = frame.width, frame.height
+                    base = Image.new("RGBA", frame.size, (*spec.solid_rgb, 255))
+                    flat = Image.alpha_composite(base, frame).convert("RGB")
+                    dest = images_dir / f"{width}x{height}.png"
+                    flat.save(dest, format="PNG")
+                    theme.notes.append(
+                        f"wallpaper: {spec.path.name} has transparency; "
+                        f"flattened over SET_SOLID rgb{spec.solid_rgb} — E16 "
+                        "composites the tile over the solid"
+                    )
+                elif fmt in _PASSTHROUGH_EXTENSIONS:
+                    width, height = im.width, im.height
+                    dest = (
+                        images_dir
+                        / f"{width}x{height}{_PASSTHROUGH_EXTENSIONS[fmt]}"
+                    )
+                    shutil.copyfile(spec.path, dest)
+                else:
+                    frame = im.convert("RGBA")
+                    width, height = frame.width, frame.height
+                    dest = images_dir / f"{width}x{height}.png"
+                    frame.save(dest, format="PNG")
 
         meta = {
             "KPlugin": {
@@ -121,16 +173,23 @@ def write_package(theme: Theme, spec: WallpaperSpec, pkg_dir: Path) -> Wallpaper
         raise WallpaperError(f"cannot convert {spec.path}: {exc}") from exc
 
     return WallpaperPackage(
-        id=pkg_id, dir=pkg_dir, width=width, height=height, fill_mode=spec.fill_mode
+        id=pkg_id,
+        dir=pkg_dir,
+        width=width,
+        height=height,
+        fill_mode=spec.fill_mode,
+        solid=solid_only,
     )
 
 
 def pick_default(packages: Sequence[WallpaperPackage]) -> WallpaperPackage | None:
     """The largest-area package — the Look-and-Feel default (Phase D).
 
-    None when *packages* is empty (themes with no wallpapers leave the
-    desktop wallpaper alone, per the Phase B/D contract).
+    Solid-only packages never outrank real art (a flat SET_SOLID color is a
+    fallback, not the theme's face); one wins only when it's all there is
+    (OPENSTEP). None when *packages* is empty (themes with no wallpapers
+    leave the desktop wallpaper alone, per the Phase B/D contract).
     """
     if not packages:
         return None
-    return max(packages, key=lambda p: p.width * p.height)
+    return max(packages, key=lambda p: (not p.solid, p.width * p.height))

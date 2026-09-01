@@ -63,7 +63,8 @@ def test_bundle_defaults_deco_group_matches_svg_theme_when_svg_only(fake_home):
 
 
 def test_bundle_omits_wallpaper_group_for_theme_with_none(fake_home):
-    result = convert(FIXTURES / "OPENSTEP.etheme", scale=2, backend="qml")
+    # tiny.etheme has no backgrounds; OPENSTEP now ships a solid wallpaper.
+    result = convert(FIXTURES / "tiny.etheme", scale=2, backend="qml")
     assert result.wallpaper_dirs == ()
     text = (result.lnf_dir / "contents" / "defaults").read_text()
     assert "[Wallpaper]" not in text

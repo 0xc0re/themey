@@ -225,6 +225,77 @@ def test_write_package_cleans_up_pkg_dir_on_metadata_write_failure(
     assert not pkg_dir.exists()
 
 
+def test_write_package_solid_only(tmp_path: Path) -> None:
+    """A SET_SOLID-only spec becomes a small flat 128x128 PNG package."""
+    theme = _make_theme(name="OPENSTEP", display_name="OPENSTEP")
+    spec = WallpaperSpec(
+        path=None, fill_mode="scaled", solid_rgb=(200, 200, 200),
+        name="OPENSTEP_Background",
+    )
+    pkg_dir = tmp_path / wallpaper_id(theme.name, spec.stem)
+    pkg = write_package(theme, spec, pkg_dir)
+
+    assert pkg.solid is True
+    assert pkg.width == pkg.height == 128
+    assert pkg.fill_mode == "scaled"
+    image_path = pkg_dir / "contents" / "images" / "128x128.png"
+    assert image_path.is_file()
+    with Image.open(image_path) as im:
+        assert im.convert("RGB").getpixel((64, 64)) == (200, 200, 200)
+    meta = json.loads((pkg_dir / "metadata.json").read_text())
+    assert meta["KPlugin"]["Id"] == wallpaper_id("OPENSTEP", "OPENSTEP_Background")
+
+
+def test_write_package_flattens_alpha_over_solid(tmp_path: Path) -> None:
+    """An RGBA source with a solid underneath is composited over the solid —
+    e13's tanbg.png tiles over SET_SOLID("0 0 0") in E16."""
+    src = tmp_path / "src" / "tanbg.png"
+    src.parent.mkdir(parents=True)
+    im = Image.new("RGBA", (8, 8), (10, 20, 30, 255))
+    im.putpixel((0, 0), (0, 0, 0, 0))  # fully transparent corner
+    im.save(src, format="PNG")
+
+    theme = _make_theme()
+    spec = WallpaperSpec(path=src, fill_mode="tiled", solid_rgb=(0, 0, 0))
+    pkg_dir = tmp_path / wallpaper_id(theme.name, "tanbg")
+    pkg = write_package(theme, spec, pkg_dir)
+
+    assert pkg.solid is False
+    image_path = pkg_dir / "contents" / "images" / "8x8.png"
+    with Image.open(image_path) as out:
+        rgb = out.convert("RGB")
+        assert rgb.getpixel((0, 0)) == (0, 0, 0)  # solid shows through
+        assert rgb.getpixel((4, 4)) == (10, 20, 30)  # opaque art untouched
+    assert any("flattened" in n for n in theme.notes), theme.notes
+
+
+def test_write_package_opaque_with_solid_copied_through(tmp_path: Path) -> None:
+    """An opaque (no-alpha) source is byte-copied even when the block also
+    declared a SET_SOLID — nothing to flatten."""
+    src = tmp_path / "src" / "bg.png"
+    src.parent.mkdir(parents=True)
+    Image.new("RGB", (16, 12), (10, 20, 30)).save(src, format="PNG")
+
+    theme = _make_theme()
+    spec = WallpaperSpec(path=src, fill_mode="scaled", solid_rgb=(1, 2, 3))
+    pkg_dir = tmp_path / wallpaper_id(theme.name, "bg")
+    write_package(theme, spec, pkg_dir)
+
+    dest = pkg_dir / "contents" / "images" / "16x12.png"
+    assert dest.read_bytes() == src.read_bytes()
+
+
+def test_write_package_alpha_without_solid_copied_through(tmp_path: Path) -> None:
+    """RGBA with NO solid underneath keeps today's byte-copy behavior."""
+    src = _png(tmp_path / "src" / "bg.png", (16, 12))  # RGBA helper
+    theme = _make_theme()
+    spec = WallpaperSpec(path=src, fill_mode="scaled")
+    pkg_dir = tmp_path / wallpaper_id(theme.name, "bg")
+    write_package(theme, spec, pkg_dir)
+    dest = pkg_dir / "contents" / "images" / "16x12.png"
+    assert dest.read_bytes() == src.read_bytes()
+
+
 def test_pick_default_largest_area() -> None:
     small = WallpaperPackage(id="a", dir=Path("a"), width=10, height=10, fill_mode="scaled")
     big = WallpaperPackage(id="b", dir=Path("b"), width=100, height=50, fill_mode="tiled")
@@ -234,6 +305,19 @@ def test_pick_default_largest_area() -> None:
 
 def test_pick_default_empty_is_none() -> None:
     assert pick_default([]) is None
+
+
+def test_pick_default_solid_never_outranks_art() -> None:
+    """A solid package loses to real art regardless of area; it wins only
+    when it's the only package (OPENSTEP's case)."""
+    solid = WallpaperPackage(
+        id="s", dir=Path("s"), width=128, height=128, fill_mode="scaled", solid=True
+    )
+    art = WallpaperPackage(
+        id="a", dir=Path("a"), width=64, height=48, fill_mode="tiled"
+    )
+    assert pick_default([solid, art]) is art
+    assert pick_default([solid]) is solid
 
 
 def test_aliens_fixture_four_packages_one_gif_converted(tmp_path: Path) -> None:

@@ -253,7 +253,7 @@ def convert(
             colors_path = write_colors(theme, output_dir / colors_name)
             log.info("wrote color scheme to %s", colors_path)
             for spec in theme.wallpaper_specs:
-                wp_id = wallpaper_id(theme_name, spec.path.stem)
+                wp_id = wallpaper_id(theme_name, spec.stem)
                 wp_out = output_dir / wp_id
                 if wp_out.exists():
                     shutil.rmtree(wp_out)
@@ -261,7 +261,7 @@ def convert(
                     pkg = write_wallpaper_package(theme, spec, wp_out)
                 except WallpaperError as exc:
                     theme.notes.append(
-                        f"wallpaper: skipped {spec.path.name}: {exc}"
+                        f"wallpaper: skipped {spec.stem}: {exc}"
                     )
                     continue
                 wallpaper_dirs.append(wp_out)
@@ -355,13 +355,13 @@ def convert(
                 )
                 log.info("installed color scheme to %s", colors_path)
                 for spec in theme.wallpaper_specs:
-                    wp_id = wallpaper_id(theme_name, spec.path.stem)
+                    wp_id = wallpaper_id(theme_name, spec.stem)
                     stage_wp_dir = stage / wp_id
                     try:
                         pkg = write_wallpaper_package(theme, spec, stage_wp_dir)
                     except WallpaperError as exc:
                         theme.notes.append(
-                            f"wallpaper: skipped {spec.path.name}: {exc}"
+                            f"wallpaper: skipped {spec.stem}: {exc}"
                         )
                         continue
                     installed_wp = install.deploy(
@@ -378,6 +378,7 @@ def convert(
                             width=pkg.width,
                             height=pkg.height,
                             fill_mode=pkg.fill_mode,
+                            solid=pkg.solid,
                         )
                     )
                     installed_wallpaper_specs.append(spec)

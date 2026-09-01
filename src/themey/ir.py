@@ -225,10 +225,25 @@ class WallpaperSpec:
     wallpaper package's ``X-Themey-FillMode`` (see
     ``generate/wallpaper.py``), so ``apply`` can read tiled-ness back out of
     the installed package without re-parsing the E16 source.
+
+    ``solid_rgb`` carries the enclosing block's ``SET_SOLID("r g b")`` — E16
+    composites the (often partially transparent) background image over that
+    solid, so the generator flattens RGBA sources over it. A spec with
+    ``path=None`` is solid-only (OPENSTEP declares nothing but SET_SOLID);
+    ``name`` is then the ``BEGIN_BACKGROUND`` block name and feeds ``stem``.
     """
 
-    path: Path  # under asset_root
+    path: Path | None  # under asset_root; None for a SET_SOLID-only block
     fill_mode: str  # "tiled" | "scaled"
+    solid_rgb: tuple[int, int, int] | None = None  # SET_SOLID underneath
+    name: str = ""  # BEGIN_BACKGROUND block name (stem source when path=None)
+
+    @property
+    def stem(self) -> str:
+        """Package-naming stem: the image's stem, else the block name."""
+        if self.path is not None:
+            return self.path.stem
+        return self.name or "solid"
 
 
 @dataclass(frozen=True)
