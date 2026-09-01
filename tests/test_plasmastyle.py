@@ -1898,3 +1898,33 @@ def test_emit_set_tiles_center_for_tile_fill_rule(tmp_path: Path) -> None:
     plasmastyle._emit_set(theme, canvas, "p-", spec, "normal")
     ids = {el.get("id") for el in canvas.finish().iter() if el.get("id")}
     assert "p-hint-tile-center" in ids
+
+
+def test_panel_west_east_prefer_iconbox_art_over_vertical_dragbar(
+    tmp_path: Path,
+) -> None:
+    """The west-/east- sets dress themey's left-edge furniture (E16's
+    iconbox/pager), so ICONBOX_VERTICAL leads and the vertical dragbar
+    (knob/wordmark caps meant for a screen-edge drag bar) is only the
+    fallback — e13's 12 px dragbar stretched over a 60 px iconbox panel
+    read as a smeared rotated E (live 2026-09-01)."""
+    h = _png(tmp_path, "h.png")
+    v = _png(tmp_path, "v.png", color=(60, 60, 200, 255))
+    d = _png(tmp_path, "d.png", color=(200, 60, 60, 255))
+    theme = _theme(tmp_path, {
+        "ICONBOX_HORIZONTAL": _iclass("ICONBOX_HORIZONTAL", normal=h),
+        "DESKTOP_DRAGBUTTON_VERT": _iclass("DESKTOP_DRAGBUTTON_VERT", normal=d),
+        "ICONBOX_VERTICAL": _iclass("ICONBOX_VERTICAL", normal=v),
+    })
+    plasmastyle.build_panel_background(theme)
+    assert any(
+        "vertical panels from ICONBOX_VERTICAL" in n for n in theme.notes
+    )
+    theme2 = _theme(tmp_path, {
+        "ICONBOX_HORIZONTAL": _iclass("ICONBOX_HORIZONTAL", normal=h),
+        "DESKTOP_DRAGBUTTON_VERT": _iclass("DESKTOP_DRAGBUTTON_VERT", normal=d),
+    })
+    plasmastyle.build_panel_background(theme2)
+    assert any(
+        "vertical panels from DESKTOP_DRAGBUTTON_VERT" in n for n in theme2.notes
+    )
