@@ -274,7 +274,7 @@ QML-backend contracts:
    x_out`) so adjacent parts stay seamless at fractional scales; identical
    to `v*scale` at integer scales. Scale may be fractional ([1,3], 2
    decimals) — **QML-backend-only**; svg/both hard-error. Change both
-   resolvers together and bump `RUNTIME_VERSION` (currently 4);
+   resolvers together and bump `RUNTIME_VERSION` (currently 5);
    `tests/test_qmldeco_geometry.py` pins e13 ground truth (KILL
    40x38@(0,0), stack x=9, plaque = textwidth+25) at scale 2 and 1.5.
 2. **theme.js is pure data** (`var theme = {...}` — no runtime I/O/XHR);
@@ -296,7 +296,21 @@ QML-backend contracts:
    so 512 centers even on a fixed-width title bar. `slotTile[slot]`
    carries the per-state `__FILLRULE` (`null|h|v|both`; BorderImage
    repeat modes) and `keepOnTop` mirrors `__KEEP_ON_TOP` (off parts get
-   a negative z so they stack under every on-top part).
+   a negative z so they stack under every on-top part). Image slots
+   mirror E16's FOUR ImageState arrays (norm/active/sticky/sticky_active
+   × normal/hilited/clicked, `iclass.c` ImageclassGetImageState):
+   `normal`/`normalActive`/`hover`/`hoverActive`/`pressed`/`pressedActive`
+   plus the same six with a `Sticky` suffix, which `ThemeyPart.qml` picks
+   when `client.onAllDesktops` (E16 passes `EoIsSticky(ewin)` for every
+   part, `borders.c:179`; 122 corpus themes ship sticky art that differs).
+   Fallback chains are `ImageclassPopulate` verbatim: hilited/clicked →
+   that group's normal; active.normal, sticky.normal AND
+   sticky_active.normal → norm.normal — an active window never borrows
+   the inactive hover art (DeepBlue's title bar flickered to it). Keyword
+   ids from `config/definitions`: `__NORMAL_ACTIVE_HILITED` ==
+   `__HILITED_ACTIVE_STICKY` == 364 (sticky_active.hilited — NOT a
+   hover-of-active alias), `__NORMAL_ACTIVE_CLICKED` ==
+   `__CLICKED_ACTIVE_STICKY` == 363.
 3. **KPlugin Id == package dir name == kwinrc `theme=`** (`slug.plugin_id`,
    `themey_<slug>`). QML applies must NOT write BorderSize or
    ButtonsOnLeft/Right — the theme draws its own buttons and unclamped

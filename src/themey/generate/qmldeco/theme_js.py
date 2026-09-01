@@ -68,24 +68,34 @@ _STATE_ATTRS: tuple[tuple[str, str], ...] = (
     ("clicked_active", "clicked_active"),
     ("normal_sticky", "normal_sticky"),
     ("normal_active_sticky", "normal_active_sticky"),
+    ("hilited_sticky", "hilited_sticky"),
+    ("clicked_sticky", "clicked_sticky"),
+    ("clicked_active_sticky", "clicked_active_sticky"),
 )
 
 # Runtime image slot → E16 state fallback chain (first existing wins).
+# These are iclass.c ImageclassPopulate verbatim: within a group
+# hilited/clicked fall back to that group's normal; active.normal,
+# sticky.normal and sticky_active.normal all fall back to norm.normal
+# (sticky_active does NOT go through active). An active window therefore
+# never borrows the inactive hover/click art. The "*Sticky" slots are the
+# sticky/sticky_active groups, shown by the runtime when the client is on
+# all desktops (borders.c:179 passes EoIsSticky(ewin) for every part).
 _SLOT_CHAINS: dict[str, tuple[str, ...]] = {
     "normal": ("normal",),
     "normalActive": ("normal_active", "normal"),
     "hover": ("hilited", "normal"),
-    # normal_active_hilited is E16's hover-of-active alias; when a theme
-    # declares both, hilited_active wins (e13 ships identical art in both).
-    "hoverActive": (
-        "hilited_active",
-        "normal_active_hilited",
-        "hilited",
-        "normal_active",
-        "normal",
-    ),
+    "hoverActive": ("hilited_active", "normal_active", "normal"),
     "pressed": ("clicked", "normal"),
-    "pressedActive": ("clicked_active", "clicked", "normal_active", "normal"),
+    "pressedActive": ("clicked_active", "normal_active", "normal"),
+    "normalSticky": ("normal_sticky", "normal"),
+    "normalActiveSticky": ("normal_active_sticky", "normal"),
+    "hoverSticky": ("hilited_sticky", "normal_sticky", "normal"),
+    # id 364: __NORMAL_ACTIVE_HILITED / __HILITED_ACTIVE_STICKY
+    "hoverActiveSticky": ("normal_active_hilited", "normal_active_sticky", "normal"),
+    "pressedSticky": ("clicked_sticky", "normal_sticky", "normal"),
+    # id 363: __NORMAL_ACTIVE_CLICKED / __CLICKED_ACTIVE_STICKY
+    "pressedActiveSticky": ("clicked_active_sticky", "normal_active_sticky", "normal"),
     # Toggle buttons (stick/shade): sticky art first, then clicked so themes
     # whose sticky art is absent still show a visibly pressed-in toggle.
     "toggled": ("normal_sticky", "clicked", "normal"),
@@ -104,7 +114,7 @@ _TILE_AXES: dict[str, str | None] = {
 }
 
 _BUTTON_SLOTS = tuple(_SLOT_CHAINS)
-_CHROME_SLOTS = ("normal", "normalActive")
+_CHROME_SLOTS = ("normal", "normalActive", "normalSticky", "normalActiveSticky")
 
 # --shade-button values (Phase F): KWin removed window shading in Plasma 6,
 # so a "shade" part's dead slot is remapped to another action by default.

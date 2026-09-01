@@ -200,9 +200,10 @@ def test_build_iclass_multiple(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_iclass_clicked_sticky_logged_as_dropped(tmp_path: Path) -> None:
-    """An iclass with __CLICKED_STICKY must produce a dropped-state note via
-    collapse_image_states (it's not a state Aurorae renders).
+def test_iclass_clicked_sticky_kept_disabled_dropped(tmp_path: Path) -> None:
+    """__CLICKED_STICKY is E16's sticky.clicked (the QML backend renders it
+    on windows on all desktops) — no drop note; only __DISABLED, which
+    neither backend renders, is logged as dropped.
     """
     from themey.analyze.iclasses import build_iclasses
     from themey.analyze.states import collapse_image_states
@@ -223,9 +224,22 @@ def test_iclass_clicked_sticky_logged_as_dropped(tmp_path: Path) -> None:
     _typed, raw = build_iclasses([block], tmp_path)
     notes: list[str] = []
     collapse_image_states(raw["FOO"], "button-default", notes, "FOO")
-    assert any("__CLICKED_STICKY" in n for n in notes), (
-        f"__CLICKED_STICKY not surfaced as dropped; notes={notes}"
+    assert not any("dropped" in n for n in notes)
+    assert _typed["FOO"].clicked_sticky == (tmp_path / "x.png").resolve()
+
+    disabled = Block(
+        keyword="__ICLASS",
+        head_values=("BAR",),
+        children=(
+            KeyVal(keyword="__NORMAL", values=("x.png",), line=0),
+            KeyVal(keyword="__DISABLED", values=("x.png",), line=0),
+        ),
+        line=0,
     )
+    _typed, raw = build_iclasses([disabled], tmp_path)
+    notes = []
+    collapse_image_states(raw["BAR"], "button-default", notes, "BAR")
+    assert any("__DISABLED dropped" in n for n in notes)
 
 
 def test_iclass_padding_parsed(tmp_path: Path) -> None:
@@ -365,3 +379,35 @@ def test_edge_scaling_uses_atoi_semantics(tmp_path: Path) -> None:
     block = _iclass_block("X", _kv("__EDGE_SCALING", "4P", 5, "--", 0))
     typed, _raw = build_iclasses([block], tmp_path)
     assert typed["X"].edge_scaling == (4, 5, 0, 0)
+
+
+def test_build_iclass_sticky_states_follow_e16_ids(tmp_path: Path) -> None:
+    """E16 config/definitions maps the sticky keywords onto four ImageState
+    arrays (iclass.c ImageclassConfigLoad): __HILITED_STICKY → sticky.hilited,
+    __CLICKED_STICKY → sticky.clicked, and BOTH __NORMAL_ACTIVE_HILITED and
+    __HILITED_ACTIVE_STICKY are id 364 = sticky_active.hilited (not a
+    hover-of-active alias), BOTH __NORMAL_ACTIVE_CLICKED and
+    __CLICKED_ACTIVE_STICKY are id 363 = sticky_active.clicked."""
+    block = _iclass_block(
+        "X",
+        _kv("__NORMAL", "n.png"),
+        _kv("__HILITED_STICKY", "hs.png"),
+        _kv("__CLICKED_STICKY", "cs.png"),
+        _kv("__NORMAL_ACTIVE_HILITED", "nah.png"),
+        _kv("__NORMAL_ACTIVE_CLICKED", "nac.png"),
+    )
+    typed, _raw = build_iclasses([block], tmp_path)
+    ic = typed["X"]
+    assert ic.hilited_sticky == (tmp_path / "hs.png").resolve()
+    assert ic.clicked_sticky == (tmp_path / "cs.png").resolve()
+    assert ic.normal_active_hilited == (tmp_path / "nah.png").resolve()
+    assert ic.clicked_active_sticky == (tmp_path / "nac.png").resolve()
+
+    alias = _iclass_block(
+        "Y",
+        _kv("__HILITED_ACTIVE_STICKY", "has.png"),
+        _kv("__CLICKED_ACTIVE_STICKY", "cas.png"),
+    )
+    typed, _raw = build_iclasses([alias], tmp_path)
+    assert typed["Y"].normal_active_hilited == (tmp_path / "has.png").resolve()
+    assert typed["Y"].clicked_active_sticky == (tmp_path / "cas.png").resolve()

@@ -337,8 +337,10 @@ def test_build_theme_aliens_canary(aliens_asset_root: tuple[Path, list]) -> None
         "Expected at least one skipped border (BORDERLESS, FIXED_SIZE, etc.)"
     )
 
-    # Notes: at least 4 dropped-state entries from TITLE_BAR_HORIZONTAL's sticky variants
-    assert len(theme.notes) >= 4, (
+    # Sticky variants are no longer "dropped": the QML backend renders them
+    # on windows on all desktops. Only disabled art has no target.
+    assert not any("STICKY dropped" in n for n in theme.notes)
+    assert len(theme.notes) >= 1, (
         f"Expected >=4 notes, got {len(theme.notes)}: {theme.notes[:5]}"
     )
 

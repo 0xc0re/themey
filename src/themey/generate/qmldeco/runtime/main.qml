@@ -19,6 +19,12 @@ Decoration {
         var c = decoration ? decoration.client : null;
         return c ? c.active === true : false;
     }
+    // E16 picks the sticky/sticky_active ImageState group for EVERY part of
+    // a window on all desktops (borders.c:179 EoIsSticky(ewin)).
+    readonly property bool clientOnAllDesktops: {
+        var c = decoration ? decoration.client : null;
+        return c ? c.onAllDesktops === true : false;
+    }
     readonly property bool clientShaded: {
         var c = decoration ? decoration.client : null;
         return c ? c.shaded === true : false;
