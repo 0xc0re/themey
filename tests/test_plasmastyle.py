@@ -314,6 +314,117 @@ def test_tile_center_hint_only_in_panel_background(tmp_path: Path) -> None:
 
 
 # ------------------------------------------------------------------ #
+# Dialog background — composite frame from MENU_T/B/L/R (+ corners)
+# ------------------------------------------------------------------ #
+
+
+def test_dialog_composite_frame_from_menu_strips(tmp_path: Path) -> None:
+    """Aliens' shape: MENU_T/MENU_B strips + opaque DIALOG center, no L/R
+    strips -> top/bottom/center only; corner pieces are dropped (a corner
+    paints at leftWidth x topHeight, and with no left strip that is 0 wide)."""
+    t = _png(tmp_path, "menu_t.png", size=(115, 6))
+    b = _png(tmp_path, "menu_b.png", size=(206, 4))
+    tl = _png(tmp_path, "menu_tl.png", size=(11, 23))
+    dialog = _png(tmp_path, "bg.png", size=(64, 64), color=(90, 90, 100, 255))
+    theme = _theme(tmp_path, {
+        "MENU_T": _iclass("MENU_T", normal=t),
+        "MENU_B": _iclass("MENU_B", normal=b),
+        "MENU_TL": _iclass("MENU_TL", normal=tl),
+        "DIALOG": _iclass("DIALOG", edge=(0, 0, 0, 0), normal=dialog),
+    })
+    svg = plasmastyle.build_dialog_background(theme)
+    assert svg is not None
+    ids = _ids(svg)
+    assert {"top", "bottom", "center"} <= ids
+    assert "left" not in ids and "right" not in ids
+    assert "topleft" not in ids
+    assert "hint-stretch-borders" in ids
+    assert any(
+        "composed from menu frame pieces" in n for n in theme.notes
+    ), theme.notes
+    assert any("MENU_TL" in n and "dropped" in n for n in theme.notes)
+
+
+def test_dialog_composite_corner_with_matching_strips(tmp_path: Path) -> None:
+    """A corner ships only when BOTH adjacent strips exist and the corner's
+    dims match theirs (FrameSvg stretches the corner to exactly
+    leftWidth x topHeight — sectionRect, ksvg 6.24)."""
+    t = _png(tmp_path, "menu_t.png", size=(60, 6))
+    left = _png(tmp_path, "menu_l.png", size=(6, 60))
+    tl = _png(tmp_path, "menu_tl.png", size=(6, 6))
+    dialog = _png(tmp_path, "bg.png", size=(64, 64))
+    theme = _theme(tmp_path, {
+        "MENU_T": _iclass("MENU_T", normal=t),
+        "MENU_L": _iclass("MENU_L", normal=left),
+        "MENU_TL": _iclass("MENU_TL", normal=tl),
+        "DIALOG": _iclass("DIALOG", normal=dialog),
+    })
+    svg = plasmastyle.build_dialog_background(theme)
+    assert svg is not None
+    assert "topleft" in _ids(svg)
+
+
+def test_dialog_composite_corner_dropped_on_dim_mismatch(tmp_path: Path) -> None:
+    """Aliens' MENU_TL: 23 px tall against a 6 px top strip — squashing it
+    to the strip thickness mangles the art, so it is dropped with a note."""
+    t = _png(tmp_path, "menu_t.png", size=(60, 6))
+    left = _png(tmp_path, "menu_l.png", size=(6, 60))
+    tl = _png(tmp_path, "menu_tl.png", size=(11, 23))
+    dialog = _png(tmp_path, "bg.png", size=(64, 64))
+    theme = _theme(tmp_path, {
+        "MENU_T": _iclass("MENU_T", normal=t),
+        "MENU_L": _iclass("MENU_L", normal=left),
+        "MENU_TL": _iclass("MENU_TL", normal=tl),
+        "DIALOG": _iclass("DIALOG", normal=dialog),
+    })
+    svg = plasmastyle.build_dialog_background(theme)
+    assert svg is not None
+    assert "topleft" not in _ids(svg)
+    assert any("MENU_TL" in n and "dropped" in n for n in theme.notes)
+
+
+def test_dialog_composite_center_mandatory_flat_fallback(tmp_path: Path) -> None:
+    """Strips with NO center source still get a center element (a flat
+    dominant-color rect) — a center-less set paints NOTHING."""
+    t = _png(tmp_path, "menu_t.png", size=(60, 6), color=(10, 120, 10, 255))
+    theme = _theme(tmp_path, {
+        "MENU_T": _iclass("MENU_T", normal=t),
+    })
+    svg = plasmastyle.build_dialog_background(theme)
+    assert svg is not None
+    ids = _ids(svg)
+    assert "center" in ids and "top" in ids
+    center = next(e for e in svg.iter() if e.get("id") == "center")
+    # Flat rect, not an image.
+    assert not any(c.tag.endswith("image") for c in center.iter())
+
+
+def test_dialog_without_pieces_keeps_single_set_path(tmp_path: Path) -> None:
+    """e13's shape: no MENU_T/B/L/R -> the classic one-set emission."""
+    menu = _png(tmp_path, "menu.png")
+    theme = _theme(tmp_path, {
+        "MENU_BG": _iclass("MENU_BG", edge=(5, 5, 5, 5), normal=menu),
+    })
+    svg = plasmastyle.build_dialog_background(theme)
+    assert svg is not None
+    assert not any("composed from menu frame pieces" in n for n in theme.notes)
+
+
+def test_menu_sub_and_root_titlebar_noted_not_shipped(tmp_path: Path) -> None:
+    menu = _png(tmp_path, "menu.png")
+    sub = _png(tmp_path, "sub.png")
+    tb = _png(tmp_path, "tb.png")
+    theme = _theme(tmp_path, {
+        "MENU_BG": _iclass("MENU_BG", normal=menu),
+        "MENU_SUB": _iclass("MENU_SUB", normal=sub),
+        "MENU_TITLE_BAR": _iclass("MENU_TITLE_BAR", normal=tb),
+    })
+    plasmastyle.build_dialog_background(theme)
+    assert any("MENU_SUB" in n for n in theme.notes)
+    assert any("MENU_TITLE_BAR" in n for n in theme.notes)
+
+
+# ------------------------------------------------------------------ #
 # Tasks — widgets/tasks.svg from the iconbox button art
 # ------------------------------------------------------------------ #
 

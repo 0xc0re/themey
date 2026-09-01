@@ -854,8 +854,183 @@ def build_panel_background(theme: Theme) -> ET.Element:
     return svg
 
 
+#: Menu frame piece iclasses: FrameSvg border element -> E16 iclass.
+_MENU_STRIP_NAMES: tuple[tuple[str, str], ...] = (
+    ("top", "MENU_T"),
+    ("bottom", "MENU_B"),
+    ("left", "MENU_L"),
+    ("right", "MENU_R"),
+)
+#: (corner element, iclass, adjacent horizontal strip, adjacent vertical
+#: strip). A corner paints at exactly (adjacent-left/right width x
+#: adjacent-top/bottom height) — FrameSvgHelpers::sectionRect (ksvg
+#: 6.24) sizes it from contentRect, never from the corner's own art.
+_MENU_CORNER_NAMES: tuple[tuple[str, str, str, str], ...] = (
+    ("topleft", "MENU_TL", "top", "left"),
+    ("topright", "MENU_TR", "top", "right"),
+    ("bottomleft", "MENU_BL", "bottom", "left"),
+    ("bottomright", "MENU_BR", "bottom", "right"),
+)
+
+#: Max per-dimension stretch factor between a corner piece and the strip
+#: thickness it will be painted at, before the piece is dropped. Aliens'
+#: MENU_TL is 23 px tall against a 6 px top strip — squashed 4x it is
+#: mush, worse than no corner.
+CORNER_DIM_TOLERANCE = 1.5
+
+
+def _emit_composite_frame(
+    theme: Theme, canvas: _Canvas, strips: dict[str, Path]
+) -> None:
+    """One unprefixed frame assembled from per-piece menu art.
+
+    *strips* maps ``top``/``bottom``/``left``/``right`` to their MENU_*
+    art; each is emitted WHOLE as that border element (FrameSvg has no
+    per-border 9-patch — the strip stretches along its axis, matching
+    E16's stretched middles; end caps a strip may carry stretch with it).
+    Corners ship only when both adjacent strips exist AND the corner's
+    dims are within ``CORNER_DIM_TOLERANCE`` of the strip thicknesses it
+    will be stretched to. The center is mandatory (a center-less set
+    paints NOTHING): the ``_dialog_source`` art when available, else a
+    flat rect in the top strip's dominant color.
+    """
+    sizes = {side: _source_size(p) for side, p in strips.items()}
+    top_h = sizes.get("top", (0, 0))[1]
+    bottom_h = sizes.get("bottom", (0, 0))[1]
+    left_w = sizes.get("left", (0, 0))[0]
+    right_w = sizes.get("right", (0, 0))[0]
+    scale = theme.scale
+    if scale > 1 and (
+        left_w + right_w > SURFACE_MAX_REF_CHROME
+        or top_h + bottom_h > SURFACE_MAX_REF_CHROME
+    ):
+        scale = 1.0
+        theme.notes.append(
+            "plasmastyle: menu frame strips dominate the surface; kept at "
+            "source scale (the SURFACE_MAX_REF_CHROME rule)"
+        )
+
+    loaded: dict[str, Image.Image] = {
+        side: _load_scaled(p, scale) for side, p in strips.items()
+    }
+    for corner, name, hstrip, vstrip in _MENU_CORNER_NAMES:
+        path = _state_image(theme.iclasses.get(name), "normal")
+        if path is None:
+            continue
+        if hstrip not in strips or vstrip not in strips:
+            theme.notes.append(
+                f"plasmastyle: {name} corner piece dropped (no adjacent "
+                f"{vstrip}/{hstrip} strip to size it against — FrameSvg "
+                "paints a corner at the adjacent border thicknesses)"
+            )
+            continue
+        cw, ch = _source_size(path)
+        want_w = sizes[vstrip][0]  # left/right strip width
+        want_h = sizes[hstrip][1]  # top/bottom strip height
+        if (
+            max(cw, want_w) > CORNER_DIM_TOLERANCE * min(cw, want_w)
+            or max(ch, want_h) > CORNER_DIM_TOLERANCE * min(ch, want_h)
+        ):
+            theme.notes.append(
+                f"plasmastyle: {name} corner piece dropped ({cw}x{ch} art "
+                f"would be stretched to the {want_w}x{want_h} border "
+                "thicknesses — FrameSvg ignores a corner's own size)"
+            )
+            continue
+        loaded[corner] = _load_scaled(path, scale)
+
+    center_src = _dialog_source(theme)
+    center_path = (
+        _state_image(center_src, "normal") if center_src is not None else None
+    )
+    center_img: Image.Image | None = None
+    if center_path is not None:
+        center_img = _load_scaled(center_path, scale)
+
+    for row in (
+        ("topleft", "top", "topright"),
+        ("left", "center", "right"),
+        ("bottomleft", "bottom", "bottomright"),
+    ):
+        items: list[tuple[str, Image.Image]] = []
+        for element in row:
+            if element == "center":
+                if center_img is not None:
+                    items.append(("center", center_img))
+                continue
+            img = loaded.get(element)
+            if img is not None:
+                items.append((element, img))
+        if items:
+            _emit_plain_row(canvas, items)
+    if center_img is None:
+        # Mandatory center: a flat rect in the top-most strip's dominant.
+        first = next(iter(strips.values()))
+        rgb = extract_dominant(first) or (128, 128, 128)
+        ET.SubElement(
+            canvas.root,
+            f"{{{SVG_NS}}}rect",
+            {
+                "id": "center",
+                "x": "0",
+                "y": str(canvas.y),
+                "width": "16",
+                "height": "16",
+                "style": f"fill:{_hex(rgb)}",
+            },
+        )
+        canvas.advance(16, 16)
+    canvas.stretch_borders = True
+
+
 def build_dialog_background(theme: Theme) -> ET.Element | None:
-    """``dialogs/background.svg`` (applet popups, Kickoff, calendar)."""
+    """``dialogs/background.svg`` (applet popups, Kickoff, calendar).
+
+    When the theme authors per-piece menu frame art (``MENU_T``/``B``/
+    ``L``/``R``, Aliens), the popup frame is composed from those pieces
+    around the ``_dialog_source`` center — richer than stretching one
+    background image. Otherwise the classic single 9-part set from
+    ``MENU_BG``→``DIALOG``. ``MENU_SUB`` (no Plasma submenu element) and
+    ``MENU_TITLE_BAR`` (dresses E16's ROOT menu title only) are recorded
+    as skips.
+    """
+    for name, why in (
+        ("MENU_SUB", "Plasma has no submenu background element"),
+        ("MENU_TITLE_BAR", "it dresses E16's ROOT menu title bar only"),
+    ):
+        spec = theme.iclasses.get(name)
+        if spec is not None and _state_image(spec, "normal") is not None:
+            theme.notes.append(
+                f"plasmastyle: {name} art has no Plasma target ({why}); "
+                "skipped"
+            )
+
+    strips: dict[str, Path] = {}
+    for side, name in _MENU_STRIP_NAMES:
+        path = _state_image(theme.iclasses.get(name), "normal")
+        if path is not None:
+            strips[side] = path
+    if strips:
+        canvas = _Canvas()
+        _emit_composite_frame(theme, canvas, strips)
+        piece_names = ", ".join(
+            name for _, name in _MENU_STRIP_NAMES
+            if _state_image(theme.iclasses.get(name), "normal") is not None
+        )
+        center_src = _dialog_source(theme)
+        theme.notes.append(
+            "plasmastyle: popup/dialog frame composed from menu frame "
+            f"pieces {piece_names}"
+            + (
+                f" around a {center_src.name} center"
+                if center_src is not None
+                else " around a flat center (no unshaped background art)"
+            )
+            + "; no shadow set is shipped, so popups render shadowless "
+            "(E16 drew none)"
+        )
+        return canvas.finish()
+
     src = _dialog_source(theme)
     if src is None:
         return None
