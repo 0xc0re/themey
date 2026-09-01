@@ -58,7 +58,19 @@ inside a ``Plasma/Theme`` KPackage under
 State map (whole module): E16 ``normal`` → ``normal``, ``hilited`` →
 ``hover``, ``clicked`` → ``pressed``/``selected``; a missing state reuses
 ``normal`` at generate time, and non-``_active`` variants are preferred
-(these are non-window surfaces).
+(these are non-window surfaces). The ONE inversion: in E16's dialog
+widgets ``__NORMAL_ACTIVE`` means CHECKED, not window-active — every
+fixture authors the checked box/radio as ``*_ACTIVE`` art — so the
+``checked`` chain prefers ``*_active`` fields and deliberately never
+falls back to ``normal`` (a checked mark reusing unchecked art makes the
+states indistinguishable, worse than the Breeze fallback; those builders
+skip their file instead).
+
+Deliberately NOT shipped even where E16 has art: ``widgets/lineedit.svg``
+(E16 dialogs have no text-entry widget; focus/hover would be invented),
+``widgets/switch.svg`` (no E16 counterpart), the ``SETTINGS_*_AREA``
+iclasses, and the slider knobs' ``__CLICKED`` art (Plasma's slider has no
+pressed-handle element).
 
 Naming: the package dir name, ``KPlugin.Id`` and the ``plasmarc [Theme]
 name=`` value are all ``slug.plugin_id(theme.name)`` — the same deliberate
@@ -142,6 +154,11 @@ BUTTON_SVG = "widgets/button.svg"
 VIEWITEM_SVG = "widgets/viewitem.svg"
 SCROLLBAR_SVG = "widgets/scrollbar.svg"
 ARROWS_SVG = "widgets/arrows.svg"
+CHECKMARKS_SVG = "widgets/checkmarks.svg"
+RADIOBUTTON_SVG = "widgets/radiobutton.svg"
+SLIDER_SVG = "widgets/slider.svg"
+LINE_SVG = "widgets/line.svg"
+FRAME_SVG = "widgets/frame.svg"
 
 #: E16 state → the IClassSpec fields tried in order. Non-``_active``
 #: variants first (module docstring); every chain ends on the normal pair
@@ -157,6 +174,12 @@ _STATE_CHAINS: dict[str, tuple[str, ...]] = {
         "clicked", "clicked_active", "hilited", "hilited_active",
         "normal", "normal_active",
     ),
+    # dialog-widget-only: __NORMAL_ACTIVE means CHECKED for the
+    # DIALOG_WIDGET check/radio iclasses (module docstring). Deliberately
+    # does NOT terminate on normal — a checked mark falling back to
+    # unchecked art makes the states indistinguishable, so _state_image
+    # returning None means "omit the element / skip the file".
+    "checked": ("normal_active", "hilited_active", "clicked", "clicked_active"),
 }
 
 #: FrameSvg 9-part element names by (row, col) of the slice grid.
@@ -184,6 +207,13 @@ SURFACE_MAX_REF_CHROME = 32
 #: which rendered as a 57 px-wide scrollbar column through Kickoff, verified
 #: live 2026-08-31). 12 ref px ≈ Breeze's logical scrollbar thickness.
 SCROLLBAR_MAX_REF_THICKNESS = 12
+
+#: Ref-px ceiling for the separator rule's thickness. LiteGnome authors a
+#: real 120x4 hline; Aliens/e13 point DIALOG_WIDGET_SEPARATOR at a ~64 px
+#: bevel box that E16 squeezed into a thin rule at layout time — the same
+#: image-dimension-is-not-widget-size trap SCROLLBAR_MAX_REF_THICKNESS
+#: documents. The art is squeezed (NEAREST) to this thickness.
+LINE_MAX_REF_THICKNESS = 4
 
 _ARROW_SOURCES: tuple[tuple[str, str], ...] = (
     ("up-arrow", "ICONBOX_ARROW_UP"),
@@ -837,6 +867,298 @@ def build_pager(theme: Theme) -> ET.Element | None:
     return canvas.finish()
 
 
+# --------------------------------------------------------------------- #
+# Dialog-widget builders — check/radio marks, slider, separator, frame
+# --------------------------------------------------------------------- #
+
+
+def _emit_plain_row(
+    canvas: _Canvas, items: list[tuple[str, Image.Image]]
+) -> None:
+    """One row of plain (non-frame) elements — the arrows-builder idiom."""
+    x = 0
+    row_h = 0
+    for element, img in items:
+        g = ET.SubElement(canvas.root, f"{{{SVG_NS}}}g", {"id": element})
+        _embed_image(g, img, x, canvas.y)
+        x += img.width + _GAP
+        row_h = max(row_h, img.height)
+    canvas.advance(x, row_h)
+
+
+def _emit_size_hint(canvas: _Canvas, hint_id: str, width: int, height: int) -> None:
+    """One invisible size-hint rect (the ``hint-scrollbar-size`` idiom) —
+    consumers read only the element's dimensions."""
+    ET.SubElement(
+        canvas.root,
+        f"{{{SVG_NS}}}rect",
+        {
+            "id": hint_id,
+            "x": "0",
+            "y": str(canvas.y),
+            "width": str(width),
+            "height": str(height),
+            "style": "opacity:0",
+        },
+    )
+    canvas.advance(width, height)
+
+
+def _hilited_image(spec: IClassSpec) -> Path | None:
+    """Explicit non-checked hilited art only — NOT the ``hover`` chain,
+    which for the checked-semantics widgets reaches ``hilited_active``
+    (checked-hover art on an unchecked-hover element)."""
+    if spec.hilited is not None and spec.hilited.is_file():
+        return spec.hilited
+    return None
+
+
+def build_checkmarks(theme: Theme) -> ET.Element | None:
+    """``widgets/checkmarks.svg`` — the marks PC3 draws over button frames.
+
+    ``checkbox`` from DIALOG_WIDGET_CHECK_BUTTON's checked (``_ACTIVE``)
+    art; ``radiobutton`` from RADIO_BUTTON's, falling back to the check
+    art (RadioIndicator's compat path still looks it up here, so the
+    element must be present whenever the file ships). No checked art
+    skips the whole file — see the ``checked`` chain.
+    """
+    check = theme.iclasses.get("DIALOG_WIDGET_CHECK_BUTTON")
+    check_path = _state_image(check, "checked")
+    if check_path is None:
+        if check is not None and _state_image(check, "normal") is not None:
+            theme.notes.append(
+                "plasmastyle: DIALOG_WIDGET_CHECK_BUTTON has no checked "
+                "(_ACTIVE) art; widgets/checkmarks left to the Breeze "
+                "fallback"
+            )
+        return None
+    radio_path = _state_image(
+        theme.iclasses.get("DIALOG_WIDGET_RADIO_BUTTON"), "checked"
+    )
+    canvas = _Canvas()
+    _emit_plain_row(
+        canvas,
+        [
+            ("checkbox", _load_scaled(check_path, theme.scale)),
+            ("radiobutton", _load_scaled(radio_path or check_path, theme.scale)),
+        ],
+    )
+    theme.notes.append(
+        "plasmastyle: check/radio marks from the DIALOG_WIDGET check/radio "
+        "checked art; the UNchecked checkbox wears the widgets/button "
+        "normal frame (Plasma's CheckIndicator hardcodes it) — still this "
+        "theme's DIALOG_BUTTON art, just not the authored unchecked box"
+        + ("" if radio_path is not None else "; radio mark reuses the check art")
+    )
+    return canvas.finish()
+
+
+def build_radiobutton(theme: Theme) -> ET.Element | None:
+    """``widgets/radiobutton.svg`` — RadioIndicator's newer path (taken as
+    soon as this file ships; layers centered at naturalSize).
+
+    ``normal``/``checked`` both required; ``hover`` only with explicit
+    hilited art; ``hint-size`` drives the indicator size. Deliberately no
+    ``shadow``/``focus`` (E16 has neither) and no ``symbol`` — our
+    ``checked`` art carries its own dot.
+    """
+    spec = theme.iclasses.get("DIALOG_WIDGET_RADIO_BUTTON")
+    if spec is None:
+        return None
+    normal_path = _state_image(spec, "normal")
+    checked_path = _state_image(spec, "checked")
+    if normal_path is None or checked_path is None:
+        if normal_path is not None or checked_path is not None:
+            missing = "checked (_ACTIVE)" if checked_path is None else "unchecked"
+            theme.notes.append(
+                f"plasmastyle: DIALOG_WIDGET_RADIO_BUTTON has no {missing} "
+                "art; widgets/radiobutton left to the Breeze fallback"
+            )
+        return None
+    normal_img = _load_scaled(normal_path, theme.scale)
+    items = [
+        ("normal", normal_img),
+        ("checked", _load_scaled(checked_path, theme.scale)),
+    ]
+    hover_path = _hilited_image(spec)
+    if hover_path is not None:
+        items.append(("hover", _load_scaled(hover_path, theme.scale)))
+    canvas = _Canvas()
+    _emit_plain_row(canvas, items)
+    _emit_size_hint(canvas, "hint-size", normal_img.width, normal_img.height)
+    theme.notes.append(
+        "plasmastyle: radio buttons from iclass DIALOG_WIDGET_RADIO_BUTTON"
+        + ("" if hover_path is not None else " (no hilited art, hover omitted)")
+    )
+    return canvas.finish()
+
+
+def _groove_caps(
+    edge: tuple[int, int, int, int], w: int, h: int, *, horizontal: bool
+) -> tuple[int, int, int, int]:
+    """Groove caps: declared along-axis, full cross-section across.
+
+    Slider.qml sizes a horizontal groove's height to exactly
+    ``fixedMargins.top + bottom``, so declared 1-px cross caps (Aliens'
+    ``slh.png``, edge ``4 4 1 1``) would collapse the tube to a 2-px
+    sliver. Splitting the full cross-section between the two caps renders
+    the whole authored tube — the exact-fit caps case ``_fit_caps``
+    already blesses. Along-axis caps keep their declared values
+    (oversized ones still shrink through ``_fit_caps``).
+    """
+    left, right, top, bottom = edge
+    if horizontal:
+        return (left, right, h // 2, h - h // 2)
+    return (w // 2, w - w // 2, top, bottom)
+
+
+def build_slider(theme: Theme) -> ET.Element | None:
+    """``widgets/slider.svg`` from the DIALOG_WIDGET slider iclasses.
+
+    One ``groove``/``groove-highlight`` FrameSvg pair serves both
+    orientations (Slider.qml uses a single prefix); handles render at
+    naturalSize, sized by ``hint-handle-size``. Both a base and a knob are
+    required — either alone skips the file with a note. Deliberately no
+    ``*-slider-shadow``/``focus`` and never ``hint-tile-center``.
+    """
+    base = _iclass_with_art(
+        theme,
+        "DIALOG_WIDGET_SLIDER_BASE_HORIZONTAL",
+        "DIALOG_WIDGET_SLIDER_BASE_VERTICAL",
+    )
+    knob_h = _iclass_with_art(theme, "DIALOG_WIDGET_SLIDER_KNOB_HORIZONTAL")
+    knob_v = _iclass_with_art(theme, "DIALOG_WIDGET_SLIDER_KNOB_VERTICAL")
+    if base is None or (knob_h is None and knob_v is None):
+        if base is not None or knob_h is not None or knob_v is not None:
+            missing = "no knob art" if base is not None else "no base art"
+            theme.notes.append(
+                f"plasmastyle: slider art is partial ({missing}); "
+                "widgets/slider left to the Breeze fallback"
+            )
+        return None
+    horizontal = base.name.endswith("HORIZONTAL")
+
+    def groove_caps(
+        edge: tuple[int, int, int, int], w: int, h: int
+    ) -> tuple[int, int, int, int]:
+        return _groove_caps(edge, w, h, horizontal=horizontal)
+
+    canvas = _Canvas()
+    # hints=False: nothing lays out inside a groove.
+    _emit_set(theme, canvas, "groove-", base, "normal", edge_override=groove_caps)
+    _emit_set(
+        theme, canvas, "groove-highlight-", base, "hover", edge_override=groove_caps
+    )
+
+    h_spec = knob_h if knob_h is not None else knob_v
+    v_spec = knob_v if knob_v is not None else knob_h
+    assert h_spec is not None and v_spec is not None
+    h_path = _state_image(h_spec, "normal")
+    v_path = _state_image(v_spec, "normal")
+    assert h_path is not None and v_path is not None  # _iclass_with_art
+    h_img = _load_scaled(h_path, theme.scale)
+    items = [
+        ("horizontal-slider-handle", h_img),
+        ("vertical-slider-handle", _load_scaled(v_path, theme.scale)),
+    ]
+    hover_missing = []
+    for element, spec in (
+        ("horizontal-slider-hover", h_spec),
+        ("vertical-slider-hover", v_spec),
+    ):
+        hover = _hilited_image(spec)
+        if hover is not None:
+            items.append((element, _load_scaled(hover, theme.scale)))
+        else:
+            hover_missing.append(element)
+    _emit_plain_row(canvas, items)
+    _emit_size_hint(canvas, "hint-handle-size", h_img.width, h_img.height)
+
+    notes = [
+        f"plasmastyle: slider groove from iclass {base.name}, handles from "
+        f"{h_spec.name}"
+        + ("" if h_spec is v_spec else f"/{v_spec.name}")
+    ]
+    if not horizontal:
+        notes.append("the vertical groove art serves both orientations")
+    if h_spec is v_spec:
+        notes.append("one knob serves both orientations")
+    if _state_image(base, "hover") == _state_image(base, "normal"):
+        notes.append(
+            "no E16 fill-highlight art — the groove fill is invisible "
+            "(the handle position still shows the value)"
+        )
+    if hover_missing:
+        notes.append("no hilited knob art, hover handles omitted")
+    theme.notes.append("; ".join(notes))
+    return canvas.finish()
+
+
+def build_line(theme: Theme) -> ET.Element | None:
+    """``widgets/line.svg`` — section separators in tray popups/SpinBox.
+
+    The art is squeezed (NEAREST) to ``LINE_MAX_REF_THICKNESS`` — see that
+    constant for why the image's own height is not the rule's thickness.
+    ``vertical-line`` is the same image rotated 90°, always shipped with
+    the file (per-FILE fallback: a missing element renders nothing).
+    """
+    src = _iclass_with_art(theme, "DIALOG_WIDGET_SEPARATOR")
+    if src is None:
+        return None
+    path = _state_image(src, "normal")
+    assert path is not None  # _iclass_with_art guarantees it
+    with Image.open(path) as im:
+        rgba = im.convert("RGBA")
+    clamped = rgba.height > LINE_MAX_REF_THICKNESS
+    target = (
+        max(1, scale_px(rgba.width, theme.scale)),
+        max(
+            1,
+            scale_px(min(rgba.height, LINE_MAX_REF_THICKNESS), theme.scale),
+        ),
+    )
+    line = rgba.resize(target, resample=Image.Resampling.NEAREST)
+    canvas = _Canvas()
+    for element, img in (
+        ("horizontal-line", line),
+        ("vertical-line", line.transpose(Image.Transpose.ROTATE_90)),
+    ):
+        _emit_plain_row(canvas, [(element, img)])
+    theme.notes.append(
+        f"plasmastyle: separators from iclass {src.name}"
+        + (
+            f" ({rgba.height} ref px tall, squeezed to "
+            f"{LINE_MAX_REF_THICKNESS} — E16 squeezed this art into a "
+            "thin rule at layout time)"
+            if clamped
+            else ""
+        )
+        + "; the vertical rule is the same art rotated"
+    )
+    return canvas.finish()
+
+
+def build_frame(theme: Theme) -> ET.Element | None:
+    """``widgets/frame.svg`` — PC3 Frame/GroupBox chrome.
+
+    ONE unprefixed 9-part set + unprefixed margin hints: PC3 requests the
+    ``plain`` prefix and FrameSvg's ``adjustPrefix`` falls back to the
+    unprefixed set (the same mechanism the panel builder relies on).
+    Breeze's ``base``/``raised-``/``sunken-`` sets are deliberately not
+    emitted — E16 has one dialog-area look.
+    """
+    src = _iclass_with_art(theme, "DIALOG_WIDGET_AREA", "DIALOG_WIDGET_TABLE")
+    if src is None:
+        return None
+    canvas = _Canvas()
+    _emit_set(theme, canvas, "", src, "normal", hints=True)
+    theme.notes.append(
+        f"plasmastyle: group frames from iclass {src.name} (one unprefixed "
+        "set; FrameSvg's adjustPrefix serves it for PC3's plain prefix)"
+    )
+    return canvas.finish()
+
+
 #: (relative path, builder) in package order. Also the mirror census.
 _BUILDERS: tuple[tuple[str, Callable[[Theme], ET.Element | None]], ...] = (
     (PANEL_SVG, build_panel_background),
@@ -846,6 +1168,11 @@ _BUILDERS: tuple[tuple[str, Callable[[Theme], ET.Element | None]], ...] = (
     (VIEWITEM_SVG, build_viewitem),
     (SCROLLBAR_SVG, build_scrollbar),
     (ARROWS_SVG, build_arrows),
+    (CHECKMARKS_SVG, build_checkmarks),
+    (RADIOBUTTON_SVG, build_radiobutton),
+    (SLIDER_SVG, build_slider),
+    (LINE_SVG, build_line),
+    (FRAME_SVG, build_frame),
     (PAGER_SVG, build_pager),
 )
 

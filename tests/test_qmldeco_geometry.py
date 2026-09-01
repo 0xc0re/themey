@@ -225,6 +225,64 @@ def test_adjacent_parts_share_edges_at_fractional_scale():
     assert (ax, aw, bw) == (0, 15, 15)
 
 
+# Same ref frame as the scale-2 pins (566x352 ref), at scale 0.5.
+FRAME_W_05 = 283
+FRAME_H_05 = 176
+
+
+@needs_e13
+@pytest.mark.parametrize(
+    ("part_id", "expected"),
+    [
+        # Edge-based rounding of the pinned ref geometry at a sub-1 scale:
+        # x_out = scale_px(x), w_out = scale_px(x+w) - x_out.
+        ("BUTTON_KILL", (0, 0, 20, 19)),      # 40x38 @ (0,0)
+        ("BUTTON_ICONIFY", (5, 20, 15, 22)),  # 31x43 @ (9,40)
+        ("BUTTON_SHADE", (5, 42, 15, 10)),    # 31x21 @ (9,83)
+        ("BUTTON_STICK", (5, 52, 15, 19)),    # 31x38 @ (9,104)
+    ],
+)
+def test_e13_button_stack_geometry_at_half_scale(e13_data, part_id, expected):
+    data = dict(e13_data, scale=0.5)
+    got = part_geometry(data, _index(data, part_id), FRAME_W_05, FRAME_H_05, _tw)
+    assert got == expected
+
+
+@needs_e13
+def test_e13_button_stack_seamless_at_half_scale(e13_data):
+    """The ref-adjacent ICONIFY/SHADE/STICK stack still abuts at 0.5 —
+    edge-based rounding never opens a gap or overlaps when shrinking."""
+    data = dict(e13_data, scale=0.5)
+
+    def geom(part_id):
+        return part_geometry(
+            data, _index(data, part_id), FRAME_W_05, FRAME_H_05, _tw
+        )
+
+    _x, y_i, _w, h_i = geom("BUTTON_ICONIFY")
+    _x, y_s, _w, _h_s = geom("BUTTON_STICK")
+    _x, y_sh, _w, h_sh = geom("BUTTON_SHADE")
+    assert y_i + h_i == y_sh
+    assert y_sh + h_sh == y_s
+
+
+def test_adjacent_parts_share_edges_at_half_scale():
+    """Seamlessness below 1: two ref-adjacent 10-px parts land as two
+    5-px parts whose total extent is scale_px of the ref extent."""
+    data = {
+        "scale": 0.5,
+        "parts": [
+            _mk_part(brXA=9, brYA=9),                # ref x 0..9
+            _mk_part(tlXA=10, brXA=19, brYA=9),      # ref x 10..19
+        ],
+    }
+    ax, _ay, aw, _ah = part_geometry(data, 0, 100, 100, lambda _: 0)
+    bx, _by, bw, _bh = part_geometry(data, 1, 100, 100, lambda _: 0)
+    assert ax + aw == bx
+    assert (ax, aw, bw) == (0, 5, 5)
+    assert ax + aw + bw == scale_px(20, 0.5)
+
+
 # ------------------------------------------------------------------ #
 # titleBandItem union — Python replica of main.qml's height binding
 # (QML can't execute under pytest). The installed title item is the

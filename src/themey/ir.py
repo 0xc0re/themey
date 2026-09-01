@@ -240,7 +240,7 @@ class Theme:
     name: str  # slug from filename, e.g. "Aliens"
     display_name: str  # human label, may equal name
     author: str | None
-    # In [1, 3], quantized to 2 decimals; int-valued scales are stored as
+    # In [0.5, 3], quantized to 2 decimals; int-valued scales are stored as
     # int. Fractional values are QML-backend-only (pipeline enforces it).
     scale: float
     asset_root: Path  # extracted tmpdir; valid only during convert()

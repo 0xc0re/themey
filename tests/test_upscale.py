@@ -110,6 +110,38 @@ def test_upscale_part_quality_fractional_dims_follow_scale_px():
     assert out.size == (scale_px(13, 1.5), scale_px(30, 1.5))
 
 
+def test_upscale_part_nearest_half_scale_dims_follow_scale_px():
+    from themey.generate.qmldeco.resolver import scale_px
+    from themey.images.upscale import upscale_part
+
+    img = Image.new("RGBA", (13, 30))
+    out = upscale_part(img, 0.5, "nearest")
+    assert out.size == (
+        max(1, scale_px(13, 0.5)), max(1, scale_px(30, 0.5))
+    ) == (7, 15)
+    # A 1-px source never collapses to zero.
+    assert upscale_part(Image.new("RGBA", (1, 1)), 0.5, "nearest").size == (1, 1)
+
+
+def test_upscale_part_quality_sub_one_goes_hqx2_then_lanczos():
+    """hqx has no 1x, so a sub-1 quality scale upsamples via hqx2 first,
+    then LANCZOS-downsamples to the exact scale_px target."""
+    from themey.generate.qmldeco.resolver import scale_px
+    from themey.images.hqx import hqx
+    from themey.images.upscale import upscale_part
+
+    img = _make_2x2_corners()
+    for scale in (0.75, 0.5):
+        target = (
+            max(1, scale_px(img.width, scale)),
+            max(1, scale_px(img.height, scale)),
+        )
+        expected = hqx(img, 2).resize(target, resample=Image.Resampling.LANCZOS)
+        out = upscale_part(img, scale, "quality")
+        assert out.size == target
+        assert out.tobytes() == expected.tobytes()
+
+
 def test_upscale_part_rejects_unknown_mode():
     from themey.images.upscale import upscale_part
 

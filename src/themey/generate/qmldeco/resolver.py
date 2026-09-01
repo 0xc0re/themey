@@ -24,13 +24,17 @@ doubles the inclusive "+1" and shifts every max-clamped part by
 part-model geometry fields are therefore UNSCALED ref px; only
 display-only fields (insets, pixelSize, borders) are pre-scaled.
 
-Scale may be FRACTIONAL (e.g. 1.5). All ref→output conversion goes through
-``scale_px`` — floor(v*scale + 0.5), half-up in both implementations
-(Python ``round()`` is banker's, JS ``Math.round()`` is half-up; they
-disagree by 1 px on odd values at .5) — and the final multiply is
-EDGE-based: ``x_out = scale_px(x)``, ``w_out = scale_px(x+w) - x_out``,
-so parts adjacent in ref space stay seamless in output space. At integer
-scales this is arithmetically identical to ``v * scale``.
+Scale may be FRACTIONAL (e.g. 1.5), including sub-1 values down to 0.5.
+All ref→output conversion goes through ``scale_px`` — floor(v*scale +
+0.5), half-up in both implementations (Python ``round()`` is banker's, JS
+``Math.round()`` is half-up; they disagree by 1 px on odd values at .5) —
+and the final multiply is EDGE-based: ``x_out = scale_px(x)``, ``w_out =
+scale_px(x+w) - x_out``, so parts adjacent in ref space stay seamless in
+output space. At integer scales this is arithmetically identical to
+``v * scale``. Known cosmetic consequence at scale < 1: a 1-ref-px part
+can land as a 0-width sliver (edge-based rounding is parity-dependent);
+BorderImage then renders nothing for it, which is correct exact-cover
+behavior — its neighbors still abut — not an overlap.
 """
 from __future__ import annotations
 
