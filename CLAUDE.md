@@ -112,7 +112,7 @@ receives no fidelity work.
 | `generate/colors.py` | `.colors` writer — the 13-group/12-key Breeze-shaped file census; sampled colors from `analyze/colors.py`, semantic foregrounds + ColorEffects verbatim from Breeze stock |
 | `generate/wallpaper.py` | One Plasma wallpaper package per E16 background image (`WallpaperPackage`); PNG/JPEG/BMP copied through at real dimensions, everything else re-saved as PNG. Two `SET_SOLID` exceptions: alpha-carrying sources with a solid underneath are flattened over it (e13's tanbg.png over black — E16 composites the tile over the solid), and a SET_SOLID-only block (OPENSTEP) becomes a small flat 128×128 package. `pick_default` ranks by `(not solid, area)` — a solid never outranks art |
 | `generate/cursors.py` | E16 `__CURSOR` → XCursor pointer theme via the hand-rolled XBM parser + `xcursorgen`; modern Plasma 6.6 names canonical, legacy X11 names as symlinks |
-| `generate/plasmastyle.py` | Plasma Style (`Plasma/Theme` KPackage under `plasma/desktoptheme/themey_<slug>/`, selected by the bundle's `[plasmarc][Theme] name=`) — panel/popup/tooltip/pager chrome as KSvg FrameSvg sets. Deliberately sparse: ship an SVG only where E16 has real counterpart art and let Breeze fill in per missing file, re-tinted through the package's own `colors`. Every shipped SVG is mirrored byte-identically into `solid/` and `opaque/`. The panel background ships real dragbar/iconbox art (middle STRETCHED like every E16 iclass middle — `hint-tile-center` is never emitted anywhere: tiling repeated photographic troughs across the whole bar, HandOfGod's capless cloud and NorthernLights' 58 px aurora even with caps, both verified live 2026-09-01; `west-`/`east-` sets from the vertical bar art) when a candidate passes the shaped + `PANEL_MAX_REF_CAPS` guards (baked-in wordmarks live in the caps and would stretch unreadably across a 40 px panel); guard failures fall back to the flat translucent tint, whose mirrors alone are re-rendered opaque; the art panel's `hint-*-margin` rects hug the painted caps (`cap − 4` output px, E16 `__PADDING` dropped — Plasma's Panel.qml pads content by `margin + smallSpacing(4)` per side, so cap-based hints land the padding exactly on the cap's inner edge; calibrated live 2026-09-01, the `__PADDING` hints read as an empty trough before the first task button). `widgets/tasks.svg` comes from the iconbox button art (focus = clicked art); `dialogs/background.svg` composes MENU_T/B/L/R strip pieces around the center when authored (corners only when dims match the adjacent strips — FrameSvg stretches a corner to the border thicknesses) |
+| `generate/plasmastyle.py` | Plasma Style (`Plasma/Theme` KPackage under `plasma/desktoptheme/themey_<slug>/`, selected by the bundle's `[plasmarc][Theme] name=`) — panel/popup/tooltip/pager chrome as KSvg FrameSvg sets. Deliberately sparse: ship an SVG only where E16 has real counterpart art and let Breeze fill in per missing file, re-tinted through the package's own `colors`. Every shipped SVG is mirrored byte-identically into `solid/` and `opaque/`. The panel background ships real dragbar/iconbox art (middle STRETCHED whenever E16 stretched it, i.e. the default `__FILLRULE` — `hint-tile-center` is never emitted for stretched E16 middles: tiling repeated photographic troughs across the whole bar, HandOfGod's capless cloud and NorthernLights' 58 px aurora even with caps, both verified live 2026-09-01 — and emitted exactly when E16 itself tiled the state's art, `IClassSpec.fill_for(state)` ≠ stretch from a per-state `__FILLRULE __TILE*`; `west-`/`east-` sets from the vertical bar art) when a candidate passes the shaped + `PANEL_MAX_REF_CAPS` guards (baked-in wordmarks live in the caps and would stretch unreadably across a 40 px panel); guard failures fall back to the flat translucent tint, whose mirrors alone are re-rendered opaque; the art panel's `hint-*-margin` rects hug the painted caps (`cap − 4` output px, E16 `__PADDING` dropped — Plasma's Panel.qml pads content by `margin + smallSpacing(4)` per side, so cap-based hints land the padding exactly on the cap's inner edge; calibrated live 2026-09-01, the `__PADDING` hints read as an empty trough before the first task button). `widgets/tasks.svg` comes from the iconbox button art (focus = clicked art); `dialogs/background.svg` composes MENU_T/B/L/R strip pieces around the center when authored (corners only when dims match the adjacent strips — FrameSvg stretches a corner to the border thicknesses) |
 | `generate/lookandfeel.py` | Plasma Global Theme (Look-and-Feel) bundle writer — `metadata.json` + `contents/defaults`, one conditional INI group per artifact this conversion actually deployed |
 | root modules | `ir.py` (IR), `paths.py` (XDG install roots), `install.py` (atomic deploy — `deploy` for package dirs, `deploy_file` for single files like `.colors`, `clear_style_cache` for the Version-keyed plasmashell kcache, called at both convert and apply time), `report.py`, `preview.py`, `kwin.py`, `render.py`, `apply.py`, `external.py` (xcursorgen wrapper), `slug.py` (naming contract), `log.py` |
 
@@ -250,7 +250,10 @@ QML-backend contracts:
 
 1. **resolver.js and resolver.py are the same algorithm** (E16
    `BorderWinpartCalc`: Q10 percents, inclusive bottom-right anchors,
-   re-centering max clamps, `__FLAG_TITLE`+`MAX_WIDTH 0` text sizing). All
+   re-centering max clamps with E16's own `((x + ox) − max) >> 1` (`ox`
+   inclusive — one px left of the naive form when `span − max` is even),
+   min clamps only when max did not (`else if`), `__FLAG_TITLE`+`MAX_WIDTH
+   0` text sizing with the min clamp AFTER the span clamp). All
    math runs in E16 REFERENCE px; ref→output conversion goes through the
    shared `scale_px(v, s) = floor(v*s + 0.5)` (half-up in BOTH languages —
    Python `round()` is banker's, `Math.round()` half-up) and the final
@@ -258,7 +261,7 @@ QML-backend contracts:
    x_out`) so adjacent parts stay seamless at fractional scales; identical
    to `v*scale` at integer scales. Scale may be fractional ([1,3], 2
    decimals) — **QML-backend-only**; svg/both hard-error. Change both
-   resolvers together and bump `RUNTIME_VERSION` (currently 3);
+   resolvers together and bump `RUNTIME_VERSION` (currently 4);
    `tests/test_qmldeco_geometry.py` pins e13 ground truth (KILL
    40x38@(0,0), stack x=9, plaque = textwidth+25) at scale 2 and 1.5.
 2. **theme.js is pure data** (`var theme = {...}` — no runtime I/O/XHR);
@@ -277,7 +280,10 @@ QML-backend contracts:
    E16 `text.c` TsTextDraw uses `bg_col`, calloc'ed black by default —
    `__EFFECT_COLOR` is NOT an E16 keyword), and `ThemeyPart.qml` places
    the caption inside the part with E16's `((limit − textw) × just) >> 10`
-   so 512 centers even on a fixed-width title bar.
+   so 512 centers even on a fixed-width title bar. `slotTile[slot]`
+   carries the per-state `__FILLRULE` (`null|h|v|both`; BorderImage
+   repeat modes) and `keepOnTop` mirrors `__KEEP_ON_TOP` (off parts get
+   a negative z so they stack under every on-top part).
 3. **KPlugin Id == package dir name == kwinrc `theme=`** (`slug.plugin_id`,
    `themey_<slug>`). QML applies must NOT write BorderSize or
    ButtonsOnLeft/Right — the theme draws its own buttons and unclamped

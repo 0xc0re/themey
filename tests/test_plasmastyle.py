@@ -1543,3 +1543,35 @@ def test_colors_snapshot(tmp_path: Path, snapshot) -> None:
     out = tmp_path / "out" / "themey_TestStyle"
     plasmastyle.write(theme, out)
     assert (out / "colors").read_text() == snapshot
+
+
+def test_frame_group_tile_center_hint_only_for_tiling_fill_rules() -> None:
+    """``hint-tile-center`` is emitted ONLY when E16 itself tiled the
+    middle (``__FILLRULE __TILE*``); stretched E16 middles never get it
+    (tiling repeated photographic troughs across whole bars, verified
+    live 2026-09-01)."""
+    img = Image.new("RGBA", (12, 12), (10, 20, 30, 255))
+    canvas = plasmastyle._Canvas()
+    plasmastyle._frame_group(canvas, "a-", img, (2, 2, 2, 2))
+    plasmastyle._frame_group(canvas, "b-", img, (2, 2, 2, 2), tile_center=True)
+    root = canvas.finish()
+    ids = {el.get("id") for el in root.iter() if el.get("id")}
+    assert "b-hint-tile-center" in ids
+    assert "a-hint-tile-center" not in ids
+    assert "b-center" in ids
+
+
+def test_emit_set_tiles_center_for_tile_fill_rule(tmp_path: Path) -> None:
+    art = tmp_path / "tile.png"
+    Image.new("RGBA", (12, 12), (10, 20, 30, 255)).save(art)
+    spec = IClassSpec(
+        name="X", edge_scaling=(2, 2, 2, 2), normal=art, normal_active=None,
+        hilited=None, hilited_active=None, clicked=None, clicked_active=None,
+        normal_sticky=None, normal_active_sticky=None,
+        fill_by_state={"normal": "tile"},
+    )
+    theme = _theme(tmp_path, iclasses={"X": spec})
+    canvas = plasmastyle._Canvas()
+    plasmastyle._emit_set(theme, canvas, "p-", spec, "normal")
+    ids = {el.get("id") for el in canvas.finish().iter() if el.get("id")}
+    assert "p-hint-tile-center" in ids

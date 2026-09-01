@@ -70,6 +70,14 @@ class ColorScheme:
     wm_inactive_foreground: tuple[int, int, int]
 
 
+#: ``IClassSpec.fill_for`` vocabulary (E16 iclass.h FILL_* → themey names).
+FILL_STRETCH = "stretch"
+FILL_TILE = "tile"
+FILL_TILE_H = "tile-h"
+FILL_TILE_V = "tile-v"
+FILL_RULES = (FILL_STRETCH, FILL_TILE, FILL_TILE_H, FILL_TILE_V)
+
+
 @dataclass(frozen=True)
 class IClassSpec:
     """E16 image class — one border-region image with up to 8 state variants."""
@@ -99,6 +107,22 @@ class IClassSpec:
     # ``edge_scaling`` above stays the last-wins iclass-wide value —
     # consumers go through :meth:`edge_for`.
     edge_by_state: dict[str, tuple[int, int, int, int]] = field(default_factory=dict)
+    # Per-state __FILLRULE (iclass.c ICLASS_FILLRULE → is->pixmapfillstyle):
+    # one of FILL_RULES. Same attribute-name keys as edge_by_state; a state
+    # without a rule is E16's default FILL_STRETCH (ImagestateCreate).
+    fill_by_state: dict[str, str] = field(default_factory=dict)
+
+    def fill_for(self, state: str) -> str:
+        """``"stretch" | "tile" | "tile-h" | "tile-v"`` for *state*'s art.
+
+        E16 (iclass.c ImagestateMakeBg/MakePmapMask): stretch scales the
+        whole image (honouring the 9-patch border); ``__TILE`` repeats it
+        at native size on both axes, ``__TILE_H`` at native width but
+        stretched to the target height (tiled across), ``__TILE_V`` the
+        transpose. Default FILL_STRETCH.
+        """
+        key = state[2:].lower() if state.startswith("__") else state
+        return self.fill_by_state.get(key, FILL_STRETCH)
 
     def edge_for(self, state: str) -> tuple[int, int, int, int]:
         """The 9-patch edge E16 used for *state*'s art.

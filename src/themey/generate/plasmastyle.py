@@ -28,10 +28,12 @@ inside a ``Plasma/Theme`` KPackage under
   (verified live 2026-08-31) — so wordmark-sized caps fall through to the
   next candidate and ultimately to a flat translucent tint of the art's
   dominant color (scheme fallback), letting the wallpaper show through.
-  The art panel's middle STRETCHES like every E16 iclass middle (no
-  ``hint-tile-center``; tiling repeated photographic troughs across the
-  bar — HandOfGod, NorthernLights, live 2026-09-01); a vertical bar
-  iclass adds ``west-``/``east-`` sets for the left-edge furniture panels.
+  The art panel's middle STRETCHES when E16 stretched it (the default
+  ``__FILLRULE``; tiling repeated photographic troughs across the bar —
+  HandOfGod, NorthernLights, live 2026-09-01) and TILES only when E16
+  itself tiled (``__FILLRULE __TILE*`` → ``<prefix>hint-tile-center``); a
+  vertical bar iclass adds ``west-``/``east-`` sets for the left-edge
+  furniture panels.
 * 9-part sets use FrameSvg's element names (``topleft`` … ``bottomright``,
   optionally ``<prefix>-``-prefixed); zero-extent slices are simply not
   emitted (FrameSvg then reports a 0 border, which is correct — the Aliens
@@ -40,9 +42,11 @@ inside a ``Plasma/Theme`` KPackage under
   ``<prefix>center`` and paints NOTHING for a center-less set, so caps
   that consume the whole image are shaved one px to keep a real center
   (:func:`_frame_group`).
-  ``hint-tile-center`` is never emitted — E16 stretches middles
-  everywhere, and FrameSvg's center default already is stretch. The same
-  E16 rule covers borders:
+  ``hint-tile-center`` is never emitted for stretched E16 middles
+  (FrameSvg's center default already is stretch) and emitted exactly when
+  E16 itself tiled the state's art (``IClassSpec.fill_for`` ≠ stretch —
+  ``__FILLRULE __TILE`` / ``__TILE_H`` / ``__TILE_V``, per image state).
+  The same E16 rule covers borders:
   FrameSvg tiles border elements by DEFAULT, so every file containing a
   sliced-art frame set carries one unprefixed ``hint-stretch-borders``
   (gradient edge art visibly repeats when tiled — live HandOfGod pager,
@@ -118,7 +122,7 @@ from themey.generate.qmldeco.resolver import scale_px
 from themey.images.embed import image_to_b64_uri
 from themey.images.ninepatch import slice_9patch
 from themey.images.upscale import upscale_part
-from themey.ir import ColorGroup, ColorScheme, IClassSpec, Theme
+from themey.ir import FILL_STRETCH, ColorGroup, ColorScheme, IClassSpec, Theme
 from themey.slug import plugin_id
 
 log = logging.getLogger(__name__)
@@ -534,8 +538,16 @@ def _frame_group(
     prefix: str,
     img: Image.Image,
     caps: tuple[int, int, int, int],
+    *,
+    tile_center: bool = False,
 ) -> None:
     """Emit one FrameSvg 9-part set at the canvas cursor.
+
+    ``tile_center`` emits ``<prefix>hint-tile-center`` so FrameSvg repeats
+    the center at native size — ONLY for art E16 itself tiled
+    (``__FILLRULE __TILE*``, ``IClassSpec.fill_for``); never for stretched
+    E16 middles, where tiling repeated photographic troughs across whole
+    bars (HandOfGod, NorthernLights; verified live 2026-09-01).
 
     Slices *img* at *caps* (already-scaled L R T B) via ``slice_9patch``;
     zero-extent slices are not emitted, so a ``(l, r, 0, 0)`` edge yields
@@ -585,6 +597,20 @@ def _frame_group(
             )
             _embed_image(g, by_name[name], xs[col], canvas.y + ys[row])
     canvas.advance(img.width, img.height)
+    if tile_center:
+        ET.SubElement(
+            canvas.root,
+            f"{{{SVG_NS}}}rect",
+            {
+                "id": f"{prefix}hint-tile-center",
+                "x": "0",
+                "y": str(canvas.y),
+                "width": "1",
+                "height": "1",
+                "style": "opacity:0",
+            },
+        )
+        canvas.advance(1, 1)
 
 
 def _margin_hints(
@@ -711,15 +737,16 @@ def _emit_set(
     scale = _surface_scale(theme, spec, edge)
     img = upscale_part(src, scale)
     caps = _scaled_caps(edge, src_w, src_h, scale)
+    tile_center = spec.fill_for(state_attr) != FILL_STRETCH
     try:
-        _frame_group(canvas, prefix, img, caps)
+        _frame_group(canvas, prefix, img, caps, tile_center=tile_center)
     except ValueError:
         # Last resort only — _fit_caps should have prevented this.
         theme.notes.append(
             f"plasmastyle: {spec.name} edge_scaling {spec.edge_scaling} "
             f"exceeds its {path.name} image; whole image stretched instead"
         )
-        _frame_group(canvas, prefix, img, (0, 0, 0, 0))
+        _frame_group(canvas, prefix, img, (0, 0, 0, 0), tile_center=tile_center)
         caps = (0, 0, 0, 0)
     else:
         left, right = _shave_for_center(caps[0], caps[1], img.width)

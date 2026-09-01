@@ -427,3 +427,43 @@ def test_theme_js_text_effect_and_colors(tmp_path):
     assert part["text"]["effectColorActive"] == "#0a141e"  # falls back to normal
     assert part["text"]["colorActive"] == "#040506"
     assert "shadow" not in part["text"]
+
+
+def test_theme_js_keep_on_top_and_slot_tile(tmp_path):
+    """Tier-2 geometry fields: ``keepOnTop`` (E16 __KEEP_ON_TOP __OFF parts
+    stack under every on-top part) and ``slotTile`` (E16 __FILLRULE per
+    image state: null | "h" | "v" | "both")."""
+    import dataclasses
+
+    from PIL import Image
+
+    from themey.analyze.build_theme import build_theme
+    from themey.etheme.archive import extract
+    from themey.etheme.parse import parse_tree
+    from themey.generate.qmldeco.theme_js import build_theme_data
+
+    with extract(FIXTURES / "e13.etheme") as raw:
+        theme = build_theme(
+            raw.asset_root, parse_tree(raw.asset_root), name="e13",
+            display_name="e13", scale=2,
+        )
+        part0 = theme.border.parts[0]
+        ic = theme.iclasses[part0.iclass_name]
+        Image.new("RGBA", (8, 8)).save(tmp_path / "tile.png")
+        theme.iclasses[part0.iclass_name] = dataclasses.replace(
+            ic, hilited=tmp_path / "tile.png",
+            fill_by_state={"normal": "tile", "hilited": "tile-h"},
+        )
+        parts = list(theme.border.parts)
+        parts[0] = dataclasses.replace(part0, keep_on_top=False)
+        parts[1] = dataclasses.replace(parts[1], keep_on_top=True)
+        theme = dataclasses.replace(
+            theme, border=dataclasses.replace(theme.border, parts=tuple(parts))
+        )
+        data, _manifest, _fonts = build_theme_data(theme)
+    assert data["parts"][0]["keepOnTop"] is False
+    assert data["parts"][1]["keepOnTop"] is True
+    tiles = data["parts"][0]["slotTile"]
+    assert tiles["normal"] == "both"
+    assert tiles["hover"] == "h"
+    assert data["parts"][1]["slotTile"]["normal"] is None

@@ -11,11 +11,16 @@ Semantics (verified against E16 borders.c BorderWinpartCalc):
 - anchor = ((percent * ref) >> 10) + absolute [+ origin part's x/y];
   percent is Q10 (1024 = 100%), ref is the frame w/h or the origin part's
   box; bottom-right anchors are INCLUSIVE → w = brX - tlX + 1.
-- max clamp RE-CENTERS: x += (w - max) >> 1 before w = max; min clamp
-  only grows.
-- __FLAG_TITLE + __MAX_WIDTH 0: w = clamp(text_w + pad.l + pad.r, min_w,
-  span); x = span_x + ((span - w) * justification_q10 >> 10). The
-  __MAX_HEIGHT 0 analog handles vertical titles.
+- max clamp RE-CENTERS with E16's exact expression ``x = ((x + ox) - max)
+  >> 1`` where ``ox`` is the INCLUSIVE bottom-right anchor (borders.c
+  BorderWinpartCalc) — i.e. ``(2x + span - 1 - max) >> 1``, one px left of
+  the naive ``x + (span - max) >> 1`` when ``span - max`` is even; the min
+  clamp applies only when max did not (``else if``) and only grows.
+- __FLAG_TITLE + __MAX_WIDTH 0: w = min(text_w + pad.l + pad.r, span);
+  x = span_x + ((span - w) * justification_q10 >> 10); THEN ``else if (w <
+  min) w = min`` — min after the span clamp, no re-centering (E16 lets a
+  wide minimum overhang). The __MAX_HEIGHT 0 analog handles vertical
+  titles (there the width is max/min-clamped first with the recenter).
 
 ALL math happens in E16 REFERENCE pixels and the result is multiplied by
 ``theme.scale`` at the very end — computing directly in output pixels
@@ -41,7 +46,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 
-RUNTIME_VERSION = 3
+RUNTIME_VERSION = 4
 
 _MAX_ORIGIN_DEPTH = 8
 
@@ -118,34 +123,31 @@ def _geom_ref(
     w = x2 - x + 1
     h = y2 - y + 1
 
+    # borders.c BorderWinpartCalc, kept in its exact clamp order.
     if p["isTitle"] and not p["vertical"] and p["maxW"] == 0:
         tw = title_width(index) + p["padLeft"] + p["padRight"]
-        if p["minW"] > 0 and tw < p["minW"]:
-            tw = p["minW"]
-        if tw > w:
-            tw = w
-        x += ((w - tw) * p["justification"]) >> 10
-        w = tw
-    else:
-        if p["maxW"] > 0 and w > p["maxW"]:
-            x += (w - p["maxW"]) >> 1
-            w = p["maxW"]
-        if p["minW"] > 0 and w < p["minW"]:
+        if w > tw:
+            x += ((w - tw) * p["justification"]) >> 10
+            w = tw
+        if p["minW"] > 0 and w < p["minW"]:  # after the span clamp
             w = p["minW"]
+    elif p["maxW"] > 0 and w > p["maxW"]:
+        x = (x + x2 - p["maxW"]) >> 1
+        w = p["maxW"]
+    elif p["minW"] > 0 and w < p["minW"]:
+        w = p["minW"]
 
     if p["isTitle"] and p["vertical"] and p["maxH"] == 0:
         th = title_width(index) + p["padTop"] + p["padBottom"]
-        if p["minH"] > 0 and th < p["minH"]:
-            th = p["minH"]
-        if th > h:
-            th = h
-        y += ((h - th) * p["justification"]) >> 10
-        h = th
-    else:
-        if p["maxH"] > 0 and h > p["maxH"]:
-            y += (h - p["maxH"]) >> 1
-            h = p["maxH"]
+        if h > th:
+            y += ((h - th) * p["justification"]) >> 10
+            h = th
         if p["minH"] > 0 and h < p["minH"]:
             h = p["minH"]
+    elif p["maxH"] > 0 and h > p["maxH"]:
+        y = (y + y2 - p["maxH"]) >> 1
+        h = p["maxH"]
+    elif p["minH"] > 0 and h < p["minH"]:
+        h = p["minH"]
 
     return (x, y, w, h)
