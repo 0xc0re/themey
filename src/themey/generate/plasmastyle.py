@@ -616,6 +616,38 @@ def _margin_hints(
         canvas.advance(x, row_h)
 
 
+def _opaque_trim(
+    img: Image.Image, edge: tuple[int, int, int, int]
+) -> tuple[Image.Image, tuple[int, int, int, int], tuple[int, int, int, int] | None]:
+    """Crop fully transparent margins (E16 shape-mask padding) off *img*.
+
+    E16 cut the widget window to the art's opaque outline, so art was often
+    authored on a larger transparent canvas (Yellow's MENU_SEL: a 44x18
+    pill on a 58x22 canvas). Sliced untrimmed, a cap that overlaps the
+    blank margin paints little or nothing — the live missing-right-border
+    highlight (desktop icons/Kickoff/systray, 2026-09-01). Returns the
+    cropped image, the declared edge re-anchored into the cropped frame
+    (caps lose exactly the blank part the mask hid), and the trimmed
+    margin widths (L R T B) — or the inputs unchanged and None when there
+    is nothing to trim. Alpha ≥ 128 is DR16's shape-mask cutoff, the same
+    threshold ``_transparent_fraction`` uses.
+    """
+    mask = img.getchannel("A").point([0] * 128 + [255] * 128)
+    bbox = mask.getbbox()
+    if bbox is None or bbox == (0, 0, img.width, img.height):
+        return img, edge, None
+    x0, y0, x1, y1 = bbox
+    trims = (x0, img.width - x1, y0, img.height - y1)
+    left, right, top, bottom = edge
+    edge = (
+        max(0, left - trims[0]),
+        max(0, right - trims[1]),
+        max(0, top - trims[2]),
+        max(0, bottom - trims[3]),
+    )
+    return img.crop(bbox), edge, trims
+
+
 def _emit_set(
     theme: Theme,
     canvas: _Canvas,
@@ -631,17 +663,30 @@ def _emit_set(
 
     Returns the painted cap sizes (L R T B, output px, post-shave) so the
     panel builder can derive cap-hugging margin hints, or None when the
-    state resolves to no image at all. Oversized caps degrade to a
-    center-only set with a ``plasmastyle:`` note rather than failing (per
-    the mapping contract). ``edge_override`` maps ``(declared_edge, src_w,
-    src_h)`` to the edge actually used — the viewitem builder pins
+    state resolves to no image at all. The art is first trimmed to its
+    opaque box (:func:`_opaque_trim` — shape-mask padding must not become
+    invisible border slices); oversized caps degrade to a center-only set
+    with a ``plasmastyle:`` note rather than failing (per the mapping
+    contract). ``edge_override`` maps ``(edge, src_w, src_h)`` — post-trim
+    values — to the edge actually used; the viewitem builder pins
     synthetic caps with it.
     """
     path = _state_image(spec, state)
     if path is None:
         return None
-    src_w, src_h = _source_size(path)
-    edge = spec.edge_scaling
+    with Image.open(path) as im:
+        src = im.convert("RGBA")
+    src, edge, trims = _opaque_trim(src, spec.edge_scaling)
+    if trims is not None:
+        note = (
+            f"plasmastyle: {spec.name} {path.name} trimmed by "
+            f"{trims[0]}/{trims[1]}/{trims[2]}/{trims[3]} px (L/R/T/B) of "
+            "fully transparent margin (E16's shape mask hid it); caps "
+            "re-anchored to the visible art"
+        )
+        if note not in theme.notes:
+            theme.notes.append(note)
+    src_w, src_h = src.size
     if edge_override is not None:
         edge = edge_override(edge, src_w, src_h)
     fitted = _fit_caps(edge, src_w, src_h)
@@ -653,7 +698,7 @@ def _emit_set(
         )
         edge = fitted
     scale = _surface_scale(theme, spec, edge)
-    img = _load_scaled(path, scale)
+    img = upscale_part(src, scale)
     caps = _scaled_caps(edge, src_w, src_h, scale)
     try:
         _frame_group(canvas, prefix, img, caps)
