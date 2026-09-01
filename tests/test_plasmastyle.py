@@ -687,6 +687,57 @@ def test_viewitem_caps_pin_highlight_cross_section() -> None:
     assert plasmastyle._viewitem_caps((0, 0, 0, 0), 3, 3) == (1, 1, 1, 1)
 
 
+def _tile_image(svg: ET.Element, element_id: str) -> Image.Image:
+    """Decode the embedded PNG of one frame element."""
+    import base64
+    import io
+
+    for el in svg.iter():
+        if el.get("id") == element_id:
+            img_el = el.find(f"{{{SVG_NS}}}image")
+            assert img_el is not None, f"{element_id} has no image"
+            data = img_el.get(XLINK)
+            assert data is not None
+            return Image.open(io.BytesIO(base64.b64decode(data.split(",", 1)[1])))
+    raise AssertionError(f"no element {element_id}")
+
+
+def test_viewitem_trims_transparent_margins_before_slicing(tmp_path: Path) -> None:
+    """Shape-masked art with fully transparent margins is trimmed to its
+    opaque box before slicing — Yellow's MENU_SEL is 58x22 with the pill at
+    (0,2)-(44,20): E16's shape mask hid the blank right third, but sliced
+    untrimmed its 18 px right cap is cut from the blank region and the
+    highlight renders with NO right border (chris's desktop/Kickoff/systray
+    screenshots, 2026-09-01)."""
+    img = Image.new("RGBA", (58, 22), (0, 0, 0, 0))
+    for x in range(44):
+        for y in range(2, 20):
+            img.putpixel((x, y), (255, 218, 2, 255))
+    png = tmp_path / "sel.png"
+    img.save(png)
+    theme = _theme(tmp_path, {
+        "MENU_SEL": _iclass("MENU_SEL", edge=(10, 18, 2, 2), hilited=png),
+    })
+    svg = plasmastyle.build_viewitem(theme)
+    assert svg is not None
+    for element_id in ("hover-topright", "hover-right", "hover-bottomright"):
+        tile = _tile_image(svg, element_id)
+        alpha = tile.getchannel("A").tobytes()
+        opaque = sum(1 for a in alpha if a >= 128) / len(alpha)
+        assert opaque > 0.5, (
+            f"{element_id} is {1 - opaque:.0%} transparent — sliced from the "
+            "shape-mask margin instead of the opaque art"
+        )
+    # The set spans the opaque art (44 px), not the padded canvas (58 px).
+    xs = [
+        int(el.get("x", "0")) + int(el.get("width", "0"))
+        for el in svg.iter()
+        if el.tag.endswith("image")
+    ]
+    assert max(xs) == 44
+    assert any("trimmed" in n and "MENU_SEL" in n for n in theme.notes)
+
+
 def test_viewitem_zero_edge_ships_full_nine_part_set(tmp_path: Path) -> None:
     """MENU_SEL with __EDGE_SCALING 0 0 0 0 (the common case) must NOT be a
     center-only whole-image stretch — that's the live blurry-glow bug."""
