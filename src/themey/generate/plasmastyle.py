@@ -21,25 +21,26 @@ inside a ``Plasma/Theme`` KPackage under
   panel is opaque E16 art and mirrors byte-identically like everything
   else.
 * The panel background ships real dragbar/iconbox art when a candidate
-  passes two guards (:func:`_panel_art_guard`): not shaped, and cap sums
-  within the per-AXIS ceilings — ``PANEL_MAX_REF_LENGTH_CAPS`` along the
-  bar's length (L+R for a horizontal source, T+B for a
-  ``_PANEL_VERT_SOURCES`` one), ``PANEL_MAX_REF_CAPS`` across its
-  thickness. E16 authors baked wordmarks ("AE", "ALIENS",
-  "Enlightenment") into the length-axis caps and E16 pinned them at the
-  bar's left; FrameSvg pins a cap the same way, and ``_panel_margins``
-  hugs it so content starts right after the wordmark — so those caps are
-  ALLOWED (~70 corpus dragbars, 2026-09-01). A thickness-axis cap past 32
-  ref px would be stretched to the panel's 40 px and turn unreadable, so
-  that axis stays strict; failures fall through to the next candidate and
-  ultimately to a flat translucent tint of the art's dominant color
-  (scheme fallback), letting the wallpaper show through.
-  The art panel's middle STRETCHES when E16 stretched it (the default
-  ``__FILLRULE``; tiling repeated photographic troughs across the bar —
-  HandOfGod, NorthernLights, live 2026-09-01) and TILES only when E16
-  itself tiled (``__FILLRULE __TILE*`` → ``<prefix>hint-tile-center``); a
-  vertical bar iclass adds ``west-``/``east-`` sets for the left-edge
-  furniture panels.
+  passes the guards (:func:`_panel_art_guard`). Three layers in one file:
+  the UNPREFIXED set (every orientation's fallback) only ever carries art
+  with small caps on BOTH axes (``PANEL_MAX_REF_CAPS``) or the flat tint,
+  because plasmashell turns the unprefixed set's caps into EVERY panel's
+  minimum thickness regardless of prefix (verified live 2026-09-01: e13's
+  60 px wordmark caps forced the 60 px iconbox panel to 120 px although a
+  ``west-`` set existed); the ``north-``/``south-`` sets carry the
+  wordmark bar art ("AE", "ALIENS", "Enlightenment" baked into the
+  length-axis caps, which E16 pinned at the bar's start and FrameSvg pins
+  the same way, ``_panel_margins`` hugging them) — allowed up to
+  ``PANEL_MAX_REF_LENGTH_CAPS`` on bars at least
+  ``PANEL_WORDMARK_MIN_THICKNESS_REF`` thick, since the panel stretches
+  the bar (wordmark included) to its own thickness and a 6 px strip
+  smears; the ``west-``/``east-`` sets dress the left-edge furniture from
+  the iconbox trough first (``_PANEL_VERT_SOURCES``). Shaped art is
+  rejected everywhere (a 1-bit-masked bar over a rectangular panel leaks
+  wallpaper through its holes). Middles STRETCH when E16 stretched them
+  (the default ``__FILLRULE``; tiling repeated photographic troughs —
+  HandOfGod, NorthernLights, live 2026-09-01) and TILE only when E16
+  itself tiled (``__FILLRULE __TILE*`` → ``<prefix>hint-tile-center``).
 * 9-part sets use FrameSvg's element names (``topleft`` … ``bottomright``,
   optionally ``<prefix>-``-prefixed); zero-extent slices are simply not
   emitted (FrameSvg then reports a 0 border, which is correct — the Aliens
@@ -333,6 +334,14 @@ PANEL_MAX_REF_CAPS = 32
 #: panel; OPENSTEP DragBar 24+2 accepted (the NeXT cube stays pinned).
 PANEL_MAX_REF_LENGTH_CAPS = 160
 
+#: Ref-px minimum THICKNESS of bar art before its wordmark caps are worth
+#: shipping. A cap is painted at the art's own scale and the panel then
+#: stretches the whole bar to its thickness (40-60 px): e13's 6 px-tall
+#: dragbar smeared its "E" ten times taller across the bottom bar (live
+#: 2026-09-01); the corpus median dragbar is 16 px. At 24 ref px the
+#: stretch stays ≤ 2.5x on a 60 px panel.
+PANEL_WORDMARK_MIN_THICKNESS_REF = 24
+
 
 def _panel_source(theme: Theme) -> IClassSpec | None:
     return _iclass_with_art(theme, *_PANEL_ART_SOURCES)
@@ -384,19 +393,27 @@ def _dialog_source(theme: Theme) -> IClassSpec | None:
     return None
 
 
-def _panel_art_guard(spec: IClassSpec) -> str | None:
-    """None when *spec*'s normal art may back the panel, else the reason.
+def _panel_art_guard(spec: IClassSpec, *, wordmark: bool = False) -> str | None:
+    """None when *spec*'s normal art may back a panel set, else the reason.
 
-    Two guards (the ``_dialog_source`` idiom): shaped art
+    Guards (the ``_dialog_source`` idiom): shaped art
     (``SHAPED_ART_MAX_TRANSPARENT`` — a 1-bit-masked bar over a rectangular
-    panel leaks wallpaper through its holes) and giant caps, judged per
-    AXIS: along the bar's length (L+R for a horizontal source, T+B for a
-    ``_PANEL_VERT_SOURCES`` one) wordmark caps are allowed up to
+    panel leaks wallpaper through its holes); thickness-axis caps (T+B for
+    a horizontal source, L+R for a ``_PANEL_VERT_SOURCES`` one) past
+    ``PANEL_MAX_REF_CAPS`` — a cap across the bar is stretched to the
+    panel's thickness; and length-axis caps: the STRICT default keeps
+    ``PANEL_MAX_REF_CAPS`` there too, because the unprefixed set's caps
+    become EVERY panel's minimum thickness in Plasma (verified live
+    2026-09-01: e13's 60 px wordmark caps forced the 60 px iconbox panel
+    to 120 px even with a ``west-`` set present — plasmashell sizes the
+    minimum from the unprefixed frame regardless of prefix). With
+    ``wordmark=True`` (the ``north-``/``south-`` sets, which no vertical
+    panel reads) length caps are allowed up to
     ``PANEL_MAX_REF_LENGTH_CAPS`` — they stay pinned exactly as E16 drew
-    them — while the thickness axis keeps ``PANEL_MAX_REF_CAPS`` (a cap
-    there is stretched to the panel's thickness). Measured after
-    ``_fit_caps`` so an E16 overlapping-cap declaration is judged by what
-    would render.
+    them — provided the bar is at least ``PANEL_WORDMARK_MIN_THICKNESS_REF``
+    thick, since the panel stretches the bar (wordmark included) to its
+    own thickness. Measured after ``_fit_caps`` so an E16 overlapping-cap
+    declaration is judged by what would render.
     """
     found = _state_attr(spec, "normal")
     if found is None:
@@ -416,41 +433,62 @@ def _panel_art_guard(spec: IClassSpec) -> str | None:
     edge = _fit_caps(declared, w, h) or declared
     left, right, top, bottom = edge
     if spec.name in _PANEL_VERT_SOURCES:
-        length, thickness = (top, bottom, "v"), (left, right, "h")
+        length, thickness, thick_px = (top, bottom, "v"), (left, right, "h"), w
     else:
-        length, thickness = (left, right, "h"), (top, bottom, "v")
+        length, thickness, thick_px = (left, right, "h"), (top, bottom, "v"), h
     if thickness[0] + thickness[1] > PANEL_MAX_REF_CAPS:
         return (
             f"thickness-axis caps {thickness[0]}+{thickness[1]} {thickness[2]} "
             f"ref px exceed {PANEL_MAX_REF_CAPS} (a cap across the bar is "
             "stretched to the panel's thickness and turns unreadable)"
         )
-    if length[0] + length[1] > PANEL_MAX_REF_LENGTH_CAPS:
+    length_sum = length[0] + length[1]
+    if not wordmark:
+        if length_sum > PANEL_MAX_REF_CAPS:
+            return (
+                f"length-axis caps {length[0]}+{length[1]} {length[2]} ref px "
+                f"exceed {PANEL_MAX_REF_CAPS} for the shared set (Plasma "
+                "makes the unprefixed caps every panel's minimum thickness)"
+            )
+        return None
+    if length_sum > PANEL_MAX_REF_LENGTH_CAPS:
         return (
             f"length-axis caps {length[0]}+{length[1]} {length[2]} ref px "
             f"exceed {PANEL_MAX_REF_LENGTH_CAPS} (pinned caps this large "
             "swallow a fit-content panel)"
         )
+    if length_sum > PANEL_MAX_REF_CAPS and thick_px < PANEL_WORDMARK_MIN_THICKNESS_REF:
+        return (
+            f"wordmark caps on a {thick_px} ref px thin bar (under "
+            f"{PANEL_WORDMARK_MIN_THICKNESS_REF}; the panel would stretch the "
+            "wordmark to its thickness and smear it)"
+        )
     return None
 
 
 def _panel_art_source(
-    theme: Theme, names: tuple[str, ...] = _PANEL_ART_SOURCES
+    theme: Theme,
+    names: tuple[str, ...] = _PANEL_ART_SOURCES,
+    *,
+    wordmark: bool = False,
 ) -> IClassSpec | None:
-    """First of *names* whose normal art passes :func:`_panel_art_guard`.
+    """First of *names* whose normal art passes :func:`_panel_art_guard`
+    (strict by default; ``wordmark=True`` for the ``north-``/``south-``
+    sets).
 
     Every rejection appends one deduplicated ``plasmastyle:`` note (the
     function is re-resolved by ``style_scheme`` and ``write``).
     """
+    role = "wordmark (north-/south-) set" if wordmark else "panel background"
     for name in names:
         spec = theme.iclasses.get(name)
         if spec is None or _state_image(spec, "normal") is None:
             continue
-        reason = _panel_art_guard(spec)
+        reason = _panel_art_guard(spec, wordmark=wordmark)
         if reason is None:
             return spec
         note = (
-            f"plasmastyle: {name} art rejected for the panel background: "
+            f"plasmastyle: {name} art rejected for the {role}: "
             f"{reason}; trying the next source"
         )
         if note not in theme.notes:
@@ -1100,11 +1138,17 @@ def _panel_svg(theme: Theme, alpha: float) -> ET.Element:
     ``adjustPrefix()`` falls back to unprefixed when a ``north-``/… set
     is absent — and a flat tint has no orientation to encode.
     """
+    canvas = _Canvas()
+    _panel_tint_set(theme, canvas, alpha)
+    return canvas.finish()
+
+
+def _panel_tint_set(theme: Theme, canvas: _Canvas, alpha: float) -> None:
+    """Emit the unprefixed flat-tint set (+ margin hints) onto *canvas*."""
     tint, _ = _panel_tint(theme)
     fill = f"fill:{_hex(tint)}"
     if alpha != 1:
         fill += f";opacity:{alpha}"
-    canvas = _Canvas()
     offsets = (0, _PANEL_EDGE, _PANEL_EDGE + _PANEL_CENTER)
     sizes = (_PANEL_EDGE, _PANEL_CENTER, _PANEL_EDGE)
     for row in range(3):
@@ -1125,7 +1169,6 @@ def _panel_svg(theme: Theme, alpha: float) -> ET.Element:
     canvas.advance(side, side)
     margin = (PANEL_MARGIN_REF, PANEL_MARGIN_REF, PANEL_MARGIN_REF, PANEL_MARGIN_REF)
     _margin_hints(canvas, "", margin, theme.scale)
-    return canvas.finish()
 
 
 def _panel_margins(
@@ -1153,82 +1196,116 @@ def _panel_margins(
     _margin_hints(canvas, prefix, (hint(left), hint(right), hint(top), hint(bottom)), 1.0)
 
 
-def _panel_art_svg(theme: Theme, src: IClassSpec) -> ET.Element:
-    """9-part panel set from real E16 bar art, middle STRETCHED.
+def _emit_panel_prefix_sets(
+    theme: Theme,
+    canvas: _Canvas,
+    src: IClassSpec,
+    prefixes: tuple[str, ...],
+) -> bool:
+    """Prefixed 9-part sets (+ cap-hugging margins) from *src*; False when
+    the art turned out fully transparent (nothing emitted)."""
+    for prefix in prefixes:
+        caps = _emit_set(theme, canvas, prefix, src, "normal")
+        if caps is None:
+            return False
+        _panel_margins(canvas, prefix, caps, theme.scale)
+    return True
 
-    One unprefixed set serves every horizontal panel (``adjustPrefix``
-    falls back to unprefixed); a vertical bar iclass that passes the same
-    guards adds ``west-``/``east-`` sets so the left-edge pager/iconbox
-    furniture panels wear the vertical art (Panel.qml's ``[pre, ""]``
-    prefix list). NO ``hint-tile-center``: E16 renders every iclass middle
-    by Imlib2 border-scale — caps pinned, middle STRETCHED — and tiling
-    repeated photographic troughs (HandOfGod's capless cloud, then
-    NorthernLights' 58 px aurora even WITH caps) across the whole bar
-    (both verified live 2026-09-01). FrameSvg stretches the center by
-    default, so no hint is needed; ``hint-stretch-borders`` still covers
-    the border elements (those FrameSvg tiles by default).
+
+def build_panel_background(
+    theme: Theme, *, alpha: float = PANEL_ALPHA, quiet: bool = False
+) -> ET.Element:
+    """``widgets/panel-background.svg`` — real E16 bar art where it passes
+    the guards, a flat translucent tint (at *alpha*) where it does not.
+
+    Three layers, one file (Panel.qml's ``[pre, ""]`` prefix list):
+
+    * The UNPREFIXED set serves every orientation and is the fallback for
+      all of them; its caps are also what plasmashell turns into EVERY
+      panel's minimum thickness (verified live 2026-09-01: e13's 60 px
+      wordmark caps forced the 60 px iconbox panel to 120 px although a
+      ``west-`` set existed), so it only ever carries art passing the
+      STRICT :func:`_panel_art_guard` — small caps on both axes — else the
+      tint. Middle stretched when E16 stretched it, tiled when E16 tiled.
+    * ``north-``/``south-`` sets carry the wordmark bar art
+      (``_panel_art_guard(wordmark=True)``: length caps up to
+      ``PANEL_MAX_REF_LENGTH_CAPS`` on a bar at least
+      ``PANEL_WORDMARK_MIN_THICKNESS_REF`` thick) when that differs from
+      the unprefixed source — the horizontal bar shows E16's pinned
+      wordmark, the vertical furniture never sees those caps.
+    * ``west-``/``east-`` sets from the vertical bar art (iconbox trough
+      first, ``_PANEL_VERT_SOURCES``), strict guard, then wordmark rules.
+
+    Never returns None — a colors-only theme still gets a scheme-tinted
+    panel. *quiet* suppresses the fidelity notes (the opaque mirror
+    re-render in :func:`write`).
     """
+    notes: list[str] = []
     canvas = _Canvas()
-    caps = _emit_set(theme, canvas, "", src, "normal")
-    if caps is None:
-        # Unreachable past _panel_art_guard (fully transparent art is
-        # shaped), kept so a blank panel can never ship.
-        raise ValueError("panel art is fully transparent")
-    _panel_margins(canvas, "", caps, theme.scale)
-    vert = _panel_art_source(theme, _PANEL_VERT_SOURCES)
-    if vert is not None:
-        for prefix in ("west-", "east-"):
-            vcaps = _emit_set(theme, canvas, prefix, vert, "normal")
-            if vcaps is None:
-                break
-            _panel_margins(canvas, prefix, vcaps, theme.scale)
-    theme.notes.append(
-        f"plasmastyle: panel background from iclass {src.name} art, middle "
-        "stretched like every E16 iclass middle (caps stay pinned)"
-        + (
-            f"; vertical panels from {vert.name}"
-            if vert is not None
-            else ""
-        )
-    )
-    theme.notes.append(
-        "plasmastyle: panel margin hints hug the cap art (cap − 4 px per "
-        "side; E16 __PADDING dropped — Plasma pads panel content on top of "
-        "the frame margins, and the sum read as an empty trough)"
-    )
-    return canvas.finish()
-
-
-def build_panel_background(theme: Theme) -> ET.Element:
-    """``widgets/panel-background.svg`` — real E16 bar art when it passes
-    the guards, else a flat translucent tint.
-
-    The art path (:func:`_panel_art_svg`) ships the dragbar/iconbox art
-    with a stretched middle; :func:`_panel_art_guard` rejects shaped art,
-    thickness-axis caps past ``PANEL_MAX_REF_CAPS`` (stretched across a
-    40 px panel they bury every widget) and length-axis caps past
-    ``PANEL_MAX_REF_LENGTH_CAPS`` (wordmark caps below that stay pinned,
-    exactly E16's look). The tint fallback keeps the theme's color
-    character while the wallpaper shows through; never returns None — a
-    colors-only theme still gets a scheme-tinted panel.
-    """
     src = _panel_art_source(theme)
     if src is not None:
         try:
-            return _panel_art_svg(theme, src)
+            caps = _emit_set(theme, canvas, "", src, "normal")
         except (OSError, ValueError) as exc:
-            theme.notes.append(
+            caps = None
+            notes.append(
                 f"plasmastyle: panel art from {src.name} unreadable "
                 f"({exc}); falling back to the flat tint"
             )
-    tint, source = _panel_tint(theme)
-    svg = _panel_svg(theme, PANEL_ALPHA)
-    theme.notes.append(
-        f"plasmastyle: panel background is a translucent tint rgb{tint} "
-        f"(alpha {PANEL_ALPHA}) of {source} — no E16 bar art passed the "
-        "shaped/cap guards"
-    )
-    return svg
+        if caps is None:
+            src = None
+        else:
+            _panel_margins(canvas, "", caps, theme.scale)
+    if src is None:
+        _panel_tint_set(theme, canvas, alpha)
+
+    wordmark = _panel_art_source(theme, wordmark=True)
+    if wordmark is not None and (src is None or wordmark.name != src.name):
+        if not _emit_panel_prefix_sets(theme, canvas, wordmark, ("north-", "south-")):
+            wordmark = None
+    else:
+        wordmark = None
+
+    vert = _panel_art_source(theme, _PANEL_VERT_SOURCES)
+    if vert is None:
+        vert = _panel_art_source(theme, _PANEL_VERT_SOURCES, wordmark=True)
+    if vert is not None:
+        if not _emit_panel_prefix_sets(theme, canvas, vert, ("west-", "east-")):
+            vert = None
+
+    if src is not None:
+        notes.append(
+            f"plasmastyle: panel background from iclass {src.name} art "
+            "(shared set; caps stay pinned, middle stretched unless E16 "
+            "tiled it)"
+        )
+    else:
+        tint, source = _panel_tint(theme)
+        notes.append(
+            f"plasmastyle: panel background is a translucent tint rgb{tint} "
+            f"(alpha {alpha}) of {source} — no E16 bar art passed the "
+            "shaped/cap guards for the shared set"
+        )
+    if wordmark is not None:
+        notes.append(
+            f"plasmastyle: horizontal panels wear the {wordmark.name} "
+            "wordmark art (north-/south- sets; the shared set stays "
+            "cap-free because Plasma makes its caps every panel's minimum "
+            "thickness)"
+        )
+    if vert is not None:
+        notes.append(f"plasmastyle: vertical panels from {vert.name}")
+    if src is not None or wordmark is not None or vert is not None:
+        notes.append(
+            "plasmastyle: panel margin hints hug the cap art (cap − 4 px per "
+            "side; E16 __PADDING dropped — Plasma pads panel content on top "
+            "of the frame margins, and the sum read as an empty trough)"
+        )
+    if not quiet:
+        for n in notes:
+            if n not in theme.notes:
+                theme.notes.append(n)
+    return canvas.finish()
 
 
 #: Menu frame piece iclasses: FrameSvg border element -> E16 iclass.
@@ -2344,10 +2421,13 @@ def write(theme: Theme, out_dir: Path) -> PlasmaStyle:
             if svg is None:
                 continue
             if rel == PANEL_SVG:
-                # The tint rendition carries no embedded art; only it needs
-                # the opaque re-render below (art panels are already opaque).
-                panel_is_tint = not any(
-                    el.tag.endswith("image") for el in svg.iter()
+                # A tint UNPREFIXED set (its center is a flat rect, not an
+                # embedded image) is translucent and needs the opaque
+                # re-render below; prefixed wordmark/vertical art sets may
+                # sit alongside it in the same file.
+                panel_is_tint = any(
+                    el.tag.endswith("rect") and el.get("id") == "center"
+                    for el in svg.iter()
                 )
             out = out_dir / rel
             out.parent.mkdir(parents=True, exist_ok=True)
@@ -2367,7 +2447,9 @@ def write(theme: Theme, out_dir: Path) -> PlasmaStyle:
                 dst = out_dir / variant / rel
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 if rel == PANEL_SVG and panel_is_tint:
-                    ET.ElementTree(_panel_svg(theme, 1.0)).write(
+                    ET.ElementTree(
+                        build_panel_background(theme, alpha=1.0, quiet=True)
+                    ).write(
                         dst, xml_declaration=True, encoding="utf-8"
                     )
                 else:

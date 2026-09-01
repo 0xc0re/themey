@@ -219,32 +219,68 @@ def test_panel_background_guard_falls_through_to_next_source(
     )
 
 
-def test_panel_wordmark_caps_accepted_on_length_axis(tmp_path: Path) -> None:
-    """AE's dragbar (128x16, edge 50 4 4 4): the 50 px cap is the theme's
-    wordmark, pinned at the bar's left exactly as E16 drew it. Length-axis
-    caps up to PANEL_MAX_REF_LENGTH_CAPS are allowed; the margin hints hug
-    the cap so content starts right after the wordmark."""
-    png = _png(tmp_path, "dragbar.png", size=(128, 16))
+def test_panel_wordmark_caps_go_to_north_south_sets(tmp_path: Path) -> None:
+    """AE-style dragbar (edge 50 4 4 4, 32 px thick): the 50 px wordmark
+    cap is pinned at the bar's left exactly as E16 drew it — but ONLY in
+    the north-/south- sets. The unprefixed set stays cap-free (here: the
+    tint) because plasmashell turns its caps into every panel's minimum
+    thickness (e13's 60 px caps forced the 60 px iconbox panel to 120 px,
+    live 2026-09-01)."""
+    png = _png(tmp_path, "dragbar.png", size=(128, 32))
     theme = _theme(tmp_path, {
         "DESKTOP_DRAGBUTTON_HORIZ": _iclass(
             "DESKTOP_DRAGBUTTON_HORIZ", edge=(50, 4, 4, 4), normal=png
         ),
     })
-    assert plasmastyle._panel_art_guard(theme.iclasses["DESKTOP_DRAGBUTTON_HORIZ"]) is None
+    spec = theme.iclasses["DESKTOP_DRAGBUTTON_HORIZ"]
+    strict = plasmastyle._panel_art_guard(spec)
+    assert strict is not None and "shared set" in strict
+    assert plasmastyle._panel_art_guard(spec, wordmark=True) is None
     svg = plasmastyle.build_panel_background(theme)
-    assert any(e.tag.endswith("image") for e in svg.iter())
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    assert by_id["center"].tag.endswith("rect")  # unprefixed = tint
+    assert "left" not in by_id or by_id["left"].tag.endswith("rect")
+    for prefix in ("north-", "south-"):
+        assert by_id[f"{prefix}center"].tag.endswith("g")
+        assert by_id[f"{prefix}hint-left-margin"].get("width") == str(50 - 4)
     assert any(
-        "panel background from iclass DESKTOP_DRAGBUTTON_HORIZ" in n
+        "horizontal panels wear the DESKTOP_DRAGBUTTON_HORIZ wordmark art" in n
         for n in theme.notes
     )
-    assert not any("rejected for the panel background" in n for n in theme.notes)
-    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
-    assert by_id["hint-left-margin"].get("width") == str(50 - 4)
+    assert not any(i.startswith(("west-", "east-")) for i in by_id)
+
+
+def test_panel_wordmark_caps_rejected_on_thin_bars(tmp_path: Path) -> None:
+    """e13's shape: a 6 px-tall dragbar with 60 px wordmark caps plus an
+    iconbox trough. The panel stretches the bar to its 60 px thickness,
+    smearing the wordmark ten times taller (live 2026-09-01) — so no
+    north-/south- set; the trough backs everything."""
+    thin = _png(tmp_path, "dragbar.png", size=(300, 6))
+    small = _png(tmp_path, "iconbox.png", color=(20, 90, 20, 255))
+    theme = _theme(tmp_path, {
+        "DESKTOP_DRAGBUTTON_HORIZ": _iclass(
+            "DESKTOP_DRAGBUTTON_HORIZ", edge=(60, 60, 0, 0), normal=thin
+        ),
+        "ICONBOX_HORIZONTAL": _iclass(
+            "ICONBOX_HORIZONTAL", edge=(4, 4, 4, 4), normal=small
+        ),
+    })
+    reason = plasmastyle._panel_art_guard(
+        theme.iclasses["DESKTOP_DRAGBUTTON_HORIZ"], wordmark=True
+    )
+    assert reason is not None and "thin" in reason
+    svg = plasmastyle.build_panel_background(theme)
+    ids = _ids(svg)
+    assert not any(i.startswith(("north-", "south-")) for i in ids)
+    assert any(
+        "panel background from iclass ICONBOX_HORIZONTAL" in n for n in theme.notes
+    )
 
 
 def test_panel_guard_is_axis_aware(tmp_path: Path) -> None:
-    """Length axis (L+R for a horizontal bar, T+B for a vertical one) is
-    generous; the thickness axis keeps the strict PANEL_MAX_REF_CAPS."""
+    """Wordmark mode: length axis (L+R for a horizontal bar, T+B for a
+    vertical one) is generous, the thickness axis keeps the strict
+    PANEL_MAX_REF_CAPS. Strict mode caps both axes at PANEL_MAX_REF_CAPS."""
     wide = _png(tmp_path, "h.png", size=(300, 120))
     tall = _png(tmp_path, "v.png", size=(120, 300))
     horiz_ok = _iclass("DESKTOP_DRAGBUTTON_HORIZ", edge=(50, 4, 4, 4), normal=wide)
@@ -252,14 +288,16 @@ def test_panel_guard_is_axis_aware(tmp_path: Path) -> None:
     horiz_long = _iclass("DESKTOP_DRAGBUTTON_HORIZ", edge=(200, 2, 0, 0), normal=wide)
     vert_ok = _iclass("DESKTOP_DRAGBUTTON_VERT", edge=(4, 4, 50, 4), normal=tall)
     vert_thick = _iclass("DESKTOP_DRAGBUTTON_VERT", edge=(50, 4, 4, 4), normal=tall)
-    assert plasmastyle._panel_art_guard(horiz_ok) is None
-    assert plasmastyle._panel_art_guard(vert_ok) is None
-    reason = plasmastyle._panel_art_guard(horiz_thick)
-    assert reason is not None and "thickness" in reason
-    reason = plasmastyle._panel_art_guard(horiz_long)
+    assert plasmastyle._panel_art_guard(horiz_ok, wordmark=True) is None
+    assert plasmastyle._panel_art_guard(vert_ok, wordmark=True) is None
+    strict = plasmastyle._panel_art_guard(horiz_ok)
+    assert strict is not None and "shared set" in strict
+    for spec in (horiz_thick, vert_thick):
+        for mode in (False, True):
+            reason = plasmastyle._panel_art_guard(spec, wordmark=mode)
+            assert reason is not None and "thickness" in reason
+    reason = plasmastyle._panel_art_guard(horiz_long, wordmark=True)
     assert reason is not None and str(plasmastyle.PANEL_MAX_REF_LENGTH_CAPS) in reason
-    reason = plasmastyle._panel_art_guard(vert_thick)
-    assert reason is not None and "thickness" in reason
 
 
 def test_panel_background_scheme_fallback_without_art(tmp_path: Path) -> None:
