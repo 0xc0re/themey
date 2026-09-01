@@ -37,6 +37,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Rebound, Fossils_of_the_Machines and BS-E gain their wallpapers.
 - **apply** — the Plasma tools no longer inherit a snap-sandbox
   `XDG_DATA_HOME` (the VS Code terminal broke `plasma-apply-lookandfeel`).
+- **Panels (live feedback, e13)** — plasmashell derives every panel's
+  minimum thickness from the UNPREFIXED panel-background caps, so the
+  shared set is now cap-free (strict guard, iconbox trough or tint) and
+  wordmark drag-bar art ships only in the `north-`/`south-` sets, and only
+  on bars at least 24 ref px thick (a 6 px strip stretched to a 60 px
+  panel smeared its E). The left furniture panels prefer the iconbox
+  trough over the vertical drag bar. `themey apply` re-asserts the
+  furniture panels' thickness on every run and quits plasmashell
+  gracefully before the tiled-wallpaper restart so scripted panel config
+  is flushed.
 
 ### Added
 
