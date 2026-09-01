@@ -16,6 +16,7 @@ import pytest
 
 from themey import apply as apply_mod
 from themey import paths
+from themey.slug import plugin_id
 
 
 class FakeKConfig:
@@ -47,6 +48,7 @@ def fake_kconfig(monkeypatch, fake_home: Path) -> FakeKConfig:
     fk = FakeKConfig()
     monkeypatch.setattr(apply_mod.shutil, "which", lambda n: f"/usr/bin/{n}")
     monkeypatch.setattr(apply_mod.subprocess, "run", fk.run)
+    monkeypatch.setattr(apply_mod, "_AURORAE_FLUSH_WAIT_S", 0.0, raising=False)
     return fk
 
 
@@ -125,6 +127,69 @@ def test_apply_theme_without_binning_leaves_buttons_alone(
     apply_mod.apply("plain", backend="svg")
     assert "ButtonsOnLeft" not in fake_kconfig.store
     assert "ThemeyPrevButtons" not in fake_kconfig.store
+
+
+# --- Aurorae QML component-cache flush ---------------------------------------
+
+
+def _install_fake_qml_deco(name: str = "Obsidian") -> Path:
+    pkg = paths.kwin_decorations() / plugin_id(name)
+    pkg.mkdir(parents=True)
+    (pkg / "metadata.json").write_text("{}")
+    return pkg
+
+
+def _theme_writes(fk: FakeKConfig) -> list[str]:
+    """Values written to the kwinrc ``theme`` key, in call order."""
+    out = []
+    for c in fk.calls:
+        prog = Path(c[0]).name
+        if prog.startswith("kwriteconfig") and "--key" in c and "--delete" not in c:
+            if c[c.index("--key") + 1] == "theme":
+                out.append(c[-1])
+    return out
+
+
+def test_apply_qml_bounces_through_breeze_first(fake_kconfig: FakeKConfig) -> None:
+    """KWin's Aurorae v1 plugin caches the compiled QML component per theme
+    name for the compositor's lifetime (``Helper::m_components``); the
+    engine is reset only when every Aurorae decoration is destroyed. A QML
+    apply must flip the live deco to Breeze + reconfigure before pointing
+    kwinrc back at the (possibly re-converted) package, or KWin keeps
+    rendering the stale copy."""
+    _install_fake_qml_deco("Obsidian")
+    apply_mod.apply("Obsidian", backend="qml")
+    assert _theme_writes(fake_kconfig) == ["Breeze", plugin_id("Obsidian")]
+    # A reconfigure must land between the Breeze flip and the target write,
+    # so KWin actually drops its Aurorae decorations in between.
+    breeze_idx = next(
+        i for i, c in enumerate(fake_kconfig.calls)
+        if Path(c[0]).name.startswith("kwriteconfig") and c[-1] == "Breeze"
+    )
+    target_idx = next(
+        i for i, c in enumerate(fake_kconfig.calls)
+        if Path(c[0]).name.startswith("kwriteconfig") and c[-1] == plugin_id("Obsidian")
+    )
+    reconfigures = [
+        i for i, c in enumerate(fake_kconfig.calls) if "reconfigure" in c
+    ]
+    assert any(breeze_idx < i < target_idx for i in reconfigures)
+    # ...and one final reconfigure after the target write.
+    assert any(i > target_idx for i in reconfigures)
+
+
+def test_apply_breeze_does_not_bounce(fake_kconfig: FakeKConfig) -> None:
+    apply_mod.apply("Breeze")
+    assert _theme_writes(fake_kconfig) == ["Breeze"]
+    assert sum("reconfigure" in c for c in fake_kconfig.calls) == 1
+
+
+def test_apply_svg_does_not_bounce(fake_kconfig: FakeKConfig) -> None:
+    """The flush is a QML-backend contract: SVG themes share one cached
+    aurorae.qml whose per-theme art goes through Plasma's own SVG cache."""
+    _install_fake_theme("e13")
+    apply_mod.apply("e13", backend="svg")
+    assert _theme_writes(fake_kconfig) == ["__aurorae__svg__e13"]
 
 
 # --- E1: baseline recorders -------------------------------------------------

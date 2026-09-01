@@ -103,6 +103,7 @@ def fake_kconfig(monkeypatch, fake_home: Path) -> FakeKConfig:
     fk = FakeKConfig()
     monkeypatch.setattr(apply_mod.shutil, "which", lambda n: f"/usr/bin/{n}")
     monkeypatch.setattr(apply_mod.subprocess, "run", fk.run)
+    monkeypatch.setattr(apply_mod, "_AURORAE_FLUSH_WAIT_S", 0.0, raising=False)
     return fk
 
 
@@ -195,6 +196,31 @@ def test_apply_full_writes_qml_deco(fake_kconfig: FakeKConfig) -> None:
     assert fake_kconfig.store["library"] == "org.kde.kwin.aurorae"
     assert fake_kconfig.store["theme"] == "themey_e13"
     assert "BorderSize" not in fake_kconfig.store
+
+
+def test_apply_full_bounces_deco_through_breeze_before_write(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """Same Aurorae component-cache flush as the deco-only path: a re-run
+    of ``convert`` + ``apply`` on the already-active theme must not leave
+    KWin rendering the stale cached QML (see test_apply.py)."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    apply_mod.apply_full("e13")
+    theme_writes = [
+        c[-1]
+        for c in fake_kconfig.calls
+        if Path(c[0]).name.startswith("kwriteconfig")
+        and "--key" in c
+        and "--delete" not in c
+        and c[c.index("--key") + 1] == "theme"
+    ]
+    assert theme_writes == ["Breeze", "themey_e13"]
+    breeze_idx = fake_kconfig.index_of("kwriteconfig", "Breeze")
+    reconfigures = [
+        i for i, c in enumerate(fake_kconfig.calls) if "reconfigure" in c
+    ]
+    assert any(i > breeze_idx for i in reconfigures)
 
 
 def test_apply_full_tiled_wallpaper_triggers_fill_fixup(

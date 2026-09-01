@@ -82,6 +82,7 @@ import json
 import logging
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 from . import paths
@@ -628,6 +629,36 @@ def _reconfigure() -> None:
     )
 
 
+#: Seconds to wait after the Breeze flip for KWin to recreate every
+#: decoration (destroying the Aurorae ones and, with them, the cached QML
+#: engine) before the target theme is written back.
+_AURORAE_FLUSH_WAIT_S = 2.0
+
+
+def _flush_aurorae_qml_cache(kw: str) -> None:
+    """Flip the live decoration to Breeze so KWin drops its Aurorae QML cache.
+
+    Aurorae v1 (plasma/aurorae ``v1/aurorae.cpp``) compiles a theme's QML
+    package once per compositor process and caches the ``QQmlComponent``
+    per theme *name* (``Helper::m_components``); the shared ``QQmlEngine``
+    — and with it every compiled main.qml/theme.js and loaded PNG — is
+    torn down only when the last Aurorae decoration is destroyed
+    (``Helper::unref`` refcount 0). A reconfigure with an unchanged
+    ``theme=`` therefore keeps rendering the copy loaded when the theme
+    first appeared, no matter how many times ``themey convert`` has
+    rewritten the package on disk (verified live, Plasma 6.6.6,
+    2026-08-31). Flipping to Breeze + reconfigure destroys every Aurorae
+    decoration, zeroing that refcount; the wait gives KWin time to finish
+    recreating decorations before the caller points ``theme=`` back at
+    the package. Switching between two Aurorae themes does NOT flush —
+    both stay cached — which is why the bounce goes through Breeze.
+    """
+    _kwrite(kw, "library", "org.kde.breeze")
+    _kwrite(kw, "theme", "Breeze")
+    _reconfigure()
+    time.sleep(_AURORAE_FLUSH_WAIT_S)
+
+
 def _restart_plasmashell() -> None:
     """Restart plasmashell so a tiled wallpaper actually repaints.
 
@@ -734,6 +765,8 @@ def apply(
     """
     kw = _which("kwriteconfig6", "kwriteconfig5")
     kr = _which("kreadconfig6", "kreadconfig5")
+    if backend == "qml" and name.lower() != "breeze":
+        _flush_aurorae_qml_cache(kw)
     _write_deco(
         name, kw, kr,
         legacy_plugin=legacy_plugin, border_size=border_size,
@@ -893,6 +926,10 @@ def apply_full(
             f"plasma-apply-desktoptheme {pkg_id}",
         )
 
+    # The LnF apply above may already have pointed KWin at this package
+    # (via kdedefaults), re-caching a stale copy — the flush must come
+    # after it and before the final theme write.
+    _flush_aurorae_qml_cache(kw)
     _write_deco(
         name, kw, kr,
         legacy_plugin=legacy_plugin, border_size=border_size,
