@@ -404,3 +404,24 @@ def test_build_theme_resolves_lowercase_names_verbatim(tmp_path: Path) -> None:
     assert theme.iclasses["titelleiste-"].normal_active == tmp_path / "art" / "titel.png"
     assert theme.iclasses["knopf_kill"].normal == tmp_path / "art" / "kill.png"
     assert theme.iclasses["titelleiste-"].edge_scaling == (2, 2, 0, 0)
+
+
+# ---------------------------------------------------------------------------
+# Menu styles
+# ---------------------------------------------------------------------------
+
+
+def test_build_theme_collects_menu_styles(tmp_path: Path) -> None:
+    nodes = [
+        _border_block("DEFAULT", sizes={"left": 1, "right": 1, "top": 1, "bottom": 1}),
+        _block(
+            "__MENU_STYLE",
+            _kv("__NAME", "DEFAULT"),
+            _kv("__BG_ICLASS", "MENU_BG"),
+            _kv("__ITEM_ICLASS", "MENU_SEL"),
+            _kv("__USE_ITEM_BACKGROUNDS", "__OFF"),
+        ),
+    ]
+    theme = build_theme(tmp_path, nodes, name="t")
+    assert theme.menu_styles["DEFAULT"].bg_iclass == "MENU_BG"
+    assert theme.menu_styles["DEFAULT"].item_iclass == "MENU_SEL"

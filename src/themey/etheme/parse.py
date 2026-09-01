@@ -17,7 +17,13 @@ themes rely on cpp semantics the token grammar alone cannot express:
   and close in another (Warp: default.cfg -> edges.cfg -> corners.cfg).
   Angle includes resolve against asset_root (epp's -I dir), quoted includes
   against the including file's directory first. ``#include <definitions>``
-  (E16's built-in macro file, not shipped in archives) is silently skipped.
+  (E16's built-in macro file, never shipped in archives) resolves to the
+  bundled copy in ``data/e16_definitions`` — but ONLY its function-like
+  macros are registered (``NORMAL_MENU_STYLE_VERTICAL``, ``DEFINE_TOOLTIP``,
+  ...; every corpus menustyles.cfg depends on them). Its object-like
+  defines are E16's numeric config ids (``__BGN 999``, ``__ON 1``) and X
+  cursor constants; expanding those would turn the keyword grammar into
+  numbers, so ``__OFF`` in a macro body reaches the analyzer as itself.
 
 Macro expansion never touches quoted strings, and comments are stripped
 before directive scanning so a commented-out ``#include`` is not spliced.
@@ -113,6 +119,9 @@ def parse_tree(
             "imageclasses.cfg",
             "textclasses.cfg",
             "cursors.cfg",
+            # E16's ThemeConfigLoad (config.c) also loads menustyles.cfg;
+            # its __MENU_STYLE blocks name the menu background iclass.
+            "menustyles.cfg",
         ]
     seen: set[Path] = set()
     defines: _Defines = {}
@@ -141,6 +150,31 @@ _RE_DEFINE = re.compile(
 )
 _RE_INCLUDE_LINE = re.compile(r'^\s*#\s*include\s+(?:<([^>]+)>|"([^"]+)")')
 _RE_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+#: Verbatim E16 1.0.31 ``config/definitions`` (see data/README.md).
+_BUNDLED_DEFINITIONS = Path(__file__).parent / "data" / "e16_definitions"
+_bundled_macros: _Defines | None = None
+
+
+def _bundled_definitions() -> _Defines:
+    """The bundled definitions file's FUNCTION-LIKE macros, parsed once.
+
+    Object-like defines are deliberately skipped (module docstring): they
+    are E16's numeric keyword ids and XC_* cursor constants.
+    """
+    global _bundled_macros
+    if _bundled_macros is None:
+        macros: _Defines = {}
+        text = _BUNDLED_DEFINITIONS.read_text(encoding="utf-8", errors="replace")
+        for ln in _join_continuations(_strip_c_comments(text)).split("\n"):
+            m = _RE_DEFINE.match(ln)
+            if m and m.group(2) is not None:
+                params = tuple(
+                    p.strip() for p in m.group(2)[1:-1].split(",") if p.strip()
+                )
+                macros[m.group(1)] = (params, m.group(3).strip())
+        _bundled_macros = macros
+    return _bundled_macros
 _RE_BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
 
 
@@ -190,7 +224,7 @@ def _resolve_include(
     if name is None:
         return None
     if angle is not None and name == "definitions":
-        return None  # E16's built-in macro file is not shipped in archives
+        return _BUNDLED_DEFINITIONS  # E16's macro file, never in archives
     root_resolved = str(root.resolve())
     if angle is not None:
         candidates = [root / name, including_file.parent / name]
@@ -336,7 +370,15 @@ def _preprocess(
                 m = _RE_INCLUDE_LINE.match(ln)
                 if m:
                     target = _resolve_include(m.group(1), m.group(2), path, root)
-                    if target is not None:
+                    if target == _BUNDLED_DEFINITIONS:
+                        # Macros only, and never over a theme's own
+                        # earlier definition of the same name (cpp keeps
+                        # the LAST definition; a theme's #define after the
+                        # include also overwrites — dict assignment order).
+                        for name, macro in _bundled_definitions().items():
+                            defines.setdefault(name, macro)
+                        out_lines.append("")
+                    elif target is not None:
                         out_lines.append(
                             _preprocess(target, root, seen, defines)
                         )

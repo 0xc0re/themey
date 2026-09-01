@@ -328,6 +328,26 @@ class WallpaperSpec:
 
 
 @dataclass(frozen=True)
+class MenuStyleSpec:
+    """E16 ``__MENU_STYLE`` — which iclasses dress a menu (menus.c).
+
+    ``bg_iclass`` is what ``MenuRedraw`` paints the menu window with. With
+    ``use_item_bg`` (``__USE_ITEM_BACKGROUNDS __ON``, the NeXTSTEP style)
+    the window has NO background: every item window wears ``item_iclass``
+    (menus.c:928-950, 976-985) and the loader frees any named bg iclass
+    (menus.c:1739-1746) — so ``bg_iclass`` is None in that case.
+    """
+
+    name: str  # "DEFAULT", "ROOT", "DESK_MENU", ...
+    bg_iclass: str | None = None
+    item_iclass: str | None = None
+    submenu_iclass: str | None = None
+    use_item_bg: bool = False
+    border: str | None = None
+    tclass: str | None = None
+
+
+@dataclass(frozen=True)
 class Theme:
     """Complete analyzed representation of one E16 theme.
 
@@ -363,5 +383,7 @@ class Theme:
     # __FONTS aliases (fonts.theme.cfg / fonts.cfg) keyed by alias name.
     # Defaulted so hand-built Themes in existing tests stay valid.
     fonts: dict[str, FontSpec] = field(default_factory=dict)
+    # __MENU_STYLE blocks (menustyles.cfg) keyed by style name.
+    menu_styles: dict[str, MenuStyleSpec] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)  # ONLY mutable accumulator
     skipped_borders: tuple[str, ...] = ()
