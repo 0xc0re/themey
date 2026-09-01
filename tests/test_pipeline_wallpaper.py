@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 import themey.pipeline as pipeline_mod
+from themey.analyze.wallpaper import FILL_MODES
 from themey.generate.wallpaper import WallpaperError
 from themey.generate.wallpaper import write_package as real_write_package
 from themey.pipeline import convert
@@ -30,7 +31,7 @@ def test_pipeline_wallpaper_metadata_has_fill_mode_and_id(fake_home):
     assert result.wallpaper_dirs
     d = result.wallpaper_dirs[0]
     meta = json.loads((d / "metadata.json").read_text())
-    assert meta["X-Themey-FillMode"] in ("tiled", "scaled")
+    assert meta["X-Themey-FillMode"] in FILL_MODES
     assert meta["KPlugin"]["Id"] == d.name
     assert d.name.startswith("themey_Aliens_")
 
@@ -49,7 +50,7 @@ def test_pipeline_openstep_solid_wallpaper_installed(fake_home):
     result = convert(FIXTURES / "OPENSTEP.etheme", scale=2, backend="svg")
     assert len(result.wallpaper_dirs) == 1
     meta = json.loads((result.wallpaper_dirs[0] / "metadata.json").read_text())
-    assert meta["X-Themey-FillMode"] == "scaled"
+    assert meta["X-Themey-FillMode"] == "stretch"
 
 
 def test_pipeline_output_dir_mode_writes_wallpaper_packages(tmp_path, fake_home):

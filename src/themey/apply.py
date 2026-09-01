@@ -15,12 +15,13 @@ Two applies live here:
   Look-and-Feel bundle (colors, cursors, wallpaper, deco) via
   ``plasma-apply-lookandfeel``, then re-asserts the deco keys explicitly
   (the LnF apply lands in the ``~/.config/kdedefaults/`` layer, which the
-  *explicit* kwinrc write in the user layer overrides), then fixes up a
-  tiled default wallpaper (Plasma's Image wallpaper plugin does not read
-  fill-mode from the wallpaper package) and — because plasmashell never
-  repaints a scripted fill-mode change — ends a tiled apply with an
-  automatic plasmashell restart (:func:`_restart_plasmashell`,
-  opt-out ``restart_shell=False`` / CLI ``--no-restart-shell``).
+  *explicit* kwinrc write in the user layer overrides), then applies the
+  default wallpaper's E16 fill mode (:func:`_set_wallpaper_fill` — Plasma's
+  Image wallpaper plugin does not read fill-mode from the wallpaper
+  package) and — because plasmashell never repaints a scripted fill-mode
+  change — ends a tiled apply with an automatic plasmashell restart
+  (:func:`_restart_plasmashell`, opt-out ``restart_shell=False`` / CLI
+  ``--no-restart-shell``).
 
 Both applies share the decoration-writing logic (``_write_deco``) and the
 button-order snapshot/restore machinery. Button ORDER is global kwinrc
@@ -108,14 +109,34 @@ _PLASMARC = "plasmarc"
 _PLASMA_THEME_GROUP = "Theme"
 _PLASMA_NAME_KEY = "name"
 
-#: QML ``Image.Tile`` — the ``FillMode`` int Plasma's Image wallpaper
-#: plugin stores. Needed because ``plasma-apply-wallpaperimage -f`` exposes
-#: NO tile token at all on Plasma 6.6.6 (verified live 2026-08-31: every
-#: spelling of tile is "Invalid fill mode"; only the camelCase QML names
-#: stretch/preserveAspectFit/preserveAspectCrop/pad are accepted), so the
-#: tiled fix-up writes FillMode through plasmashell's scripting D-Bus —
-#: the same mechanism the tool itself uses internally.
-_WALLPAPER_TILE_FILL_MODE_INT = 3
+#: themey fill mode (``X-Themey-FillMode``, ``analyze.wallpaper.FILL_MODES``)
+#: -> the ``plasma-apply-wallpaperimage -f`` token. Only the camelCase QML
+#: names stretch/preserveAspectFit/preserveAspectCrop/pad are accepted on
+#: Plasma 6.6.6 (verified live 2026-08-31: every spelling of tile is
+#: "Invalid fill mode"), so the three tile modes are absent here and go
+#: through :data:`_WALLPAPER_FILL_MODE_INTS` instead.
+_WALLPAPER_FILL_MODE_TOKENS: dict[str, str] = {
+    "stretch": "stretch",
+    "fit": "preserveAspectFit",
+    "pad": "pad",
+}
+#: themey fill mode -> the QML ``Image.fillMode`` enum int Plasma's Image
+#: wallpaper plugin stores as ``FillMode`` (Qt: Stretch=0,
+#: PreserveAspectFit=1, PreserveAspectCrop=2, Tile=3, TileVertically=4,
+#: TileHorizontally=5, Pad=6). ``tile-h`` is E16's "scaled to screen
+#: height, repeated across" = Qt's TileHorizontally ("stretched vertically
+#: and tiled horizontally"); ``tile-v`` the transpose. Written through
+#: plasmashell's scripting D-Bus — the same mechanism the tool itself uses
+#: internally — for the modes the tool cannot express.
+_WALLPAPER_FILL_MODE_INTS: dict[str, int] = {
+    "tile": 3,
+    "tile-v": 4,
+    "tile-h": 5,
+}
+#: Pre-vocabulary packages (converted before the six-mode fill vocabulary)
+#: carry these two values; read them as their nearest modern mode so an
+#: old install still applies.
+_LEGACY_FILL_MODES: dict[str, str] = {"tiled": "tile", "scaled": "stretch"}
 
 
 class ApplyError(Exception):
@@ -749,30 +770,21 @@ def _restart_plasmashell() -> None:
         )
 
 
-def _set_wallpaper_tiled(image: Path) -> None:
-    """Set *image* as the wallpaper on all desktops, tiled.
+def _write_image_wallpaper_config(writes: dict[str, str], what: str) -> None:
+    """Write *writes* (key -> JS literal) into every desktop's Image
+    wallpaper config through plasmashell's scripting D-Bus.
 
-    Two steps because ``plasma-apply-wallpaperimage`` cannot express a
-    tiled fill (see :data:`_WALLPAPER_TILE_FILL_MODE_INT`): the tool sets
-    the image (and broadcasts the change), then a plasmashell scripting
-    call writes ``FillMode`` on every desktop's Image wallpaper config.
-    The CONFIG lands (the KCM shows Tiled) but the live render does not
-    pick it up until plasmashell restarts — see
-    :func:`_restart_plasmashell`, which ``apply_full`` runs last.
+    reloadConfig() is load-bearing: a scripting writeConfig lands in the
+    config but the Image wallpaper's bindings are only re-read on a
+    wallpaper reload (verified live 2026-08-31 — without it the config
+    says tiled while the screen keeps the old fill until next login).
     """
-    plasma_apply_wp = _which("plasma-apply-wallpaperimage")
-    _run_checked(
-        [plasma_apply_wp, str(image)], f"plasma-apply-wallpaperimage {image}"
-    )
-    # reloadConfig() is load-bearing: a scripting writeConfig lands in the
-    # config but the Image wallpaper's fillMode binding is only re-read on
-    # a wallpaper reload (verified live 2026-08-31 — without it the config
-    # says tiled while the screen keeps the old fill until next login).
+    body = "".join(f" d.writeConfig('{k}', {v});" for k, v in writes.items())
     script = (
         "for (const d of desktops()) {"
         " d.wallpaperPlugin = 'org.kde.image';"
         " d.currentConfigGroup = ['Wallpaper', 'org.kde.image', 'General'];"
-        f" d.writeConfig('FillMode', {_WALLPAPER_TILE_FILL_MODE_INT});"
+        f"{body}"
         " d.reloadConfig();"
         "}"
     )
@@ -784,8 +796,54 @@ def _set_wallpaper_tiled(image: Path) -> None:
             "org.kde.PlasmaShell.evaluateScript",
             script,
         ],
-        "plasmashell tiled-FillMode script",
+        what,
     )
+
+
+def _set_wallpaper_fill(
+    image: Path, mode: str, solid: str | None = None
+) -> bool:
+    """Set *image* as the wallpaper on all desktops with the E16 fill
+    *mode* (``analyze.wallpaper.FILL_MODES``); True when the live render
+    needs the plasmashell restart ``apply_full`` runs last.
+
+    Two dispatch paths, because ``plasma-apply-wallpaperimage -f`` only
+    knows ``stretch``/``preserveAspectFit``/``pad`` (plus a crop E16 never
+    produces): those modes go straight through the tool
+    (:data:`_WALLPAPER_FILL_MODE_TOKENS`); the three tile modes set the
+    image without ``-f`` and then write the QML ``FillMode`` int
+    (:data:`_WALLPAPER_FILL_MODE_INTS`) on every desktop's Image wallpaper
+    config. That CONFIG lands (the KCM shows the mode) but the live
+    render does not pick a scripted fill-mode up until plasmashell
+    restarts — see :func:`_restart_plasmashell`.
+
+    *solid* (``X-Themey-SolidColor``, KConfig's ``r,g,b`` QColor spelling)
+    is the block's SET_SOLID; for ``fit``/``pad`` E16 blends the image over
+    it, so the Image wallpaper's ``Color`` key — its letterbox color — is
+    written through the same scripting call shape. Tiles have no
+    letterbox, and their solid was flattened into the art at convert time.
+    """
+    plasma_apply_wp = _which("plasma-apply-wallpaperimage")
+    token = _WALLPAPER_FILL_MODE_TOKENS.get(mode)
+    if token is not None:
+        _run_checked(
+            [plasma_apply_wp, "-f", token, str(image)],
+            f"plasma-apply-wallpaperimage -f {token} {image}",
+        )
+        if solid is not None and mode in ("fit", "pad"):
+            _write_image_wallpaper_config(
+                {"Color": f"'{solid}'"}, "plasmashell letterbox-Color script"
+            )
+        return False
+
+    _run_checked(
+        [plasma_apply_wp, str(image)], f"plasma-apply-wallpaperimage {image}"
+    )
+    _write_image_wallpaper_config(
+        {"FillMode": str(_WALLPAPER_FILL_MODE_INTS[mode])},
+        f"plasmashell {mode}-FillMode script",
+    )
+    return True
 
 
 def _run_checked(argv: list[str], what: str) -> None:
@@ -850,18 +908,34 @@ def _read_default_wallpaper_id(lnf_dir: Path) -> str | None:
         return None
 
 
-def _wallpaper_fill_mode(wallpaper_dir: Path) -> str | None:
-    """``X-Themey-FillMode`` from an installed wallpaper package's
-    ``metadata.json``, or None when unreadable/absent."""
+def _wallpaper_metadata(wallpaper_dir: Path) -> dict[str, object]:
+    """An installed wallpaper package's ``metadata.json``, or ``{}`` when
+    unreadable/absent."""
     meta = wallpaper_dir / "metadata.json"
     if not meta.is_file():
-        return None
+        return {}
     try:
         data = json.loads(meta.read_text(encoding="utf-8"))
     except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _wallpaper_fill_mode(wallpaper_dir: Path) -> str | None:
+    """``X-Themey-FillMode`` from an installed wallpaper package's
+    ``metadata.json`` (legacy ``tiled``/``scaled`` mapped to their modern
+    mode), or None when unreadable/absent."""
+    mode = _wallpaper_metadata(wallpaper_dir).get("X-Themey-FillMode")
+    if not isinstance(mode, str):
         return None
-    mode = data.get("X-Themey-FillMode")
-    return mode if isinstance(mode, str) else None
+    return _LEGACY_FILL_MODES.get(mode, mode)
+
+
+def _wallpaper_solid_color(wallpaper_dir: Path) -> str | None:
+    """``X-Themey-SolidColor`` (``r,g,b``) from an installed wallpaper
+    package's ``metadata.json``, or None."""
+    solid = _wallpaper_metadata(wallpaper_dir).get("X-Themey-SolidColor")
+    return solid if isinstance(solid, str) else None
 
 
 def _wallpaper_image_path(wallpaper_dir: Path) -> Path | None:
@@ -899,11 +973,12 @@ def apply_full(
     same decoration write :func:`apply` uses (REQUIRED even though the LnF
     apply already wrote deco defaults: those land in the
     ``~/.config/kdedefaults/`` layer, and only an explicit user-layer write
-    is guaranteed to win) → if the bundle's default wallpaper is
-    ``X-Themey-FillMode: tiled``, :func:`_set_wallpaper_tiled` (Plasma's
-    Image wallpaper plugin does not itself read fill-mode from the
-    wallpaper package, and the apply tool has no tile token — see
-    :data:`_WALLPAPER_TILE_FILL_MODE_INT`) → one ``qdbus`` reconfigure,
+    is guaranteed to win) → :func:`_set_wallpaper_fill` with the bundle's
+    default wallpaper's ``X-Themey-FillMode`` (Plasma's Image wallpaper
+    plugin does not itself read fill-mode from the wallpaper package;
+    ``stretch``/``fit``/``pad`` go through the apply tool's ``-f``, the
+    tile modes through a scripted ``FillMode`` write — see
+    :data:`_WALLPAPER_FILL_MODE_INTS`) → one ``qdbus`` reconfigure,
     last. Every panel is set to fit-content and un-floated just BEFORE the
     wallpaper fix-up (:func:`_set_panels_fit` — E16's iconbox/dragbar are
     content-sized docked strips, and a full-width or floating bar reads as
@@ -1009,22 +1084,29 @@ def apply_full(
     _set_desktop_grid_column(kw, kr)
     _ensure_furniture(kw, kr)
 
-    tiled_set = False
+    needs_restart = False
     wallpaper_id = _read_default_wallpaper_id(lnf_dir)
     if wallpaper_id is not None:
         wallpaper_dir = paths.wallpapers() / wallpaper_id
-        if _wallpaper_fill_mode(wallpaper_dir) == "tiled":
-            image = _wallpaper_image_path(wallpaper_dir)
-            if image is not None:
-                _set_wallpaper_tiled(image)
-                tiled_set = True
+        mode = _wallpaper_fill_mode(wallpaper_dir)
+        image = _wallpaper_image_path(wallpaper_dir)
+        if mode is not None and image is not None:
+            if mode in _WALLPAPER_FILL_MODE_TOKENS or mode in _WALLPAPER_FILL_MODE_INTS:
+                needs_restart = _set_wallpaper_fill(
+                    image, mode, _wallpaper_solid_color(wallpaper_dir)
+                )
+            else:
+                log.warning(
+                    "wallpaper package %s carries unknown X-Themey-FillMode "
+                    "%r; leaving the wallpaper fill alone", wallpaper_id, mode,
+                )
 
     _reconfigure()
 
     # Dead last — a shell restart would race any earlier evaluateScript.
-    # Only when a tiled wallpaper was set: nothing else needs the repaint,
-    # and a non-tiled apply should not flicker the desktop.
-    if restart_shell and tiled_set:
+    # Only when a tile mode was scripted: nothing else needs the repaint,
+    # and a tool-applied fill should not flicker the desktop.
+    if restart_shell and needs_restart:
         _restart_plasmashell()
 
 

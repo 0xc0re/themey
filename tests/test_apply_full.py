@@ -134,14 +134,17 @@ def _install_fake_lnf(name: str = "e13", *, wallpaper_id: str | None = None) -> 
     return lnf
 
 
-def _install_fake_wallpaper(wp_id: str, *, fill_mode: str) -> Path:
+def _install_fake_wallpaper(
+    wp_id: str, *, fill_mode: str, solid: str | None = None
+) -> Path:
     wp = paths.wallpapers() / wp_id
     images = wp / "contents" / "images"
     images.mkdir(parents=True)
     (images / "800x600.png").write_bytes(b"\x89PNG")
-    (wp / "metadata.json").write_text(
-        json.dumps({"KPlugin": {"Id": wp_id}, "X-Themey-FillMode": fill_mode})
-    )
+    meta: dict[str, object] = {"KPlugin": {"Id": wp_id}, "X-Themey-FillMode": fill_mode}
+    if solid is not None:
+        meta["X-Themey-SolidColor"] = solid
+    (wp / "metadata.json").write_text(json.dumps(meta))
     return wp
 
 
@@ -234,7 +237,7 @@ def test_apply_full_tiled_wallpaper_triggers_fill_fixup(
     """Tiled fix-up = image apply (NO -f: the tool has no tile token on
     Plasma 6.6, verified live) + a plasmashell script writing FillMode=3."""
     _install_fake_deco("e13")
-    wp = _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tiled")
+    wp = _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tile")
     _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
     apply_mod.apply_full("e13")
     call = fake_kconfig.index_of("plasma-apply-wallpaperimage")
@@ -248,12 +251,123 @@ def test_apply_full_tiled_wallpaper_triggers_fill_fixup(
     assert script_call > call  # image first, then the fill-mode script
 
 
-def test_apply_full_scaled_wallpaper_no_fixup(fake_kconfig: FakeKConfig) -> None:
+def test_apply_full_stretch_wallpaper_uses_tool_fill_mode(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """E16 SCALED is a stretch; Plasma's default is a crop, so even the
+    plain mode goes through the tool's -f (no script, no restart)."""
     _install_fake_deco("e13")
-    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="scaled")
+    wp = _install_fake_wallpaper("themey_e13_tanbg", fill_mode="stretch")
+    _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
+    apply_mod.apply_full("e13")
+    call = fake_kconfig.index_of("plasma-apply-wallpaperimage")
+    cmd = fake_kconfig.calls[call]
+    assert cmd[cmd.index("-f") + 1] == "stretch"
+    assert str(wp / "contents" / "images" / "800x600.png") in cmd
+    assert not any("FillMode" in c[-1] for c in fake_kconfig.calls)
+    assert not any("'Color'" in c[-1] for c in fake_kconfig.calls)
+    with pytest.raises(AssertionError):
+        fake_kconfig.index_of("systemctl")
+
+
+@pytest.mark.parametrize(
+    "mode, token", [("fit", "preserveAspectFit"), ("pad", "pad")]
+)
+def test_apply_full_tool_accepted_modes_dispatch(
+    fake_kconfig: FakeKConfig, mode: str, token: str
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode=mode)
+    _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
+    apply_mod.apply_full("e13")
+    cmd = fake_kconfig.calls[fake_kconfig.index_of("plasma-apply-wallpaperimage")]
+    assert cmd[cmd.index("-f") + 1] == token
+    assert not any("FillMode" in c[-1] for c in fake_kconfig.calls)
+    with pytest.raises(AssertionError):
+        fake_kconfig.index_of("systemctl")
+
+
+@pytest.mark.parametrize(
+    "mode, qml_int", [("tile", 3), ("tile-v", 4), ("tile-h", 5)]
+)
+def test_apply_full_tile_modes_dispatch_to_script_and_restart(
+    fake_kconfig: FakeKConfig, mode: str, qml_int: int
+) -> None:
+    """The three tile modes have no tool token: image apply WITHOUT -f,
+    then the FillMode script (Qt Image.fillMode: Tile=3,
+    TileVertically=4, TileHorizontally=5), then the shell restart last."""
+    _install_fake_deco("e13")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode=mode)
+    _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
+    apply_mod.apply_full("e13")
+    i_tool = fake_kconfig.index_of("plasma-apply-wallpaperimage")
+    assert "-f" not in fake_kconfig.calls[i_tool]
+    i_script = fake_kconfig.index_of(f"writeConfig('FillMode', {qml_int})")
+    assert "reloadConfig()" in fake_kconfig.calls[i_script][-1]
+    assert i_tool < i_script
+    i_restart = fake_kconfig.index_of("systemctl")
+    assert i_restart == len(fake_kconfig.calls) - 1
+
+
+def test_apply_full_fit_with_solid_writes_letterbox_color(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """E16 blends an untiled layer over the block's solid — the letterbox
+    of a fit/pad wallpaper must show it, so the Image wallpaper's Color
+    key is written (KConfig QColor spelling) in the same scripting call
+    shape the tile fix-up uses; no restart for a tool-accepted mode."""
+    _install_fake_deco("e13")
+    _install_fake_wallpaper("themey_e13_logo", fill_mode="fit", solid="100,70,40")
+    _install_fake_lnf("e13", wallpaper_id="themey_e13_logo")
+    apply_mod.apply_full("e13")
+    i_tool = fake_kconfig.index_of("plasma-apply-wallpaperimage")
+    assert fake_kconfig.calls[i_tool][fake_kconfig.calls[i_tool].index("-f") + 1] == (
+        "preserveAspectFit"
+    )
+    i_script = fake_kconfig.index_of("writeConfig('Color', '100,70,40')")
+    script = fake_kconfig.calls[i_script][-1]
+    assert "org.kde.plasmashell" in fake_kconfig.calls[i_script]
+    assert "['Wallpaper', 'org.kde.image', 'General']" in script
+    assert "reloadConfig()" in script
+    assert "FillMode" not in script
+    assert i_tool < i_script
+    with pytest.raises(AssertionError):
+        fake_kconfig.index_of("systemctl")
+
+
+def test_apply_full_tile_with_solid_no_color_write(fake_kconfig: FakeKConfig) -> None:
+    """A tile has no letterbox — the solid is already flattened into the
+    art at convert time; nothing to write."""
+    _install_fake_deco("e13")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tile", solid="0,0,0")
+    _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
+    apply_mod.apply_full("e13")
+    assert not any("'Color'" in c[-1] for c in fake_kconfig.calls)
+
+
+@pytest.mark.parametrize(
+    "legacy, expect", [("tiled", "writeConfig('FillMode', 3)"), ("scaled", "stretch")]
+)
+def test_apply_full_legacy_fill_modes_still_readable(
+    fake_kconfig: FakeKConfig, legacy: str, expect: str
+) -> None:
+    """Packages installed by a pre-vocabulary conversion carry tiled|scaled."""
+    _install_fake_deco("e13")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode=legacy)
+    _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
+    apply_mod.apply_full("e13")
+    fake_kconfig.index_of(expect)
+
+
+def test_apply_full_unknown_fill_mode_leaves_wallpaper_alone(
+    fake_kconfig: FakeKConfig, caplog,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="wibble")
     _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
     apply_mod.apply_full("e13")
     assert not any("plasma-apply-wallpaperimage" in c[0] for c in fake_kconfig.calls)
+    assert "wibble" in caplog.text
 
 
 def test_apply_full_no_wallpaper_section_no_fixup(fake_kconfig: FakeKConfig) -> None:
@@ -391,7 +505,7 @@ def test_apply_full_wallpaper_failure_raises_apply_error(
     fake_kconfig: FakeKConfig,
 ) -> None:
     _install_fake_deco("e13")
-    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tiled")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tile")
     _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
     fake_kconfig.fail_on["plasma-apply-wallpaperimage"] = "bad fill mode"
     with pytest.raises(apply_mod.ApplyError, match="plasma-apply-wallpaperimage"):
@@ -735,7 +849,7 @@ def test_apply_full_panels_fit_before_wallpaper_fixup(
     """A failing wallpaper fix-up must not cost the panel feel: the fit
     script runs first, and the wallpaper error still raises after."""
     _install_fake_deco("e13")
-    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tiled")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tile")
     _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
     fake_kconfig.panel_read_reply = "1195=fill"
     fake_kconfig.fail_on["plasma-apply-wallpaperimage"] = "boom"
@@ -904,7 +1018,7 @@ def test_apply_full_iconbox_after_fit_before_wallpaper_and_out_of_baseline(
     PrevPanelLengthModes baseline) and BEFORE the failure-prone wallpaper
     fix-up."""
     _install_fake_deco("e13")
-    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tiled")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tile")
     _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
     fake_kconfig.panel_read_reply = "1058=fill"
     apply_mod.apply_full("e13")
@@ -964,7 +1078,7 @@ def test_apply_full_iconbox_survives_wallpaper_failure(
     fake_kconfig: FakeKConfig,
 ) -> None:
     _install_fake_deco("e13")
-    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tiled")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tile")
     _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
     fake_kconfig.fail_on["plasma-apply-wallpaperimage"] = "boom"
     with pytest.raises(apply_mod.ApplyError, match="plasma-apply-wallpaperimage"):
@@ -1074,7 +1188,7 @@ def test_apply_full_restart_skipped_when_systemctl_missing(
         lambda n: None if n == "systemctl" else f"/usr/bin/{n}",
     )
     _install_fake_deco("e13")
-    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tiled")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tile")
     _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
     apply_mod.apply_full("e13")  # must not raise
     with pytest.raises(AssertionError):
@@ -1202,7 +1316,7 @@ def test_apply_full_tiled_wallpaper_restarts_plasmashell_last(
     live) — a tiled wallpaper needs a shell restart, dead last so it cannot
     race any evaluateScript call."""
     _install_fake_deco("e13")
-    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tiled")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tile")
     _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
     apply_mod.apply_full("e13")
     i_restart = fake_kconfig.index_of("systemctl")
@@ -1213,9 +1327,9 @@ def test_apply_full_tiled_wallpaper_restarts_plasmashell_last(
     assert i_restart == len(fake_kconfig.calls) - 1
 
 
-def test_apply_full_scaled_wallpaper_no_restart(fake_kconfig: FakeKConfig) -> None:
+def test_apply_full_stretch_wallpaper_no_restart(fake_kconfig: FakeKConfig) -> None:
     _install_fake_deco("e13")
-    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="scaled")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="stretch")
     _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
     apply_mod.apply_full("e13")
     with pytest.raises(AssertionError):
@@ -1224,7 +1338,7 @@ def test_apply_full_scaled_wallpaper_no_restart(fake_kconfig: FakeKConfig) -> No
 
 def test_apply_full_no_restart_shell_opt_out(fake_kconfig: FakeKConfig) -> None:
     _install_fake_deco("e13")
-    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tiled")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tile")
     _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
     apply_mod.apply_full("e13", restart_shell=False)
     with pytest.raises(AssertionError):
@@ -1237,7 +1351,7 @@ def test_apply_full_restart_failure_only_warns(
     """The theme is fully applied by restart time — a failed restart is a
     warning (repaint waits for the next login), never a failed apply."""
     _install_fake_deco("e13")
-    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tiled")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tile")
     _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
     fake_kconfig.fail_on["systemctl"] = "unit not loaded"
     apply_mod.apply_full("e13")  # must not raise

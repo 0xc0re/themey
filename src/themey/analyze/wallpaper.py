@@ -65,7 +65,7 @@ vocabulary, which is what ``WallpaperSpec.fill_mode`` / the package's
               screen-sized layer is the same picture)
     tile      native size, repeated (TILED, TILED_CENTER)
     tile-h    scaled to screen HEIGHT, repeated across
-              (TILED_SCALED_VERTICALLY — 42 corpus themes, all gradient
+              (TILED_SCALED_VERTICALLY — 14 corpus themes, all gradient
               strips that a plain tile would repeat vertically)
     tile-v    scaled to screen WIDTH, repeated down
     pad       native size, centered (CENTERED)
@@ -99,10 +99,10 @@ logged as a ``wallpaper:``-prefixed fidelity note (per the project's
 
 * ``__FORGROUND_LAYER "<path>" ...`` / ``ADD_OVERLAY_IMAGE_*`` — a
   foreground overlay composited on top of the tiled/scaled background,
-  not a background image itself. Two live uses in the corpus; themey has
-  no overlay concept (baking one in would be wrong for tiled bases and
-  aspect-mismatched scaled bases), so it is excluded from the wallpaper
-  packages, but noted.
+  not a background image itself. Some 50 corpus themes overlay a logo
+  this way (two hand-write the raw form); themey has no overlay concept
+  (baking one in would be wrong for tiled bases and aspect-mismatched
+  scaled bases), so it is excluded from the wallpaper packages, but noted.
 * A declared path that doesn't resolve to a file under ``asset_root`` —
   dropped from the output, with a note instead of silence.
 
@@ -316,9 +316,19 @@ def _expand_macros(text: str, note: Callable[[str], None]) -> str:
         return f'__BACKGROUND_LAYER "{rel}" ' + " ".join(map(str, ints))
 
     text = _BG_MACRO_RE.sub(layer, text)
-    # Overlay geometry is irrelevant (note-only); any 5-int tail will do.
-    text = _OVERLAY_RE.sub(lambda m: f'__FORGROUND_LAYER "{m.group(2)}" 1 512 512 0 0', text)
-    return text
+
+    # Overlay macros are note-only (no compositing story — wrong for tiled
+    # bases), so they are noted here, macro name intact, and dropped
+    # rather than expanded; the raw __FORGROUND_LAYER scan then sees only
+    # hand-written overlays.
+    def overlay(m: re.Match[str]) -> str:
+        note(
+            f"wallpaper: {m.group(1)}({m.group(2)!r}) is a desktop overlay "
+            "themey cannot composite; background used without it"
+        )
+        return ""
+
+    return _OVERLAY_RE.sub(overlay, text)
 
 
 def _parse_solid(body: str) -> tuple[int, int, int] | None:
@@ -431,8 +441,7 @@ def extract_wallpaper_specs(
                 f"SET_SOLID; generating a flat rgb{solid} wallpaper"
             )
 
-    # Live overlays: real overlays exist in the grammar but themey has no
-    # compositing story for them (wrong for tiled bases); note-only.
+    # Hand-written overlays (the macro spelling was noted at expansion).
     for layer_match in _FORGROUND_LAYER_RE.finditer(text):
         rel = layer_match.group(1) or layer_match.group(2)
         note(

@@ -91,23 +91,26 @@ def write(
         found = theme.wallpaper_specs
         installed = wallpaper_specs if wallpaper_specs is not None else found
         if installed:
-            tiled = sum(1 for w in installed if w.fill_mode == "tiled")
-            scaled = len(installed) - tiled
+            # E16 fill-mode census, e.g. "2 tile-h, 1 stretch" (the
+            # vocabulary is analyze.wallpaper.FILL_MODES).
+            census: dict[str, int] = {}
+            for w in installed:
+                census[w.fill_mode] = census.get(w.fill_mode, 0) + 1
+            modes = ", ".join(f"{n} {m}" for m, n in sorted(census.items()))
             if len(installed) == len(found):
                 lines.append(
                     f"- Wallpaper: {len(installed)} background image(s) "
-                    f"installed as Plasma wallpaper packages ({tiled} "
-                    f"tiled, {scaled} scaled) — pick one under System "
-                    "Settings -> Wallpaper."
+                    f"installed as Plasma wallpaper packages ({modes}) — "
+                    "pick one under System Settings -> Wallpaper."
                 )
             else:
                 failed = len(found) - len(installed)
                 lines.append(
                     f"- Wallpaper: {len(installed)} of {len(found)} "
                     "background image(s) installed as Plasma wallpaper "
-                    f"packages ({tiled} tiled, {scaled} scaled); {failed} "
-                    "failed to convert — see wallpaper: notes below. Pick "
-                    "one under System Settings -> Wallpaper."
+                    f"packages ({modes}); {failed} failed to convert — see "
+                    "wallpaper: notes below. Pick one under System "
+                    "Settings -> Wallpaper."
                 )
         else:
             lines.append(

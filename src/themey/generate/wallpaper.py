@@ -3,10 +3,16 @@
 Format (byte-verified against an installed Plasma wallpaper package):
 
     <pkg>/metadata.json          KPlugin only (no KPackageStructure); a
-                                  custom top-level X-Themey-FillMode key so
-                                  `apply` can read tiled-ness back out of
-                                  the installed package without re-parsing
-                                  the E16 source.
+                                  custom top-level X-Themey-FillMode key
+                                  (one of analyze.wallpaper.FILL_MODES:
+                                  stretch/tile/tile-h/tile-v/pad/fit) so
+                                  `apply` can dispatch the fill without
+                                  re-parsing the E16 source, plus
+                                  X-Themey-SolidColor ("r,g,b" — KConfig's
+                                  QColor spelling) when the block carried a
+                                  SET_SOLID, the letterbox color `apply`
+                                  hands to the Image wallpaper's Color key
+                                  for fit/pad.
     <pkg>/contents/images/<W>x<H>.<ext>   the wallpaper at its REAL
                                   measured dimensions — Plasma's Image
                                   wallpaper plugin keys art by resolution
@@ -162,6 +168,8 @@ def write_package(theme: Theme, spec: WallpaperSpec, pkg_dir: Path) -> Wallpaper
             },
             "X-Themey-FillMode": spec.fill_mode,
         }
+        if spec.solid_rgb is not None:
+            meta["X-Themey-SolidColor"] = ",".join(map(str, spec.solid_rgb))
         (pkg_dir / "metadata.json").write_text(
             json.dumps(meta, indent=4, sort_keys=True) + "\n"
         )
