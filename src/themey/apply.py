@@ -769,6 +769,51 @@ def _flush_aurorae_qml_cache(kw: str) -> None:
     time.sleep(_AURORAE_FLUSH_WAIT_S)
 
 
+#: How long to wait for plasmashell to exit after a graceful quit request
+#: before restarting it anyway.
+_SHELL_QUIT_WAIT_S = 10.0
+
+
+def _quit_plasmashell_gracefully(systemctl: str) -> None:
+    """Ask plasmashell to quit cleanly and wait for it, so its config
+    reaches disk before the restart.
+
+    plasmashell flushes scripted panel writes (the furniture thickness /
+    lengthMode / minimumLength from ``_ensure_furniture``, the wallpaper
+    FillMode) LAZILY — several seconds after the script — and a
+    ``systemctl restart`` SIGTERM does not sync them: the fresh shell
+    reloaded plasmashellrc's stale ``thickness=120`` for the iconbox
+    panel right after the script had set 60 (live 2026-09-01). A
+    ``kquitapp6 plasmashell`` quit runs the corona destructors, which
+    sync; the unit goes inactive and the restart below starts it. Best
+    effort: no kquitapp, a quit that never completes, or any error just
+    falls through to the plain restart.
+    """
+    kquit = shutil.which("kquitapp6") or shutil.which("kquitapp")
+    if kquit is None:
+        return
+    try:
+        subprocess.run(
+            [kquit, "plasmashell"], capture_output=True, text=True,
+            env=paths.subprocess_env(), check=False, timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return
+    deadline = time.monotonic() + _SHELL_QUIT_WAIT_S
+    while time.monotonic() < deadline:
+        try:
+            state = subprocess.run(
+                [systemctl, "--user", "is-active", "plasma-plasmashell"],
+                capture_output=True, text=True, env=paths.subprocess_env(),
+                check=False, timeout=15,
+            ).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            return
+        if state != "active":
+            return
+        time.sleep(0.25)
+
+
 def _restart_plasmashell() -> None:
     """Restart plasmashell so a tiled wallpaper actually repaints.
 
@@ -788,6 +833,7 @@ def _restart_plasmashell() -> None:
             "out and back in) for the tiled wallpaper to repaint"
         )
         return
+    _quit_plasmashell_gracefully(systemctl)
     try:
         _run_checked(
             [systemctl, "--user", "restart", "plasma-plasmashell"],
