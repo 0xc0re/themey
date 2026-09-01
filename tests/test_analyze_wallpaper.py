@@ -683,3 +683,47 @@ def test_shipped_definitions_contributes_nothing(tmp_path: Path) -> None:
     specs = extract_wallpaper_specs(tmp_path, notes)
     assert specs == (WallpaperSpec(path=p, fill_mode="tile"),)
     assert notes == []
+
+
+# --------------------------------------------------------------------- #
+# Overlay note shape: the path stands alone (no macro('...') wrapping),
+# so survey normalizers that key on the file token see the whole note.
+# --------------------------------------------------------------------- #
+
+
+def test_overlay_macro_note_exact_text(tmp_path: Path) -> None:
+    _touch(tmp_path, "bg.png")
+    _touch(tmp_path, "artwork", "logo.png")
+    _write_cfg(
+        tmp_path,
+        'BEGIN_BACKGROUND("O")\n'
+        '  ADD_BACKGROUND_SCALED("bg.png")\n'
+        '  ADD_OVERLAY_IMAGE_BOTTOM_MIDDLE("artwork/logo.png")\n'
+        "END_BACKGROUND\n",
+    )
+    notes: list[str] = []
+    extract_wallpaper_specs(tmp_path, notes)
+    assert notes == [
+        "wallpaper: artwork/logo.png (ADD_OVERLAY_IMAGE_BOTTOM_MIDDLE) is a "
+        "desktop overlay themey cannot composite; background used without it"
+    ]
+
+
+def test_raw_forground_layer_note_exact_text(tmp_path: Path) -> None:
+    _touch(tmp_path, "bg.png")
+    _touch(tmp_path, "artwork", "fg.png")
+    _write_cfg(
+        tmp_path,
+        "__DESKTOP __BGN\n"
+        "  __NAME X\n"
+        '  __BACKGROUND_LAYER "bg.png" 0 0 0 0 1024 1024\n'
+        '  __FORGROUND_LAYER "artwork/fg.png" 1 512 512 0 0\n'
+        "__END\n",
+    )
+    notes: list[str] = []
+    extract_wallpaper_specs(tmp_path, notes)
+    assert notes == [
+        "wallpaper: artwork/fg.png (__FORGROUND_LAYER) is a foreground overlay "
+        "themey cannot composite, not a wallpaper image; background used "
+        "without it"
+    ]

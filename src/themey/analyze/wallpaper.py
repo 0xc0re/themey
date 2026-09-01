@@ -320,10 +320,12 @@ def _expand_macros(text: str, note: Callable[[str], None]) -> str:
     # Overlay macros are note-only (no compositing story — wrong for tiled
     # bases), so they are noted here, macro name intact, and dropped
     # rather than expanded; the raw __FORGROUND_LAYER scan then sees only
-    # hand-written overlays.
+    # hand-written overlays. The path leads the note as a bare token: the
+    # survey's pattern normalizer keys on it, and a macro('...') wrapper
+    # made it swallow the macro name and print "FILE')".
     def overlay(m: re.Match[str]) -> str:
         note(
-            f"wallpaper: {m.group(1)}({m.group(2)!r}) is a desktop overlay "
+            f"wallpaper: {m.group(2)} ({m.group(1)}) is a desktop overlay "
             "themey cannot composite; background used without it"
         )
         return ""
@@ -445,7 +447,7 @@ def extract_wallpaper_specs(
     for layer_match in _FORGROUND_LAYER_RE.finditer(text):
         rel = layer_match.group(1) or layer_match.group(2)
         note(
-            f"wallpaper: __FORGROUND_LAYER {rel!r} is a foreground overlay "
+            f"wallpaper: {rel} (__FORGROUND_LAYER) is a foreground overlay "
             "themey cannot composite, not a wallpaper image; background "
             "used without it"
         )
