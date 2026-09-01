@@ -31,3 +31,6 @@ tests/snapshots/__snapshots__/.cache/
 .planning/
 .superpowers/
 .claude/
+
+# Git worktrees (local only)
+.worktrees/
