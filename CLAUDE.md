@@ -258,7 +258,7 @@ QML-backend contracts:
    x_out`) so adjacent parts stay seamless at fractional scales; identical
    to `v*scale` at integer scales. Scale may be fractional ([1,3], 2
    decimals) — **QML-backend-only**; svg/both hard-error. Change both
-   resolvers together and bump `RUNTIME_VERSION` (currently 2);
+   resolvers together and bump `RUNTIME_VERSION` (currently 3);
    `tests/test_qmldeco_geometry.py` pins e13 ground truth (KILL
    40x38@(0,0), stack x=9, plaque = textwidth+25) at scale 2 and 1.5.
 2. **theme.js is pure data** (`var theme = {...}` — no runtime I/O/XHR);
@@ -266,7 +266,18 @@ QML-backend contracts:
    time. Geometry fields are UNSCALED ref px; `borders`/`insets`/`pixelSize`
    are pre-scaled via `scale_px`, and exported art targets the same
    `scale_px` dims (`upscale_part`) so BorderImage insets always match the
-   shipped PNGs.
+   shipped PNGs. Insets are PER IMAGE SLOT (`slotInsets[slot]`, `insets` =
+   the normal slot's) because E16's `__EDGE_SCALING` is per image state
+   (`iclass.c` `ICLASS_LRTB` writes `is->border` on the state last opened;
+   `IClassSpec.edge_by_state` / `edge_for(state)`, last-wins
+   `edge_scaling` as the fallback for states without their own edge).
+   Captions: `text.effect` is `none|shadow|outline` from
+   `__DRAWING_EFFECT` (tokens or E16's numeric 0/1/2), painted in the
+   tclass state's `__BACKGROUND_COLOR` (`effectColorNormal`/`Active`;
+   E16 `text.c` TsTextDraw uses `bg_col`, calloc'ed black by default —
+   `__EFFECT_COLOR` is NOT an E16 keyword), and `ThemeyPart.qml` places
+   the caption inside the part with E16's `((limit − textw) × just) >> 10`
+   so 512 centers even on a fixed-width title bar.
 3. **KPlugin Id == package dir name == kwinrc `theme=`** (`slug.plugin_id`,
    `themey_<slug>`). QML applies must NOT write BorderSize or
    ButtonsOnLeft/Right — the theme draws its own buttons and unclamped

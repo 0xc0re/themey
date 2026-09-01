@@ -91,6 +91,27 @@ class IClassSpec:
     # from __EDGE_SCALING, which is the 9-patch slice configuration. No
     # consumer yet — captured for a future fidelity pass.
     padding: tuple[int, int, int, int] = (0, 0, 0, 0)
+    # Per-state __EDGE_SCALING. E16 attaches the edge to the most recently
+    # opened image state (iclass.c ICLASS_LRTB writes ``is->border``), so
+    # hover/pressed/inactive art may slice differently from normal art.
+    # Keyed by the state ATTRIBUTE name (``"normal"``, ``"hilited_active"``,
+    # …; states not on this dataclass such as ``"disabled"`` are kept too).
+    # ``edge_scaling`` above stays the last-wins iclass-wide value —
+    # consumers go through :meth:`edge_for`.
+    edge_by_state: dict[str, tuple[int, int, int, int]] = field(default_factory=dict)
+
+    def edge_for(self, state: str) -> tuple[int, int, int, int]:
+        """The 9-patch edge E16 used for *state*'s art.
+
+        *state* is a state attribute name (``"hilited"``) or the E16
+        keyword (``"__HILITED"``). A state without its own ``__EDGE_SCALING``
+        falls back to the iclass-wide ``edge_scaling`` (last declared edge —
+        the pre-per-state behaviour every consumer relied on; E16 itself
+        would draw such a state unsliced, but the corpus overwhelmingly
+        declares one edge after the first state and means it for all).
+        """
+        key = state[2:].lower() if state.startswith("__") else state
+        return self.edge_by_state.get(key, self.edge_scaling)
 
 
 @dataclass(frozen=True)
@@ -117,18 +138,25 @@ class TClassSpec:
 
     ``alignment`` is normalized to Aurorae's vocabulary ("Left", "Center",
     "Right") at parse time so the writer can pass it through as-is.
-    ``effect`` is the raw E16 token (e.g. ``"__EFFECT_SHADOW"`` /
-    ``"__EFFECT_NONE"``); the writer interprets it. ``effect_color`` is
-    the optional ``__EFFECT_COLOR R G B`` triple — defaults to ``None``
-    because most themes leave it implicit.
+    ``effect`` is the raw E16 ``__DRAWING_EFFECT`` value (token such as
+    ``"__EFFECT_SHADOW"`` or the numeric form from ``config/definitions``:
+    0 none/normal, 1 shadow, 2 outline); :attr:`effect_kind` normalizes
+    it. E16 paints the shadow/outline in the state's ``bg_col``
+    (``text.c`` TsTextDraw), which ``__BACKGROUND_COLOR`` sets after the
+    state keyword (``tclass.c`` TEXT_BG_COL) — ``bg_normal``/``bg_active``
+    carry those; ``effect_color`` is the derived single color the legacy
+    SVG backend keys off. There is no ``__EFFECT_COLOR`` keyword in E16.
+    E16's default ``bg_col`` is calloc'ed black; consumers fall back to
+    black when the fields are ``None``.
     """
 
     name: str  # e.g. "TEXT1"
     fg_normal: tuple[int, int, int] | None  # __FORGROUND_COLOR after __NORMAL
     fg_active: tuple[int, int, int] | None  # __FORGROUND_COLOR after __NORMAL_ACTIVE
     alignment: str | None = None  # "Left" | "Center" | "Right"
-    effect: str | None = None  # raw __DRAWING_EFFECT token, e.g. __EFFECT_SHADOW
-    effect_color: tuple[int, int, int] | None = None
+    effect: str | None = None  # raw __DRAWING_EFFECT value, e.g. __EFFECT_SHADOW
+    bg_normal: tuple[int, int, int] | None = None  # __BACKGROUND_COLOR after __NORMAL
+    bg_active: tuple[int, int, int] | None = None  # … after __NORMAL_ACTIVE
     # Raw Q10 __JUSTIFICATION (0 = left, 512 = center, 1024 = right), E16
     # last-wins semantics across the whole block (E16 keeps one justification
     # per tclass, not per state). ``alignment`` above stays the normalized
@@ -141,6 +169,31 @@ class TClassSpec:
     # Alias name (without '*') from font_active or font_normal, when either
     # is an alias reference. Key into Theme.fonts.
     font_alias: str | None = None
+
+    @property
+    def effect_color(self) -> tuple[int, int, int] | None:
+        """Single effect color for consumers without per-state text (the SVG
+        backend's Aurorae rc): the normal state's ``bg_col``, else active."""
+        return self.bg_normal if self.bg_normal is not None else self.bg_active
+
+    @property
+    def effect_kind(self) -> str:
+        """``"none"`` | ``"shadow"`` | ``"outline"`` from ``effect``.
+
+        Accepts the ``__EFFECT_*`` tokens and E16's numeric encoding
+        (``config/definitions``: NONE/NORMAL 0, SHADOW 1, OUTLINE 2). Any
+        other token (``__EFFECT_NICE``, ``__NONE``) is what E16's ``atoi``
+        makes of an undefined macro: 0, no effect.
+        """
+        raw = self.effect
+        if raw is None:
+            return "none"
+        token = str(raw).strip().upper()
+        if token in ("__EFFECT_SHADOW", "1"):
+            return "shadow"
+        if token in ("__EFFECT_OUTLINE", "2"):
+            return "outline"
+        return "none"
 
 
 @dataclass(frozen=True)

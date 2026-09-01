@@ -275,7 +275,6 @@ def test_tclass_justification_maps_to_titlealignment(tmp_path: Path) -> None:
                 fg_active=(255, 255, 255),
                 alignment="Left",
                 effect=None,
-                effect_color=None,
             )
         },
         button_codes={}, left_buttons="", right_buttons="",

@@ -354,3 +354,76 @@ def test_exported_image_dims_follow_scale_px_at_fractional_scale(tmp_path, mode)
     for relname, (sw, sh) in sources.items():
         with Image.open(pkg / "contents" / "images" / relname) as out:
             assert out.size == (scale_px(sw, 1.5), scale_px(sh, 1.5)), relname
+
+
+def test_slot_insets_follow_per_state_edge_scaling(tmp_path):
+    """E16's __EDGE_SCALING is per image state (iclass.c ICLASS_LRTB writes
+    is->border on the state last opened): a hover state sliced 6/6/6/6
+    must ship 6-px insets while the normal state keeps its 2/2/2/2 —
+    one shared inset set would slice the hover art with the wrong caps."""
+    from PIL import Image
+
+    from themey.generate.qmldeco.theme_js import _BUTTON_SLOTS, _clamped_insets
+    from themey.ir import IClassSpec
+
+    normal = tmp_path / "normal.png"
+    hilited = tmp_path / "hilited.png"
+    Image.new("RGBA", (20, 20)).save(normal)
+    Image.new("RGBA", (20, 20)).save(hilited)
+    ic = IClassSpec(
+        name="BTN",
+        edge_scaling=(6, 6, 6, 6),  # last-wins iclass-wide value
+        normal=normal,
+        normal_active=None,
+        hilited=hilited,
+        hilited_active=None,
+        clicked=None,
+        clicked_active=None,
+        normal_sticky=None,
+        normal_active_sticky=None,
+        edge_by_state={"normal": (2, 2, 2, 2), "hilited": (6, 6, 6, 6)},
+    )
+    assert _clamped_insets(ic, 2, "normal") == {
+        "left": 4, "right": 4, "top": 4, "bottom": 4
+    }
+    assert _clamped_insets(ic, 2, "hilited") == {
+        "left": 12, "right": 12, "top": 12, "bottom": 12
+    }
+    # pressed has no clicked art → falls back to normal art AND normal's edge
+    assert _clamped_insets(ic, 2, "clicked") == _clamped_insets(ic, 2, None)
+    assert "pressed" in _BUTTON_SLOTS
+
+
+def test_theme_js_text_effect_and_colors(tmp_path):
+    """Caption effect vocabulary: __DRAWING_EFFECT __EFFECT_OUTLINE renders
+    as ``effect: "outline"`` painted in the state's __BACKGROUND_COLOR
+    (E16 text.c TsTextDraw draws the effect in bg_col); the active state
+    carries its own colour; undeclared bg is E16's calloc'ed black."""
+    from themey.analyze.build_theme import build_theme
+    from themey.etheme.archive import extract
+    from themey.etheme.parse import parse_tree
+    from themey.generate.qmldeco.theme_js import build_theme_data
+    from themey.ir import TClassSpec
+
+    with extract(FIXTURES / "e13.etheme") as raw:
+        theme = build_theme(
+            raw.asset_root, parse_tree(raw.asset_root), name="e13",
+            display_name="e13", scale=2,
+        )
+        title = next(p for p in theme.border.parts if "__FLAG_TITLE" in p.flags)
+        name = title.tclass_name or "TEXT1"
+        old = theme.tclasses[name]
+        theme.tclasses[name] = TClassSpec(
+            name=old.name, fg_normal=(1, 2, 3), fg_active=(4, 5, 6),
+            effect="__EFFECT_OUTLINE", bg_normal=(10, 20, 30), bg_active=None,
+            justification_q10=1024, font_normal=old.font_normal,
+            font_active=old.font_active, font_alias=old.font_alias,
+        )
+        data, _manifest, _fonts = build_theme_data(theme)
+    part = next(p for p in data["parts"] if p["isTitle"])
+    assert part["justification"] == 1024
+    assert part["text"]["effect"] == "outline"
+    assert part["text"]["effectColorNormal"] == "#0a141e"
+    assert part["text"]["effectColorActive"] == "#0a141e"  # falls back to normal
+    assert part["text"]["colorActive"] == "#040506"
+    assert "shadow" not in part["text"]

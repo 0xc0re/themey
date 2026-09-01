@@ -250,3 +250,57 @@ def test_iclass_padding_defaults_to_zero(tmp_path: Path) -> None:
     block = Block(keyword="__ICLASS", head_values=("BAR",), children=(), line=0)
     typed, _raw = build_iclasses([block], tmp_path)
     assert typed["BAR"].padding == (0, 0, 0, 0)
+
+
+# ---------------------------------------------------------------------------
+# Per-state __EDGE_SCALING (E16 iclass.c ICLASS_LRTB writes is->border on
+# the most recently opened image state)
+# ---------------------------------------------------------------------------
+
+
+def test_iclass_edge_scaling_is_per_state(tmp_path: Path) -> None:
+    block = _iclass_block(
+        "X",
+        _kv("__NORMAL", "n.png"),
+        _kv("__EDGE_SCALING", 1, 2, 3, 4),
+        _kv("__HILITED", "h.png"),
+        _kv("__EDGE_SCALING", 5, 6, 7, 8),
+        _kv("__CLICKED", "c.png"),
+    )
+    typed, _raw = build_iclasses([block], tmp_path)
+    spec = typed["X"]
+    assert spec.edge_for("normal") == (1, 2, 3, 4)
+    assert spec.edge_for("hilited") == (5, 6, 7, 8)
+    # No edge of its own → the last-wins iclass edge (compat behaviour).
+    assert spec.edge_for("clicked") == (5, 6, 7, 8)
+    assert spec.edge_scaling == (5, 6, 7, 8)
+    assert spec.edge_by_state == {"normal": (1, 2, 3, 4), "hilited": (5, 6, 7, 8)}
+
+
+def test_iclass_edge_scaling_before_any_state_is_the_iclass_default(
+    tmp_path: Path,
+) -> None:
+    """E16 rejects an edge before a state ('is needed'); themey keeps the
+    lenient reading (iclass-wide default) that every fixture relied on."""
+    block = _iclass_block(
+        "X",
+        _kv("__EDGE_SCALING", 1, 1, 1, 1),
+        _kv("__NORMAL", "n.png"),
+        _kv("__HILITED", "h.png"),
+        _kv("__EDGE_SCALING", 2, 2, 2, 2),
+    )
+    spec = build_iclasses([block], tmp_path)[0]["X"]
+    assert spec.edge_for("normal") == (2, 2, 2, 2)  # no own edge → last wins
+    assert spec.edge_for("hilited") == (2, 2, 2, 2)
+    assert spec.edge_by_state == {"hilited": (2, 2, 2, 2)}
+
+
+def test_iclass_edge_for_accepts_keyword_form(tmp_path: Path) -> None:
+    block = _iclass_block(
+        "X",
+        _kv("__NORMAL_ACTIVE", "n.png"),
+        _kv("__EDGE_SCALING", 3, 3, 3, 3),
+    )
+    spec = build_iclasses([block], tmp_path)[0]["X"]
+    assert spec.edge_for("__NORMAL_ACTIVE") == (3, 3, 3, 3)
+    assert spec.edge_for("normal_active") == (3, 3, 3, 3)

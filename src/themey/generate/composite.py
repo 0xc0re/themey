@@ -554,7 +554,7 @@ def corner_extents(theme: Theme) -> dict[str, int]:
             # Centre-spanning top-band strip: its unstretchable
             # __EDGE_SCALING caps must fit inside the corner cells.
             ic = theme.iclasses.get(part.iclass_name)
-            edge_l, edge_r = (ic.edge_scaling[0], ic.edge_scaling[1]) if ic else (0, 0)
+            edge_l, edge_r = ic.edge_for("normal")[:2] if ic else (0, 0)
             if edge_l > 0:
                 left = max(left, x0 + edge_l)
             if edge_r > 0:
@@ -796,27 +796,38 @@ def _resize_with_edge_scaling(
     return out
 
 
-def _iclass_image(ic: IClassSpec | None, prefer_active: bool) -> Image.Image | None:
+def _iclass_image_state(
+    ic: IClassSpec | None, prefer_active: bool
+) -> tuple[Image.Image, str] | None:
     """Open the iclass's primary image, preferring active if requested.
 
-    Returns an unscaled RGBA Image, or None if no image is available.
+    Returns ``(unscaled RGBA Image, state attribute name)`` so the caller
+    can slice with that state's own ``__EDGE_SCALING`` (``edge_for``), or
+    None if no image is available.
     """
     if ic is None:
         return None
-    candidates: tuple[Path | None, ...]
+    candidates: tuple[str, ...]
     if prefer_active:
-        candidates = (ic.normal_active, ic.normal)
+        candidates = ("normal_active", "normal")
     else:
-        candidates = (ic.normal, ic.normal_active)
-    for p in candidates:
+        candidates = ("normal", "normal_active")
+    for state in candidates:
+        p: Path | None = getattr(ic, state)
         if p is None or not p.is_file():
             continue
         try:
             with Image.open(p) as src:
-                return src.convert("RGBA")
+                return src.convert("RGBA"), state
         except Exception:
             continue
     return None
+
+
+def _iclass_image(ic: IClassSpec | None, prefer_active: bool) -> Image.Image | None:
+    """:func:`_iclass_image_state` without the state — see there."""
+    picked = _iclass_image_state(ic, prefer_active)
+    return picked[0] if picked is not None else None
 
 
 def compose_region(
@@ -892,9 +903,10 @@ def compose_region(
         if ix1 <= ix0 or iy1 <= iy0:
             continue
         ic = theme.iclasses.get(part.iclass_name)
-        img = _iclass_image(ic, prefer_active)
-        if img is None:
+        picked = _iclass_image_state(ic, prefer_active)
+        if picked is None:
             continue
+        img, img_state = picked
 
         part_w_ref = px1 - px0
         part_h_ref = py1 - py0
@@ -904,7 +916,7 @@ def compose_region(
         target_h = max(1, part_h_ref * scale)
         img = _resize_with_edge_scaling(
             img,
-            ic.edge_scaling if ic is not None else (0, 0, 0, 0),
+            ic.edge_for(img_state) if ic is not None else (0, 0, 0, 0),
             target_w,
             target_h,
             scale,

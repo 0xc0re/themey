@@ -41,7 +41,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 
-RUNTIME_VERSION = 2
+RUNTIME_VERSION = 3
 
 _MAX_ORIGIN_DEPTH = 8
 

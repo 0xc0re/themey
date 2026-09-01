@@ -1,11 +1,15 @@
 // themey QML runtime v1 — one E16 border part.
 // Geometry comes from resolver.js (live bindings against the decoration
 // frame size and the measured caption); imagery is a BorderImage whose
-// border insets are the part's pre-scaled __EDGE_SCALING; title parts draw
-// the caption (with optional E16 shadow effect); button parts host a
-// DecorationButton via ThemeyButton so clicks fire window requests from
-// ANY border location. References main.qml's `root` id through the QML
-// context chain, exactly like Plastik's PlastikButton does.
+// border insets are the pre-scaled __EDGE_SCALING of the image SLOT being
+// shown (E16 slices per image state — part.slotInsets[slot], part.insets
+// as the fallback); title parts draw the caption positioned by E16's
+// justification formula (text.c: x + ((limit - textw) * justh) >> 10),
+// with the E16 shadow (+1,+1) / outline effect in the tclass state's
+// __BACKGROUND_COLOR; button parts host a DecorationButton via
+// ThemeyButton so clicks fire window requests from ANY border location.
+// References main.qml's `root` id through the QML context chain, exactly
+// like Plastik's PlastikButton does.
 //
 // Delegate contract: `modelData`/`index` are REQUIRED properties filled by
 // the Repeater — declaring required properties disables context-property
@@ -55,43 +59,76 @@ Item {
     readonly property bool toggled: buttonLoader.item ? buttonLoader.item.toggled === true : false
     readonly property var textCfg: partItem.part && partItem.part.text ? partItem.part.text : null
 
+    // The image slot currently shown — resolved once so the BorderImage
+    // source and its per-slot insets can never disagree.
+    readonly property string imageSlot: {
+        var imgs = partItem.part ? partItem.part.images : null;
+        if (!imgs)
+            return "";
+        var a = root.clientActive;
+        if (partItem.pressed)
+            return a && imgs.pressedActive ? "pressedActive" : (imgs.pressed ? "pressed" : "normal");
+        if (partItem.hovered)
+            return a && imgs.hoverActive ? "hoverActive" : (imgs.hover ? "hover" : "normal");
+        // `|| pressed` keeps a stale installed theme.js (no toggled
+        // slots) degrading to clicked art instead of blank.
+        if (partItem.toggled)
+            return a && imgs.toggledActive ? "toggledActive"
+                 : (imgs.toggled ? "toggled" : (imgs.pressed ? "pressed" : "normal"));
+        return a && imgs.normalActive ? "normalActive" : "normal";
+    }
+    readonly property var slotInsets: {
+        var p = partItem.part;
+        if (!p)
+            return { left: 0, right: 0, top: 0, bottom: 0 };
+        if (p.slotInsets && p.slotInsets[partItem.imageSlot])
+            return p.slotInsets[partItem.imageSlot];
+        return p.insets;
+    }
+
     BorderImage {
         anchors.fill: parent
         visible: partItem.part !== null && partItem.part.images !== null
         source: {
             var imgs = partItem.part ? partItem.part.images : null;
-            if (!imgs)
+            if (!imgs || !partItem.imageSlot)
                 return "";
-            var a = root.clientActive;
-            if (partItem.pressed)
-                return Qt.resolvedUrl(a && imgs.pressedActive ? imgs.pressedActive : (imgs.pressed || imgs.normal));
-            if (partItem.hovered)
-                return Qt.resolvedUrl(a && imgs.hoverActive ? imgs.hoverActive : (imgs.hover || imgs.normal));
-            // `|| imgs.pressed` keeps a stale installed theme.js (no
-            // toggled slots) degrading to clicked art instead of blank.
-            if (partItem.toggled)
-                return Qt.resolvedUrl(a && imgs.toggledActive ? imgs.toggledActive : (imgs.toggled || imgs.pressed || imgs.normal));
-            return Qt.resolvedUrl(a && imgs.normalActive ? imgs.normalActive : imgs.normal);
+            return Qt.resolvedUrl(imgs[partItem.imageSlot] || imgs.normal);
         }
-        border.left: partItem.part ? partItem.part.insets.left : 0
-        border.right: partItem.part ? partItem.part.insets.right : 0
-        border.top: partItem.part ? partItem.part.insets.top : 0
-        border.bottom: partItem.part ? partItem.part.insets.bottom : 0
+        border.left: partItem.slotInsets.left
+        border.right: partItem.slotInsets.right
+        border.top: partItem.slotInsets.top
+        border.bottom: partItem.slotInsets.bottom
         smooth: false
     }
 
-    // Caption text — only title parts carry a text config. The part is
-    // already text-sized by the resolver, so the text fills the padding box
-    // (pads are ref px; scale to output px for pixel positioning).
+    // Caption text — only title parts carry a text config. The caption
+    // sits inside the padding box (pads are ref px; scale to output px)
+    // at E16's justified offset: TextDraw's
+    //   xx = x + (((textwidth_limit - ww) * justh) >> 10)
+    // so 0 hugs the left pad, 512 centers, 1024 hugs the right pad. A
+    // text-sized plaque leaves no slack (the resolver already placed the
+    // part); a fixed-width title bar is where this matters.
+    readonly property int captionAvail: partItem.part
+        ? Math.max(0, partItem.width
+                   - Math.round((partItem.part.padLeft + partItem.part.padRight)
+                                * partItem.outScale))
+        : 0
+    // Natural width comes from main.qml's hidden measurer (titleTextWidth)
+    // — reading this item's own implicitWidth while elide is set trips
+    // QML's binding-loop detector.
     Text {
         id: captionText
         visible: partItem.textCfg !== null && !partItem.part.vertical
-        x: partItem.part ? Math.round(partItem.part.padLeft * partItem.outScale) : 0
-        width: partItem.part
-               ? Math.max(0, partItem.width
-                          - Math.round((partItem.part.padLeft + partItem.part.padRight)
-                                       * partItem.outScale))
-               : 0
+        width: Math.min(partItem.captionAvail, root.titleTextWidth(partItem.partIndex))
+        x: {
+            if (!partItem.part)
+                return 0;
+            var just = partItem.part.justification === undefined ? 512 : partItem.part.justification;
+            var slack = Math.max(0, partItem.captionAvail - width);
+            return Math.round(partItem.part.padLeft * partItem.outScale)
+                 + ((slack * just) >> 10);
+        }
         anchors.verticalCenter: parent.verticalCenter
         anchors.verticalCenterOffset: partItem.part
             ? Math.round((partItem.part.padTop - partItem.part.padBottom)
@@ -107,9 +144,16 @@ Item {
         font.pixelSize: partItem.textCfg ? partItem.textCfg.pixelSize : 10
         font.italic: root.fontStyleAt(partItem.textCfg, "italic")
         font.bold: root.fontStyleAt(partItem.textCfg, "bold")
-        style: partItem.textCfg && partItem.textCfg.shadow
-               ? Text.Raised : Text.Normal
-        styleColor: partItem.textCfg ? partItem.textCfg.shadowColor : "#000000"
+        // E16 TsTextDraw: effect 1 = one bg_col copy at (+1,+1) — Qt's
+        // Text.Raised; effect 2 = four bg_col copies at the orthogonal
+        // neighbours — Text.Outline. The color is the state's bg_col.
+        style: partItem.textCfg && partItem.textCfg.effect === "shadow" ? Text.Raised
+             : (partItem.textCfg && partItem.textCfg.effect === "outline" ? Text.Outline
+                                                                          : Text.Normal)
+        styleColor: partItem.textCfg
+                    ? (root.clientActive ? partItem.textCfg.effectColorActive
+                                         : partItem.textCfg.effectColorNormal)
+                    : "#000000"
     }
 
     // Vertical titles (best-effort): same text rotated to run down the part.
