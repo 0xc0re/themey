@@ -323,3 +323,55 @@ def test_title_tclass_falls_back_to_text1() -> None:
 def test_title_tclass_none_when_nothing_matches() -> None:
 
     assert title_tclass(_title_border("MISSING"), {}) is None
+
+
+# ---------------------------------------------------------------------------
+# E16 text-state groups (tclass.c TextclassPopulate), per-state effect,
+# __ORIENTATION
+# ---------------------------------------------------------------------------
+
+
+def test_tclass_per_state_effect_and_orientation() -> None:
+    """tclass.c:327-329 stores __DRAWING_EFFECT on the CURRENT TextState;
+    43 corpus themes shadow only the focused title. __ORIENTATION tokens
+    come from config/definitions (RIGHT 0, DOWN 1, UP 2, LEFT 3); an
+    undefined token (``__UP``) is atoi 0."""
+    block = _tclass_block(
+        "TEXT1",
+        _kv("__ORIENTATION", "__FONT_TO_UP"),
+        _kv("__NORMAL", "*font-default"),
+        _kv("__DRAWING_EFFECT", "__EFFECT_NONE"),
+        _kv("__FORGROUND_COLOR", 1, 2, 3),
+        _kv("__NORMAL_ACTIVE", "*font-default"),
+        _kv("__DRAWING_EFFECT", "__EFFECT_SHADOW"),
+        _kv("__FORGROUND_COLOR", 4, 5, 6),
+    )
+    tc = build_tclasses([block])["TEXT1"]
+    assert tc.effect_for("normal") == "none"
+    assert tc.effect_for("normal_active") == "shadow"
+    assert tc.orientation == 2
+    numeric = build_tclasses([_tclass_block("A", _kv("__ORIENTATION", 1))])["A"]
+    assert numeric.orientation == 1
+    undefined = build_tclasses([_tclass_block("B", _kv("__ORIENTATION", "__UP"))])["B"]
+    assert undefined.orientation == 0
+
+
+def test_tclass_sticky_and_hilited_chains() -> None:
+    """TextclassPopulate: sticky.normal and sticky_active.normal both fall
+    back to norm.normal (NOT active.normal); hilited falls back within its
+    group (active.hilited ← active.normal)."""
+    block = _tclass_block(
+        "TEXT1",
+        _kv("__NORMAL"), _kv("__FORGROUND_COLOR", 1, 1, 1),
+        _kv("__NORMAL_ACTIVE"), _kv("__FORGROUND_COLOR", 2, 2, 2),
+        _kv("__NORMAL_STICKY"), _kv("__FORGROUND_COLOR", 3, 3, 3),
+        _kv("__HILITED"), _kv("__FORGROUND_COLOR", 4, 4, 4),
+    )
+    tc = build_tclasses([block])["TEXT1"]
+    assert tc.fg_for("normal") == (1, 1, 1)
+    assert tc.fg_for("normal_active") == (2, 2, 2)
+    assert tc.fg_for("normal_sticky") == (3, 3, 3)
+    assert tc.fg_for("normal_active_sticky") == (1, 1, 1)
+    assert tc.fg_for("hilited") == (4, 4, 4)
+    assert tc.fg_for("hilited_active") == (2, 2, 2)
+    assert tc.fg_for("clicked_sticky") == (3, 3, 3)

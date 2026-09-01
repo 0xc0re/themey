@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Text states, orientation, hovered menu text** — the title caption
+  follows E16's four text-state groups (a sticky window's title uses the
+  `__NORMAL_STICKY`/`__NORMAL_ACTIVE_STICKY` colour, font effect and effect
+  colour; `sticky_active` falls back to `normal`, as `TextclassPopulate`
+  does), `__DRAWING_EFFECT` is per state (43 corpus themes shadow only the
+  focused title), `__ORIENTATION` is honoured (`__FONT_TO_UP` reads
+  bottom-to-top, `__FONT_TO_DOWN` top-to-bottom; 72 themes), long
+  captions elide in the middle like E16, the Plasma Selection text colour
+  comes from the menu tclass's `__HILITED` state (61 themes; E16 never
+  consults `__NORMAL_ACTIVE` for menus), and a vertical separator uses
+  the `__CLICKED` art (107 themes) as `dialog.c` draws it.
 - **Sticky-window art** — the QML decoration now carries E16's sticky and
   sticky-active image groups (`*Sticky` slots) and shows them on windows on
   all desktops, as E16 did for every part (122 corpus themes ship distinct

@@ -2275,10 +2275,27 @@ def build_line(theme: Theme) -> ET.Element | None:
         ),
     )
     line = rgba.resize(target, resample=Image.Resampling.NEAREST)
+    # dialog.c:1380-1383: E16 draws a VERTICAL separator with the iclass's
+    # STATE_CLICKED art (107 corpus themes author one); without it, the
+    # horizontal art rotated.
+    vertical: Image.Image
+    clicked_path = src.clicked or src.clicked_active
+    if clicked_path is not None and clicked_path.is_file():
+        with Image.open(clicked_path) as im:
+            vr = im.convert("RGBA")
+        vtarget = (
+            max(1, scale_px(min(vr.width, LINE_MAX_REF_THICKNESS), theme.scale)),
+            max(1, scale_px(vr.height, theme.scale)),
+        )
+        vertical = vr.resize(vtarget, resample=Image.Resampling.NEAREST)
+        vertical_note = " (vertical rule from the __CLICKED art, as E16 drew it)"
+    else:
+        vertical = line.transpose(Image.Transpose.ROTATE_90)
+        vertical_note = "; the vertical rule is the same art rotated"
     canvas = _Canvas()
     for element, img in (
         ("horizontal-line", line),
-        ("vertical-line", line.transpose(Image.Transpose.ROTATE_90)),
+        ("vertical-line", vertical),
     ):
         _emit_plain_row(canvas, [(element, img)])
     theme.notes.append(
@@ -2290,7 +2307,7 @@ def build_line(theme: Theme) -> ET.Element | None:
             if clamped
             else ""
         )
-        + "; the vertical rule is the same art rotated"
+        + vertical_note
     )
     return canvas.finish()
 
@@ -2404,6 +2421,25 @@ def _tclass_fg(theme: Theme, name: str, field: str = "fg_normal") -> RGB | None:
     return getattr(t, field) if t is not None else None
 
 
+def _menu_tclass_name(theme: Theme) -> str:
+    """The DEFAULT/ROOT menu style's own ``__TCLASS`` (6 corpus blocks name
+    ``MENU``), else the ``MENU_TEXT`` convention."""
+    style = _menu_style(theme)
+    if style is not None and style.tclass and style.tclass in theme.tclasses:
+        return style.tclass
+    return "MENU_TEXT"
+
+
+def _menu_hover_fg(theme: Theme) -> RGB | None:
+    """menus.c:1000 draws a hovered item with STATE_HILITED and active=0:
+    tclass norm.hilited → norm.normal. __NORMAL_ACTIVE is never consulted."""
+    t = theme.tclasses.get(_menu_tclass_name(theme))
+    if t is None:
+        return None
+    fg = t.fg_for("hilited")
+    return fg if fg is not None else t.fg_normal
+
+
 def style_scheme(theme: Theme, *, shipped: frozenset[str]) -> ColorScheme:
     """``theme.scheme`` with the panel-facing groups re-anchored to the art
     this package actually ships.
@@ -2509,21 +2545,21 @@ def style_scheme(theme: Theme, *, shipped: frozenset[str]) -> ColorScheme:
                 + (f"forced to rgb{fg} for contrast" if forced else "from tclass TT_TEXT")
             )
 
-    # Colors:Selection — MENU_SEL hover art; fg_active is the closest thing
-    # the IR carries to a "selected text" color (approximation).
+    # Colors:Selection — MENU_SEL hover art; the text is what E16 drew on a
+    # hovered menu item: the menu tclass's hilited state (→ normal).
     if VIEWITEM_SVG in shipped:
         sel = theme.iclasses.get("MENU_SEL")
         path = _state_image(sel, "hover")
         bg = extract_dominant(path) if path is not None else None
         if bg is not None:
             fg, forced = _fg_for(
-                _tclass_fg(theme, "MENU_TEXT", "fg_active"),
+                _menu_hover_fg(theme),
                 scheme.selection.foreground_normal, (bg,),
             )
             scheme = replace(scheme, selection=_regroup(scheme.selection, bg, fg))
             theme.notes.append(
                 "plasmastyle: colors Selection from MENU_SEL hover art; text "
-                "approximated from MENU_TEXT's active color"
+                f"from tclass {_menu_tclass_name(theme)}'s hilited state"
                 + (f", forced to rgb{fg} for contrast" if forced else "")
             )
 

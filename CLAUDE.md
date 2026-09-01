@@ -287,13 +287,22 @@ QML-backend contracts:
    (`iclass.c` `ICLASS_LRTB` writes `is->border` on the state last opened;
    `IClassSpec.edge_by_state` / `edge_for(state)`, last-wins
    `edge_scaling` as the fallback for states without their own edge).
-   Captions: `text.effect` is `none|shadow|outline` from
-   `__DRAWING_EFFECT` (tokens or E16's numeric 0/1/2), painted in the
+   Captions: `text.effect*` is `none|shadow|outline` from
+   `__DRAWING_EFFECT` PER STATE (`tclass.c:327` stores it on the current
+   TextState — `effectNormal/Active/Sticky/StickyActive`, and the same
+   four for `color*`/`effectColor*`; `ThemeyPart.qml` picks by
+   `clientActive` × `clientOnAllDesktops`, `TClassSpec.fg_for/effect_for`
+   resolve through `TextclassPopulate`'s chain where sticky_active.normal
+   → norm.normal), painted in the
    tclass state's `__BACKGROUND_COLOR` (`effectColorNormal`/`Active`;
    E16 `text.c` TsTextDraw uses `bg_col`, calloc'ed black by default —
    `__EFFECT_COLOR` is NOT an E16 keyword), and `ThemeyPart.qml` places
    the caption inside the part with E16's `((limit − textw) × just) >> 10`
-   so 512 centers even on a fixed-width title bar. `slotTile[slot]`
+   so 512 centers even on a fixed-width title bar; captions elide in the
+   MIDDLE (E16 TextstateTextFit1). `text.orientation` is `__ORIENTATION`
+   (definitions: RIGHT 0, DOWN 1 = +90°, UP 2 = −90°, LEFT 3 = 180°;
+   undefined tokens such as `__UP` are atoi 0 and stay horizontal even in
+   a `MAX_HEIGHT 0` plaque, as E16 draws them). `slotTile[slot]`
    carries the per-state `__FILLRULE` (`null|h|v|both`; BorderImage
    repeat modes) and `keepOnTop` mirrors `__KEEP_ON_TOP` (off parts get
    a negative z so they stack under every on-top part). Image slots

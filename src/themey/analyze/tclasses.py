@@ -20,7 +20,7 @@ offset copy and the four ``__EFFECT_OUTLINE`` copies in the state's
 from __future__ import annotations
 
 from themey.analyze.buttons import title_part
-from themey.etheme.ast import Block, KeyVal
+from themey.etheme.ast import Block, KeyVal, atoi
 from themey.ir import BorderSpec, TClassSpec
 
 
@@ -110,7 +110,31 @@ TCLASS_STATE_CONTEXT_KEYS: frozenset[str] = frozenset({
     "__CLICKED_ACTIVE",
     "__NORMAL_STICKY",
     "__NORMAL_ACTIVE_STICKY",
+    "__HILITED_STICKY",
+    "__CLICKED_STICKY",
+    # config/definitions ids 364/363 — the sticky_active hover/click states.
+    "__NORMAL_ACTIVE_HILITED",
+    "__HILITED_ACTIVE_STICKY",
+    "__NORMAL_ACTIVE_CLICKED",
+    "__CLICKED_ACTIVE_STICKY",
 })
+
+#: Keyword → state attribute name (definitions: two keywords share ids
+#: 363/364, see ir.IClassSpec).
+_STATE_ATTR: dict[str, str] = {
+    "__NORMAL_ACTIVE_HILITED": "hilited_active_sticky",
+    "__HILITED_ACTIVE_STICKY": "hilited_active_sticky",
+    "__NORMAL_ACTIVE_CLICKED": "clicked_active_sticky",
+    "__CLICKED_ACTIVE_STICKY": "clicked_active_sticky",
+}
+
+_ORIENTATION_TOKENS: dict[str, int] = {
+    "__FONT_TO_RIGHT": 0, "__FONT_TO_DOWN": 1, "__FONT_TO_UP": 2, "__FONT_TO_LEFT": 3,
+}
+
+
+def _state_attr(keyword: str) -> str:
+    return _STATE_ATTR.get(keyword, keyword[2:].lower())
 
 
 def _raw_justification(value: object) -> int | None:
@@ -150,6 +174,12 @@ def build_tclasses(tclass_blocks: list[Block]) -> dict[str, TClassSpec]:
         justification_q10: int | None = None  # E16 last-wins across the block
         effect: str | None = None
         bg_colors: dict[str, tuple[int, int, int]] = {}
+        # Per-state raw values (E16 semantics, last-wins per state).
+        fg_by_state: dict[str, tuple[int, int, int]] = {}
+        bg_by_state: dict[str, tuple[int, int, int]] = {}
+        effect_by_state: dict[str, str] = {}
+        font_by_state: dict[str, str] = {}
+        orientation = 0
 
         for kv in block.children:
             if not isinstance(kv, KeyVal):
@@ -161,6 +191,15 @@ def build_tclasses(tclass_blocks: list[Block]) -> dict[str, TClassSpec]:
                 current_state = kv.keyword
                 if kv.values and kv.keyword not in fonts:
                     fonts[kv.keyword] = str(kv.values[0])
+                if kv.values:
+                    font_by_state[_state_attr(kv.keyword)] = str(kv.values[0])
+            elif kv.keyword == "__ORIENTATION" and kv.values:
+                raw = kv.values[0]
+                orientation = (
+                    _ORIENTATION_TOKENS.get(str(raw), 0)
+                    if isinstance(raw, str) and not str(raw).lstrip("+-").isdigit()
+                    else atoi(raw)
+                )
             # Foreground color: any FG_COLOR_KEYS keyword with at least 3 values
             elif kv.keyword in FG_COLOR_KEYS and len(kv.values) >= 3:
                 if current_state is not None:
@@ -175,26 +214,34 @@ def build_tclasses(tclass_blocks: list[Block]) -> dict[str, TClassSpec]:
                     # First color seen for this state wins; don't overwrite
                     if current_state not in colors:
                         colors[current_state] = rgb
+                    fg_by_state[_state_attr(current_state)] = rgb
             elif kv.keyword == "__JUSTIFICATION" and kv.values:
                 if alignment is None:
                     alignment = _normalize_alignment(kv.values[0])
                 raw = _raw_justification(kv.values[0])
                 if raw is not None:
                     justification_q10 = raw
-            elif kv.keyword == "__DRAWING_EFFECT" and kv.values and effect is None:
-                effect = str(kv.values[0])
+            elif kv.keyword == "__DRAWING_EFFECT" and kv.values:
+                if effect is None:
+                    effect = str(kv.values[0])
+                # tclass.c:327-329: the effect belongs to the CURRENT state.
+                if current_state is not None:
+                    effect_by_state[_state_attr(current_state)] = str(kv.values[0])
             # Effect (shadow/outline) color: E16's per-state bg_col. Same
             # state-context + first-wins rule as the foreground.
             elif kv.keyword == "__BACKGROUND_COLOR" and len(kv.values) >= 3:
-                if current_state is not None and current_state not in bg_colors:
+                if current_state is not None:
                     try:
-                        bg_colors[current_state] = (
+                        rgb_bg = (
                             _to_int(kv.values[0]),
                             _to_int(kv.values[1]),
                             _to_int(kv.values[2]),
                         )
                     except (ValueError, TypeError):
                         continue
+                    if current_state not in bg_colors:
+                        bg_colors[current_state] = rgb_bg
+                    bg_by_state[_state_attr(current_state)] = rgb_bg
 
         font_normal = fonts.get("__NORMAL")
         font_active = fonts.get("__NORMAL_ACTIVE")
@@ -216,5 +263,10 @@ def build_tclasses(tclass_blocks: list[Block]) -> dict[str, TClassSpec]:
             font_normal=font_normal,
             font_active=font_active,
             font_alias=font_alias,
+            fg_by_state=fg_by_state,
+            bg_by_state=bg_by_state,
+            effect_by_state=effect_by_state,
+            font_by_state=font_by_state,
+            orientation=orientation,
         )
     return out

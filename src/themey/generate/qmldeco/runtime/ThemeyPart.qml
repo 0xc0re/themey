@@ -145,9 +145,36 @@ Item {
     // Natural width comes from main.qml's hidden measurer (titleTextWidth)
     // — reading this item's own implicitWidth while elide is set trips
     // QML's binding-loop detector.
+    // E16 text state per WINDOW (borders.c:164): active × on-all-desktops
+    // selects the tclass group; theme.js resolved each through
+    // TextclassPopulate's chain. Orientation: FONT_TO_DOWN 1 reads
+    // top-to-bottom (+90°), FONT_TO_UP 2 bottom-to-top (-90°, E16
+    // EImageOrientate 3); RIGHT 0 / undefined tokens stay horizontal even
+    // in a tall plaque, as E16 draws them.
+    readonly property string textState: root.clientOnAllDesktops
+        ? (root.clientActive ? "StickyActive" : "Sticky")
+        : (root.clientActive ? "Active" : "Normal")
+    readonly property int textOrientation: partItem.textCfg && partItem.textCfg.orientation !== undefined
+        ? partItem.textCfg.orientation : 0
+    // Rotation follows the tclass alone (text.c TextDrawRotBack), not the
+    // part's geometry: Arietta's FONT_TO_UP title is an 18 px full-height
+    // side strip with MAX_HEIGHT 99999, while the MAX_HEIGHT 0 plaque rule
+    // (borders.c:371) only sizes the part.
+    readonly property bool textRotated: partItem.textCfg !== null
+        && (partItem.textOrientation === 1 || partItem.textOrientation === 2)
+    function textField(prefix, fallback) {
+        var cfg = partItem.textCfg;
+        if (!cfg)
+            return fallback;
+        var v = cfg[prefix + partItem.textState];
+        if (v !== undefined && v !== null)
+            return v;
+        v = cfg[prefix + (root.clientActive ? "Active" : "Normal")];
+        return v !== undefined && v !== null ? v : fallback;
+    }
     Text {
         id: captionText
-        visible: partItem.textCfg !== null && !partItem.part.vertical
+        visible: partItem.textCfg !== null && !partItem.textRotated
         width: Math.min(partItem.captionAvail, root.titleTextWidth(partItem.partIndex))
         x: {
             if (!partItem.part)
@@ -163,10 +190,9 @@ Item {
                          * partItem.outScale / 2)
             : 0
         text: root.clientCaption
-        elide: Text.ElideRight
-        color: root.clientActive
-               ? (partItem.textCfg ? partItem.textCfg.colorActive : "#ffffff")
-               : (partItem.textCfg ? partItem.textCfg.colorNormal : "#c0c0c0")
+        // E16 TextstateTextFit1 keeps the head and tail ("..." in the middle).
+        elide: Text.ElideMiddle
+        color: partItem.textField("color", root.clientActive ? "#ffffff" : "#c0c0c0")
         font.family: partItem.textCfg
                      ? root.fontFamilyAt(partItem.textCfg.fontIndex) : ""
         font.pixelSize: partItem.textCfg ? partItem.textCfg.pixelSize : 10
@@ -175,20 +201,29 @@ Item {
         // E16 TsTextDraw: effect 1 = one bg_col copy at (+1,+1) — Qt's
         // Text.Raised; effect 2 = four bg_col copies at the orthogonal
         // neighbours — Text.Outline. The color is the state's bg_col.
-        style: partItem.textCfg && partItem.textCfg.effect === "shadow" ? Text.Raised
-             : (partItem.textCfg && partItem.textCfg.effect === "outline" ? Text.Outline
-                                                                          : Text.Normal)
-        styleColor: partItem.textCfg
-                    ? (root.clientActive ? partItem.textCfg.effectColorActive
-                                         : partItem.textCfg.effectColorNormal)
-                    : "#000000"
+        style: {
+            var eff = partItem.textField("effect", partItem.textCfg ? partItem.textCfg.effect : "none");
+            return eff === "shadow" ? Text.Raised : (eff === "outline" ? Text.Outline : Text.Normal);
+        }
+        styleColor: partItem.textField("effectColor", "#000000")
+        rotation: partItem.textOrientation === 3 ? 180 : 0
     }
 
-    // Vertical titles (best-effort): same text rotated to run down the part.
+    // Vertical titles: the same text rotated to run along the part in
+    // E16's reading direction.
     Text {
-        visible: partItem.textCfg !== null && partItem.part.vertical === true
+        visible: partItem.textCfg !== null && partItem.textRotated
         anchors.centerIn: parent
-        rotation: 90
+        rotation: partItem.textOrientation === 2 ? -90 : 90
+        // Runs along the part's height; long captions elide in the middle.
+        width: partItem.part
+            ? Math.max(0, Math.min(
+                  partItem.height - Math.round((partItem.part.padTop + partItem.part.padBottom)
+                                               * partItem.outScale),
+                  root.titleTextWidth(partItem.partIndex)))
+            : 0
+        elide: Text.ElideMiddle
+        horizontalAlignment: Text.AlignHCenter
         text: root.clientCaption
         color: captionText.color
         font: captionText.font

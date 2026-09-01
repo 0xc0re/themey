@@ -1299,7 +1299,7 @@ def test_style_scheme_window_derived_foregrounds_clear_panel_tint(
 
 
 def test_style_scheme_selection_from_hover_art(tmp_path: Path) -> None:
-    hi = _png(tmp_path, "sel.png", color=(60, 20, 90, 255))
+    hi = _png(tmp_path, "sel.png", color=(220, 220, 200, 255))
     theme = _theme(
         tmp_path,
         {"MENU_SEL": _iclass("MENU_SEL", hilited=hi)},
@@ -1308,9 +1308,11 @@ def test_style_scheme_selection_from_hover_art(tmp_path: Path) -> None:
     scheme = plasmastyle.style_scheme(
         theme, shipped=frozenset({plasmastyle.VIEWITEM_SVG})
     )
-    assert scheme.selection.background_normal == (60, 20, 90)
-    assert scheme.selection.foreground_normal == (255, 255, 200)
-    assert any("Selection" in n and "approximated" in n for n in theme.notes)
+    assert scheme.selection.background_normal == (220, 220, 200)
+    # E16 draws a hovered item with STATE_HILITED, active=0 (menus.c:1000):
+    # tclass norm.hilited → norm.normal. __NORMAL_ACTIVE is never consulted.
+    assert scheme.selection.foreground_normal == (20, 20, 20)
+    assert any("Selection" in n and "hilited" in n for n in theme.notes)
 
 
 def test_style_scheme_button_fg_fallback_chain(tmp_path: Path) -> None:
@@ -2187,3 +2189,56 @@ def test_viewitem_textured_strip_repeats_middle(tmp_path: Path) -> None:
     svg2 = plasmastyle.build_viewitem(theme2)
     assert svg2 is not None
     assert "hover-hint-tile-center" not in _ids(svg2)
+
+
+def test_style_scheme_selection_uses_menu_text_hilited_and_style_tclass(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from themey.ir import MenuStyleSpec
+
+    hi = _png(tmp_path, "sel.png", color=(220, 220, 200, 255))
+    menu_text = TClassSpec(
+        name="MENU_TEXT", fg_normal=(20, 20, 20), fg_active=(250, 250, 250),
+        fg_by_state={"normal": (20, 20, 20), "normal_active": (250, 250, 250),
+                     "hilited": (9, 9, 9)},
+    )
+    other = TClassSpec(
+        name="MENU", fg_normal=(30, 30, 30), fg_active=None,
+        fg_by_state={"normal": (30, 30, 30), "hilited": (5, 5, 5)},
+    )
+    theme = _theme(tmp_path, {"MENU_SEL": _iclass("MENU_SEL", hilited=hi)},
+                   {"MENU_TEXT": menu_text, "MENU": other})
+    shipped = frozenset({plasmastyle.VIEWITEM_SVG})
+    scheme = plasmastyle.style_scheme(theme, shipped=shipped)
+    assert scheme.selection.foreground_normal == (9, 9, 9)
+    # A menu style naming its own tclass ("MENU", 6 corpus blocks) wins.
+    style = MenuStyleSpec(name="DEFAULT", tclass="MENU")
+    theme2 = replace(theme, menu_styles={"DEFAULT": style})
+    scheme2 = plasmastyle.style_scheme(theme2, shipped=shipped)
+    assert scheme2.selection.foreground_normal == (5, 5, 5)
+
+
+def test_line_vertical_uses_clicked_art(tmp_path: Path) -> None:
+    """dialog.c:1380-1383: a vertical separator is drawn with STATE_CLICKED,
+    the horizontal one with STATE_NORMAL (107 corpus themes ship both)."""
+    import base64
+    import io
+
+    h = _png(tmp_path, "h.png", size=(32, 4), color=(200, 0, 0, 255))
+    v = _png(tmp_path, "v.png", size=(4, 32), color=(0, 0, 200, 255))
+    theme = _theme(tmp_path, {
+        "DIALOG_WIDGET_SEPARATOR": _iclass("DIALOG_WIDGET_SEPARATOR", normal=h, clicked=v),
+    })
+    svg = plasmastyle.build_line(theme)
+    assert svg is not None
+    for e in svg.iter():
+        if e.get("id") == "vertical-line":
+            img = e if e.tag.endswith("image") else next(
+                c for c in e.iter() if c.tag.endswith("image")
+            )
+            data = base64.b64decode(img.get(XLINK).split(",", 1)[1])
+            px = Image.open(io.BytesIO(data)).convert("RGB").getpixel((1, 1))
+            assert px == (0, 0, 200)
+            break
+    else:
+        raise AssertionError("no vertical-line")
