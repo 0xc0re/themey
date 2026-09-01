@@ -1,13 +1,24 @@
 """Tokenizer for E16 cfg files.
 
 Recognized tokens:
-  IDENT       — uppercase identifiers, may begin with __ (e.g. __EDGE_SCALING,
-                __BGN, __END).  Regex: [_A-Z][_A-Z0-9]*
+  IDENT       — identifiers in any case, may begin with __ (e.g. __EDGE_SCALING,
+                __BGN, __END, but also WashedBlue's ``titelleiste``).
+                Regex: [A-Za-z_][A-Za-z0-9_]*
   NUMBER      — signed integers; floats are not used in E16 cfg.
                 Regex: -?[0-9]+
   STRING      — double-quoted; no escape sequences in E16 source (verified
                 against the E16 1.0.31 source).
                 Regex: "([^"]*)"   (value stored without surrounding quotes)
+                ALSO any bare word that is neither an IDENT nor a NUMBER —
+                an unquoted path (``artwork/borders/left_u.png``, Tubular),
+                a name with punctuation (``pager_titelleiste-``, WashedBlue).
+                Quotes are delimiters, not token boundaries: E16's GetLine
+                (config.c:122-131) toggles a quote state on '"' and never
+                copies the character, so quoted and bare pieces that touch
+                glue into ONE word — Base's ``__NAME "BUTTON_"name`` macro
+                body is the word BUTTON_ICONIFY, and
+                ``"artwork/button_"graphic"_1.png"`` one path. A word that
+                had any quoted piece is a STRING whatever it spells.
   INCLUDE     — '#include' keyword token (not a comment — lexer checks literal
                 'include' before entering the # comment path)
   ANGLE_PATH  — <path> immediately after INCLUDE (e.g. <definitions>)
@@ -22,12 +33,31 @@ Recognized tokens:
 
 Skipped:
   /* ... */  (multi-line C-style comments)  — newlines inside counted
+  // ... \n  (C++ line comments) — E16's epp is run with C++ comments ON
+              (e16-1.0.31 epp/cpplib.c:817 ``cplusplus_comments = 1``), so
+              SilverMania's ``//__ACLASS ACTION_RESIZE_H`` is dead text.
+              Quoted strings are lexed first, so a ``//`` inside quotes
+              (URLs) survives, as it does in cpp.
   # ... \\n  (single-line hash comments)    — EXCEPT '#include' which starts
               an INCLUDE token, not a comment.  A hash line ending in a
               backslash continues onto the next line (multi-line #define
               bodies must not leak tokens).
 
 Design notes:
+  • Words are E16's unit. After epp, E16 reads every statement with
+    ``sscanf(str, "%i %n%4000s %n", ...)`` (e16-1.0.31 config.c:185): the
+    value is one whitespace-delimited word, whatever characters it holds,
+    and names are matched verbatim with strcmp (iclass.c:341). So the scan
+    loop grabs a whole bare word (up to whitespace, ';', '"', '#' or a
+    ``/*`` comment opener) and classifies it afterwards — IDENT if it is
+    entirely identifier characters, NUMBER if it is an integer, STRING
+    otherwise. Splitting a word into an IDENT prefix plus junk would lose
+    the value (the pre-2026-09 lexer only knew [_A-Z] identifiers and
+    dropped ``titelleiste`` outright, leaving WashedBlue and eLap with zero
+    resolvable iclasses and a blank frame).
+  • Keywords stay the ``__UPPER`` set: the parser dispatches on the token
+    text, so a lowercase IDENT is just a value (or a harmless top-level key
+    when it starts a line — fonts.theme.cfg's ``font-default`` lines).
   • Hand-rolled state machine; uses stdlib re only for the master token regex.
   • A single compiled master-regex is scanned with re.Scanner / pos-based scan
     for simplicity and speed.  The alternative (re.Scanner) requires a class;
@@ -63,8 +93,11 @@ class Token:
 
 
 # Compiled regex patterns used inside the scan loop
-_RE_IDENT = re.compile(r"[_A-Z][_A-Z0-9]*")
+_RE_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _RE_NUMBER = re.compile(r"-?[0-9]+")
+#: One sscanf("%s") word: runs to whitespace, a ';' statement separator, a
+#: quote, a '#' or the start of a /* or // comment.
+_RE_BARE_WORD = re.compile(r'(?:(?!/[*/])[^\s;"#])+')
 _RE_STRING = re.compile(r'"([^"]*)"')
 _RE_ANGLE_PATH = re.compile(r"<([^>]*)>")
 _RE_QUOTED_PATH = re.compile(r'"([^"]*)"')
@@ -139,6 +172,14 @@ def tokenize(text: str) -> list[Token]:
             continue
 
         # ------------------------------------------------------------------ #
+        # C++ line comment: // ... (epp default, cpplib.c:817)
+        # ------------------------------------------------------------------ #
+        if text[pos : pos + 2] == "//":
+            while pos < n and text[pos] != "\n":
+                pos += 1
+            continue  # main loop emits the NEWLINE
+
+        # ------------------------------------------------------------------ #
         # '#' — either '#include' or a line comment
         # ------------------------------------------------------------------ #
         if ch == "#":
@@ -177,44 +218,51 @@ def tokenize(text: str) -> list[Token]:
             continue
 
         # ------------------------------------------------------------------ #
-        # Quoted string (only in non-include context)
+        # One word (E16 GetLine + sscanf "%s"): a run of touching pieces,
+        # each either a "quoted segment" or a bare run, ended by whitespace,
+        # ';', '#' or a comment opener. Classified after the fact:
+        #   STRING  if any piece was quoted   ("BUTTON_"name -> BUTTON_name)
+        #   IDENT   [A-Za-z_][A-Za-z0-9_]*    (keywords and plain names)
+        #   NUMBER  -?[0-9]+                  (signed integers)
+        #   STRING  anything else             (unquoted paths, odd names)
         # ------------------------------------------------------------------ #
-        if ch == '"':
-            m = _RE_STRING.match(text, pos)
-            if m:
-                _append(TokenKind.STRING, m.group(1), line)
+        pieces: list[str] = []
+        quoted = False
+        start = pos
+        while pos < n:
+            if text[pos] == '"':
+                m = _RE_STRING.match(text, pos)
+                if m is None:
+                    # Unterminated string — skip to EOL, as before
+                    while pos < n and text[pos] != "\n":
+                        pos += 1
+                    break
+                pieces.append(m.group(1))
+                quoted = True
                 pos = m.end()
+                continue
+            m = _RE_BARE_WORD.match(text, pos)
+            if m is None:
+                break
+            pieces.append(m.group(0))
+            pos = m.end()
+        if pieces:
+            word = "".join(pieces)
+            if quoted:
+                _append(TokenKind.STRING, word, line)
+            elif _RE_IDENT.fullmatch(word):
+                _append(TokenKind.IDENT, word, line)
+            elif _RE_NUMBER.fullmatch(word):
+                _append(TokenKind.NUMBER, int(word), line)
             else:
-                # Unterminated string — skip to EOL
-                while pos < n and text[pos] != "\n":
-                    pos += 1
+                _append(TokenKind.STRING, word, line)
             continue
+        if pos > start:
+            continue  # an unterminated string was skipped to EOL above
 
         # ------------------------------------------------------------------ #
-        # Identifier:  [_A-Z][_A-Z0-9]*
-        # ------------------------------------------------------------------ #
-        if ch == "_" or ch.isupper():
-            m = _RE_IDENT.match(text, pos)
-            if m:
-                _append(TokenKind.IDENT, m.group(0), line)
-                pos = m.end()
-                continue
-
-        # ------------------------------------------------------------------ #
-        # Number: -?[0-9]+   (handles negative integers)
-        # ------------------------------------------------------------------ #
-        if ch == "-" or ch.isdigit():
-            m = _RE_NUMBER.match(text, pos)
-            if m:
-                _append(TokenKind.NUMBER, int(m.group(0)), line)
-                pos = m.end()
-                continue
-            # Bare '-' not followed by digit — skip
-            pos += 1
-            continue
-
-        # ------------------------------------------------------------------ #
-        # Unrecognized character — skip silently
+        # Unrecognized character (a lone '/' before '*' cannot happen — the
+        # comment branch ran first; anything left is skipped silently)
         # ------------------------------------------------------------------ #
         pos += 1
 

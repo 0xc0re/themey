@@ -33,13 +33,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from themey.etheme.ast import Block, KeyVal
+from themey.etheme.ast import Block, KeyVal, atoi
 from themey.ir import FILL_STRETCH, FILL_TILE, FILL_TILE_H, FILL_TILE_V, IClassSpec
 
 
 def _to_int(v: object) -> int:
-    """Coerce an AST value (int | str) to int for pyright basic compatibility."""
-    return int(v)  # type: ignore[arg-type]
+    """Coerce an AST value (int | str) to int with E16's atoi semantics."""
+    return atoi(v)
 
 
 def _block_name(block: Block) -> str | None:
@@ -71,13 +71,7 @@ _FILL_TOKENS: dict[str, int] = {
 
 def _fill_rule(value: object) -> str:
     token = str(value).strip().upper()
-    if token in _FILL_TOKENS:
-        bits = _FILL_TOKENS[token]
-    else:
-        try:
-            bits = int(token, 0)
-        except ValueError:
-            bits = 0
+    bits = _FILL_TOKENS[token] if token in _FILL_TOKENS else atoi(value)
     tile_h = bool(bits & 1 or bits & 4)
     tile_v = bool(bits & 2 or bits & 8)
     if tile_h and tile_v:

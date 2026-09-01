@@ -6,14 +6,26 @@ chooses what is drawn at all. Get either polarity backwards and every
 cursor in every theme comes out inverted or solid-black, which is easy to
 miss in a screenshot and impossible to miss on a live desktop.
 
-So this file pins the three cases against synthetic bitmaps it writes
-itself (no fixture dependency), per ``XCreatePixmapCursor``:
+The color polarity is NOT plain ``XCreatePixmapCursor``: E16 deliberately
+swaps ``__FG_COLOR``/``__BG_COLOR`` for every theme cursor because "the
+pmap (not mask) bits in all theme cursors are inverted" (e16-1.0.31
+``src/eimage.c:770-791``, the XRender path every real build takes, and
+``src/cursors.c:71-74`` for the non-XRender one). The rule is
+mechanical: for Aliens-style art (SET bits = body, the corpus majority)
+the body renders in ``__BG_COLOR``, the classic black arrow with a white
+outline; for e13/Yellow-style art (SET bits = outline) the body takes
+``__FG_COLOR``. Either way it is what E16 showed. So this file pins the
+cases against synthetic bitmaps it writes itself (no fixture
+dependency), per ``eimage.c:783-789``:
 
     mask bit SET      -> pixel is visible
     mask bit CLEAR    -> pixel is transparent (image bit irrelevant)
-    image bit SET     -> foreground color
-    image bit CLEAR   -> background color
-    no mask file      -> foreground over transparent
+    image bit SET     -> BACKGROUND color   (E16's fg/bg swap)
+    image bit CLEAR   -> FOREGROUND color   (E16's fg/bg swap)
+    no mask file      -> set bits in BACKGROUND color over transparent
+                         (E16 itself paints nothing at all here —
+                         ``bits_m`` is 0 for every pixel — so this is
+                         themey's choice, kept consistent with the swap)
 
 It also pins the reader against the two things Pillow's XbmImagePlugin
 cannot do with the real fixture files: a leading ``/* Made with GIMP */``
@@ -75,16 +87,20 @@ def pair(tmp_path: Path) -> tuple[Path, Path]:
 # --------------------------------------------------------------------- #
 
 
-def test_mask_set_and_image_set_is_foreground(pair):
+def test_mask_set_and_image_set_is_background(pair):
+    """eimage.c:785-786 — ``else if (bits_i & bit) pixel = bg; /* fg/bg
+    swapped */``. Plain X11 polarity would say foreground here."""
     img, mask = pair
     out = rasterize(read_xbm(img), read_xbm(mask), FG, BG)
-    assert out.getpixel((0, 0)) == (*FG, 255)
+    assert out.getpixel((0, 0)) == (*BG, 255)
 
 
-def test_mask_set_and_image_clear_is_background(pair):
+def test_mask_set_and_image_clear_is_foreground(pair):
+    """eimage.c:787-788 — a masked pixel whose image bit is clear is the
+    pointer's body and takes ``__FG_COLOR`` (the swapped ``fg``)."""
     img, mask = pair
     out = rasterize(read_xbm(img), read_xbm(mask), FG, BG)
-    assert out.getpixel((1, 0)) == (*BG, 255)
+    assert out.getpixel((1, 0)) == (*FG, 255)
 
 
 def test_mask_clear_is_transparent_regardless_of_image(pair):
@@ -103,11 +119,16 @@ def test_mask_clear_wins_over_a_set_image_bit(tmp_path: Path):
     assert out.getbbox() is None  # fully transparent
 
 
-def test_absent_mask_is_foreground_over_transparent(pair):
+def test_absent_mask_is_background_over_transparent(pair):
+    """No ``.mask`` file: set bits keep the swapped color (``bg``), clear
+    bits stay transparent. E16's XRender path would draw nothing at all
+    (eimage.c:783-784, ``bits_m`` is 0 without a mask) and the non-XRender
+    path a solid rectangle, so there is no fidelity target — the swap is
+    just kept consistent with the masked case."""
     img, _ = pair
     out = rasterize(read_xbm(img), None, FG, BG)
-    assert out.getpixel((0, 0)) == (*FG, 255)
-    assert out.getpixel((1, 0))[3] == 0  # clear bit is transparent, NOT bg
+    assert out.getpixel((0, 0)) == (*BG, 255)
+    assert out.getpixel((1, 0))[3] == 0  # clear bit is transparent, NOT fg
 
 
 # --------------------------------------------------------------------- #
@@ -118,7 +139,7 @@ def test_absent_mask_is_foreground_over_transparent(pair):
 def test_bits_are_least_significant_first_within_a_byte(tmp_path: Path):
     img = _write_xbm(tmp_path / "b.xbm", "b", 8, 1, [0x80])
     out = rasterize(read_xbm(img), None, FG, BG)
-    assert out.getpixel((7, 0)) == (*FG, 255)
+    assert out.getpixel((7, 0)) == (*BG, 255)  # set bit -> bg (E16 swap)
     assert out.getpixel((0, 0))[3] == 0
 
 
@@ -132,8 +153,8 @@ def test_rows_are_padded_to_whole_bytes(tmp_path: Path):
     )
     out = rasterize(read_xbm(path), None, FG, BG)
     assert out.size == (9, 2)
-    assert out.getpixel((8, 0)) == (*FG, 255)  # bit 0 of the second byte
-    assert out.getpixel((0, 1)) == (*FG, 255)  # first bit of row 1
+    assert out.getpixel((8, 0)) == (*BG, 255)  # bit 0 of the second byte
+    assert out.getpixel((0, 1)) == (*BG, 255)  # first bit of row 1
     assert out.getpixel((0, 0))[3] == 0
 
 
@@ -160,7 +181,7 @@ def test_reads_file_with_leading_comment(tmp_path: Path):
         tmp_path / "c.xbm", "c", 8, 1, [0x01], preamble="/* Made with GIMP */"
     )
     assert read_xbm(path).width == 8
-    assert rasterize(read_xbm(path), None, FG, BG).getpixel((0, 0)) == (*FG, 255)
+    assert rasterize(read_xbm(path), None, FG, BG).getpixel((0, 0)) == (*BG, 255)
 
 
 def test_reads_hotspot_from_underscored_symbol_name(tmp_path: Path):

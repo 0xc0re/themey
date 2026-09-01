@@ -148,8 +148,8 @@ def test_aliens_default_pixels_are_fg_bg_and_transparent(tmp_path: Path):
     every shipped pointer came out a solid bg_rgb rectangle. So: read the
     ARGB payload back out of the file xcursorgen wrote and require all
     three states to be present. Aliens' DEFAULT block declares
-    __FG_COLOR 255 255 255 and __BG_COLOR 0 0 0, so a correct arrow is
-    white fill, black outline, transparent surround — and nothing else.
+    __FG_COLOR 255 255 255 and __BG_COLOR 0 0 0, so the arrow is drawn in
+    white, black and transparent — and nothing else.
     """
     _, out, _ = _emit("Aliens", tmp_path)
     x1 = parse_xcursor(out / "cursors" / "default")[0]
@@ -165,10 +165,12 @@ def test_aliens_default_pixels_are_fg_bg_and_transparent(tmp_path: Path):
     # derived by hand from cursor.xbm/.mask rather than from our own
     # output. Row 0 is image 0xf8,0xff over mask 0x07,0x00; row 1 is
     # 0xe6,0xff over 0x1f,0x00. Bits are LSB-first, so at (0,0) the mask
-    # bit is set and the image bit is clear -> background, and at (1,1)
-    # both are set -> foreground.
-    assert x1.pixels[0] == bg, "(0,0) should be the outline, not the fill"
-    assert x1.pixels[1 * x1.width + 1] == fg, "(1,1) should be the fill"
+    # bit is set and the image bit is clear, and at (1,1) both are set.
+    # E16 swaps fg/bg for theme cursors (eimage.c:783-789: set image bit
+    # -> bg, clear -> fg), so (0,0) is FOREGROUND and (1,1) BACKGROUND —
+    # the reverse of plain XCreatePixmapCursor polarity.
+    assert x1.pixels[0] == fg, "(0,0) image-clear pixel should be fg (E16 swap)"
+    assert x1.pixels[1 * x1.width + 1] == bg, "(1,1) image-set pixel should be bg"
 
 
 def test_aliens_skips_e16_only_shapes(tmp_path: Path):

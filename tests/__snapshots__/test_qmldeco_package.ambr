@@ -985,10 +985,10 @@
         "brYP": 0,
         "button": null,
         "hideWhenMaximized": false,
-        "id": "L",
+        "id": "Lite_top",
         "images": {
-          "normal": "../images/l_normal.png",
-          "normalActive": "../images/l_normal.png"
+          "normal": "../images/lite_top_normal.png",
+          "normalActive": "../images/lite_top_normal.png"
         },
         "insets": {
           "bottom": 4,
@@ -1004,10 +1004,10 @@
         "maxW": 99999,
         "minH": 18,
         "minW": 4,
-        "padBottom": 4,
-        "padLeft": 1,
-        "padRight": 1,
-        "padTop": 4,
+        "padBottom": 5,
+        "padLeft": 30,
+        "padRight": 30,
+        "padTop": 5,
         "slotInsets": {
           "normal": {
             "bottom": 4,
@@ -1050,22 +1050,22 @@
         "brYP": 0,
         "button": "minimize",
         "hideWhenMaximized": false,
-        "id": "L",
+        "id": "Lite_minimize",
         "images": {
-          "hover": "../images/l_normal.png",
-          "hoverActive": "../images/l_normal.png",
-          "normal": "../images/l_normal.png",
-          "normalActive": "../images/l_normal.png",
-          "pressed": "../images/l_normal.png",
-          "pressedActive": "../images/l_normal.png",
-          "toggled": "../images/l_normal.png",
-          "toggledActive": "../images/l_normal.png"
+          "hover": "../images/lite_minimize_normal.png",
+          "hoverActive": "../images/lite_minimize_normal.png",
+          "normal": "../images/lite_minimize_normal.png",
+          "normalActive": "../images/lite_minimize_normal.png",
+          "pressed": "../images/lite_minimize_normal.png",
+          "pressedActive": "../images/lite_minimize_normal.png",
+          "toggled": "../images/lite_minimize_normal.png",
+          "toggledActive": "../images/lite_minimize_normal.png"
         },
         "insets": {
-          "bottom": 4,
-          "left": 4,
-          "right": 4,
-          "top": 4
+          "bottom": 10,
+          "left": 10,
+          "right": 10,
+          "top": 10
         },
         "isTitle": false,
         "justification": 512,
@@ -1075,58 +1075,58 @@
         "maxW": 10,
         "minH": 10,
         "minW": 10,
-        "padBottom": 4,
-        "padLeft": 1,
-        "padRight": 1,
-        "padTop": 4,
+        "padBottom": 0,
+        "padLeft": 0,
+        "padRight": 0,
+        "padTop": 0,
         "slotInsets": {
           "hover": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           },
           "hoverActive": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           },
           "normal": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           },
           "normalActive": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           },
           "pressed": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           },
           "pressedActive": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           },
           "toggled": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           },
           "toggledActive": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           }
         },
         "slotTile": {
@@ -1155,22 +1155,22 @@
         "brYP": 0,
         "button": "maximizeRestore",
         "hideWhenMaximized": false,
-        "id": "L",
+        "id": "Lite_maximize",
         "images": {
-          "hover": "../images/l_normal.png",
-          "hoverActive": "../images/l_normal.png",
-          "normal": "../images/l_normal.png",
-          "normalActive": "../images/l_normal.png",
-          "pressed": "../images/l_normal.png",
-          "pressedActive": "../images/l_normal.png",
-          "toggled": "../images/l_normal.png",
-          "toggledActive": "../images/l_normal.png"
+          "hover": "../images/lite_maximize_normal.png",
+          "hoverActive": "../images/lite_maximize_normal.png",
+          "normal": "../images/lite_maximize_normal.png",
+          "normalActive": "../images/lite_maximize_normal.png",
+          "pressed": "../images/lite_maximize_normal.png",
+          "pressedActive": "../images/lite_maximize_normal.png",
+          "toggled": "../images/lite_maximize_normal.png",
+          "toggledActive": "../images/lite_maximize_normal.png"
         },
         "insets": {
-          "bottom": 4,
-          "left": 4,
-          "right": 4,
-          "top": 4
+          "bottom": 10,
+          "left": 10,
+          "right": 10,
+          "top": 10
         },
         "isTitle": false,
         "justification": 512,
@@ -1180,58 +1180,58 @@
         "maxW": 10,
         "minH": 10,
         "minW": 10,
-        "padBottom": 4,
-        "padLeft": 1,
-        "padRight": 1,
-        "padTop": 4,
+        "padBottom": 0,
+        "padLeft": 0,
+        "padRight": 0,
+        "padTop": 0,
         "slotInsets": {
           "hover": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           },
           "hoverActive": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           },
           "normal": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           },
           "normalActive": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           },
           "pressed": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           },
           "pressedActive": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           },
           "toggled": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           },
           "toggledActive": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           }
         },
         "slotTile": {
@@ -1260,22 +1260,22 @@
         "brYP": 0,
         "button": "close",
         "hideWhenMaximized": false,
-        "id": "L",
+        "id": "Lite_close",
         "images": {
-          "hover": "../images/l_normal.png",
-          "hoverActive": "../images/l_normal.png",
-          "normal": "../images/l_normal.png",
-          "normalActive": "../images/l_normal.png",
-          "pressed": "../images/l_normal.png",
-          "pressedActive": "../images/l_normal.png",
-          "toggled": "../images/l_normal.png",
-          "toggledActive": "../images/l_normal.png"
+          "hover": "../images/lite_close_normal.png",
+          "hoverActive": "../images/lite_close_normal.png",
+          "normal": "../images/lite_close_normal.png",
+          "normalActive": "../images/lite_close_normal.png",
+          "pressed": "../images/lite_close_normal.png",
+          "pressedActive": "../images/lite_close_normal.png",
+          "toggled": "../images/lite_close_normal.png",
+          "toggledActive": "../images/lite_close_normal.png"
         },
         "insets": {
-          "bottom": 4,
-          "left": 4,
-          "right": 4,
-          "top": 4
+          "bottom": 10,
+          "left": 10,
+          "right": 10,
+          "top": 10
         },
         "isTitle": false,
         "justification": 512,
@@ -1285,58 +1285,58 @@
         "maxW": 10,
         "minH": 10,
         "minW": 10,
-        "padBottom": 4,
-        "padLeft": 1,
-        "padRight": 1,
-        "padTop": 4,
+        "padBottom": 0,
+        "padLeft": 0,
+        "padRight": 0,
+        "padTop": 0,
         "slotInsets": {
           "hover": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           },
           "hoverActive": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           },
           "normal": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           },
           "normalActive": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           },
           "pressed": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           },
           "pressedActive": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           },
           "toggled": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           },
           "toggledActive": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 10,
+            "left": 10,
+            "right": 10,
+            "top": 10
           }
         },
         "slotTile": {
@@ -1365,16 +1365,16 @@
         "brYP": 1024,
         "button": null,
         "hideWhenMaximized": true,
-        "id": "L",
+        "id": "Lite_side",
         "images": {
-          "normal": "../images/l_normal.png",
-          "normalActive": "../images/l_normal.png"
+          "normal": "../images/lite_side_normal.png",
+          "normalActive": "../images/lite_side_normal.png"
         },
         "insets": {
-          "bottom": 4,
-          "left": 4,
-          "right": 4,
-          "top": 4
+          "bottom": 0,
+          "left": 0,
+          "right": 0,
+          "top": 0
         },
         "isTitle": false,
         "justification": 512,
@@ -1384,22 +1384,22 @@
         "maxW": 1,
         "minH": 1,
         "minW": 1,
-        "padBottom": 4,
-        "padLeft": 1,
-        "padRight": 1,
-        "padTop": 4,
+        "padBottom": 0,
+        "padLeft": 0,
+        "padRight": 0,
+        "padTop": 0,
         "slotInsets": {
           "normal": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 0,
+            "left": 0,
+            "right": 0,
+            "top": 0
           },
           "normalActive": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 0,
+            "left": 0,
+            "right": 0,
+            "top": 0
           }
         },
         "slotTile": {
@@ -1422,16 +1422,16 @@
         "brYP": 1024,
         "button": null,
         "hideWhenMaximized": true,
-        "id": "L",
+        "id": "Lite_side",
         "images": {
-          "normal": "../images/l_normal.png",
-          "normalActive": "../images/l_normal.png"
+          "normal": "../images/lite_side_normal.png",
+          "normalActive": "../images/lite_side_normal.png"
         },
         "insets": {
-          "bottom": 4,
-          "left": 4,
-          "right": 4,
-          "top": 4
+          "bottom": 0,
+          "left": 0,
+          "right": 0,
+          "top": 0
         },
         "isTitle": false,
         "justification": 512,
@@ -1441,22 +1441,22 @@
         "maxW": 1,
         "minH": 1,
         "minW": 1,
-        "padBottom": 4,
-        "padLeft": 1,
-        "padRight": 1,
-        "padTop": 4,
+        "padBottom": 0,
+        "padLeft": 0,
+        "padRight": 0,
+        "padTop": 0,
         "slotInsets": {
           "normal": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 0,
+            "left": 0,
+            "right": 0,
+            "top": 0
           },
           "normalActive": {
-            "bottom": 4,
-            "left": 4,
-            "right": 4,
-            "top": 4
+            "bottom": 0,
+            "left": 0,
+            "right": 0,
+            "top": 0
           }
         },
         "slotTile": {
@@ -1479,10 +1479,10 @@
         "brYP": 1024,
         "button": null,
         "hideWhenMaximized": true,
-        "id": "L",
+        "id": "Lite_bottom",
         "images": {
-          "normal": "../images/l_normal.png",
-          "normalActive": "../images/l_normal.png"
+          "normal": "../images/lite_bottom_normal.png",
+          "normalActive": "../images/lite_bottom_normal.png"
         },
         "insets": {
           "bottom": 4,
@@ -1498,10 +1498,10 @@
         "maxW": 16,
         "minH": 6,
         "minW": 16,
-        "padBottom": 4,
-        "padLeft": 1,
-        "padRight": 1,
-        "padTop": 4,
+        "padBottom": 0,
+        "padLeft": 0,
+        "padRight": 0,
+        "padTop": 0,
         "slotInsets": {
           "normal": {
             "bottom": 4,
@@ -1536,10 +1536,10 @@
         "brYP": 1024,
         "button": null,
         "hideWhenMaximized": true,
-        "id": "L",
+        "id": "Lite_bottom",
         "images": {
-          "normal": "../images/l_normal.png",
-          "normalActive": "../images/l_normal.png"
+          "normal": "../images/lite_bottom_normal.png",
+          "normalActive": "../images/lite_bottom_normal.png"
         },
         "insets": {
           "bottom": 4,
@@ -1555,10 +1555,10 @@
         "maxW": 99999,
         "minH": 6,
         "minW": 6,
-        "padBottom": 4,
-        "padLeft": 1,
-        "padRight": 1,
-        "padTop": 4,
+        "padBottom": 0,
+        "padLeft": 0,
+        "padRight": 0,
+        "padTop": 0,
         "slotInsets": {
           "normal": {
             "bottom": 4,
@@ -1593,10 +1593,10 @@
         "brYP": 1024,
         "button": null,
         "hideWhenMaximized": true,
-        "id": "L",
+        "id": "Lite_bottom",
         "images": {
-          "normal": "../images/l_normal.png",
-          "normalActive": "../images/l_normal.png"
+          "normal": "../images/lite_bottom_normal.png",
+          "normalActive": "../images/lite_bottom_normal.png"
         },
         "insets": {
           "bottom": 4,
@@ -1612,10 +1612,10 @@
         "maxW": 99999,
         "minH": 6,
         "minW": 6,
-        "padBottom": 4,
-        "padLeft": 1,
-        "padRight": 1,
-        "padTop": 4,
+        "padBottom": 0,
+        "padLeft": 0,
+        "padRight": 0,
+        "padTop": 0,
         "slotInsets": {
           "normal": {
             "bottom": 4,

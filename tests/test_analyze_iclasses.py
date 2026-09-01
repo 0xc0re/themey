@@ -359,3 +359,9 @@ def test_iclass_fillrule_is_per_state_with_stretch_default(tmp_path: Path) -> No
         hilited=None, hilited_active=None, clicked=None, clicked_active=None,
         normal_sticky=None, normal_active_sticky=None,
     ).fill_for("normal") == "stretch"
+def test_edge_scaling_uses_atoi_semantics(tmp_path: Path) -> None:
+    """E16 reads ``__EDGE_SCALING`` with sscanf("%i") (iclass.c:446); a
+    whole-word token like ``4P`` must coerce to 4, not raise."""
+    block = _iclass_block("X", _kv("__EDGE_SCALING", "4P", 5, "--", 0))
+    typed, _raw = build_iclasses([block], tmp_path)
+    assert typed["X"].edge_scaling == (4, 5, 0, 0)

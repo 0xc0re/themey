@@ -108,3 +108,132 @@ def test_line_numbers_track_newlines() -> None:
     tokens = tokenize("FOO\nBAR")
     bar = next(t for t in tokens if t.kind == TokenKind.IDENT and t.value == "BAR")
     assert bar.line == 2
+
+
+# ---------------------------------------------------------------------------
+# Bare words: E16 reads every value with sscanf("%s") (config.c:185), so a
+# value is ANY whitespace-delimited word — lowercase names, mixed case, and
+# unquoted paths all count. Names are matched with strcmp (iclass.c:341),
+# case-sensitively and verbatim.
+# ---------------------------------------------------------------------------
+
+
+def test_lowercase_identifier_is_ident() -> None:
+    """WashedBlue/eLap name their iclasses in lowercase German
+    (``titelleiste``, ``knopf_kill``); the old [_A-Z] regex dropped them."""
+    tokens = _content(tokenize("__ICLASS titelleiste"))
+    assert [(t.kind, t.value) for t in tokens] == [
+        (TokenKind.IDENT, "__ICLASS"),
+        (TokenKind.IDENT, "titelleiste"),
+    ]
+
+
+def test_mixed_case_identifier_is_one_ident() -> None:
+    tokens = _content(tokenize("__NAME MyBorder_v2"))
+    assert [(t.kind, t.value) for t in tokens] == [
+        (TokenKind.IDENT, "__NAME"),
+        (TokenKind.IDENT, "MyBorder_v2"),
+    ]
+
+
+def test_unquoted_path_is_a_single_string_token() -> None:
+    """``__NORMAL artwork/borders/left_u.png`` without quotes (Tubular,
+    SilverMania): one STRING carrying the whole word, not IDENT fragments."""
+    tokens = _content(tokenize("__NORMAL artwork/borders/left_u.png"))
+    assert [(t.kind, t.value) for t in tokens] == [
+        (TokenKind.IDENT, "__NORMAL"),
+        (TokenKind.STRING, "artwork/borders/left_u.png"),
+    ]
+
+
+def test_bare_word_with_trailing_punctuation_keeps_it() -> None:
+    """WashedBlue's ``pager_titelleiste-`` (trailing hyphen) is one word to
+    sscanf and must round-trip verbatim so the __ICLASS reference in the
+    border matches the declaration."""
+    tokens = _content(tokenize("__ICLASS pager_titelleiste-"))
+    assert [(t.kind, t.value) for t in tokens] == [
+        (TokenKind.IDENT, "__ICLASS"),
+        (TokenKind.STRING, "pager_titelleiste-"),
+    ]
+
+
+def test_bare_word_stops_at_semicolon_but_glues_to_a_touching_quote() -> None:
+    """';' is a statement separator (GetLine config.c:107-110); a quote that
+    touches a bare piece is part of the same word (config.c:122-131)."""
+    tokens = tokenize('__ICLASS foo;__NAME bar"x"')
+    assert [(t.kind, t.value) for t in tokens] == [
+        (TokenKind.IDENT, "__ICLASS"),
+        (TokenKind.IDENT, "foo"),
+        (TokenKind.NEWLINE, None),
+        (TokenKind.IDENT, "__NAME"),
+        (TokenKind.STRING, "barx"),
+        (TokenKind.EOF, None),
+    ]
+
+
+def test_unterminated_string_skips_to_end_of_line_only() -> None:
+    tokens = _content(tokenize('__NAME "oops\n__NEXT 1'))
+    assert [t.value for t in tokens] == ["__NAME", "__NEXT", 1]
+
+
+def test_numbers_still_lex_as_numbers_inside_bare_words() -> None:
+    """The bare-word path must not swallow the NUMBER classification."""
+    tokens = _content(tokenize("__EDGE_SCALING 4 -4 0 0"))
+    assert [t.kind for t in tokens][1:] == [TokenKind.NUMBER] * 4
+    assert [t.value for t in tokens][1:] == [4, -4, 0, 0]
+
+
+def test_double_slash_is_a_line_comment() -> None:
+    """E16's epp enables C++ comments by default (epp/cpplib.c:817), so
+    SilverMania's ``//__ACLASS ACTION_RESIZE_H`` is dead text. The old
+    lexer skipped the slashes and ACTIVATED the statement."""
+    tokens = _content(tokenize("__ICLASS FOO //__ACLASS ACTION_RESIZE_H\n__NAME BAR"))
+    assert [(t.kind, t.value) for t in tokens] == [
+        (TokenKind.IDENT, "__ICLASS"),
+        (TokenKind.IDENT, "FOO"),
+        (TokenKind.IDENT, "__NAME"),
+        (TokenKind.IDENT, "BAR"),
+    ]
+
+
+def test_double_slash_inside_quotes_is_not_a_comment() -> None:
+    tokens = _content(tokenize('__EXEC "http://heagy.com/etheme/"'))
+    assert tokens[1].value == "http://heagy.com/etheme/"
+
+
+# ---------------------------------------------------------------------------
+# Quotes are delimiters, not token boundaries: E16's GetLine (config.c:122-131)
+# toggles a quote state on '"' and never copies the character, so adjacent
+# quoted and bare pieces glue into ONE word. Base's BUTTON_IMAGE macro relies
+# on it: ``__NAME "BUTTON_"name`` -> BUTTON_ICONIFY.
+# ---------------------------------------------------------------------------
+
+
+def test_adjacent_quoted_and_bare_pieces_glue_into_one_word() -> None:
+    tokens = _content(tokenize('__NAME "BUTTON_"ICONIFY'))
+    assert [(t.kind, t.value) for t in tokens] == [
+        (TokenKind.IDENT, "__NAME"),
+        (TokenKind.STRING, "BUTTON_ICONIFY"),
+    ]
+
+
+def test_quoted_pieces_around_a_bare_macro_argument_glue() -> None:
+    tokens = _content(tokenize('__NORMAL "artwork/button_"iconify"_1.png"'))
+    assert [(t.kind, t.value) for t in tokens] == [
+        (TokenKind.IDENT, "__NORMAL"),
+        (TokenKind.STRING, "artwork/button_iconify_1.png"),
+    ]
+
+
+def test_quoted_string_with_spaces_stays_one_token() -> None:
+    tokens = _content(tokenize('__NAME "Aliens Theme" 3'))
+    assert [(t.kind, t.value) for t in tokens] == [
+        (TokenKind.IDENT, "__NAME"),
+        (TokenKind.STRING, "Aliens Theme"),
+        (TokenKind.NUMBER, 3),
+    ]
+
+
+def test_separate_quoted_strings_stay_separate() -> None:
+    tokens = _content(tokenize('__EXEC "a" "b"'))
+    assert [t.value for t in tokens] == ["__EXEC", "a", "b"]

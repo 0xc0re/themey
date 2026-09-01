@@ -341,3 +341,66 @@ def test_build_theme_aliens_canary(aliens_asset_root: tuple[Path, list]) -> None
     assert len(theme.notes) >= 4, (
         f"Expected >=4 notes, got {len(theme.notes)}: {theme.notes[:5]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Lowercase-named theme (WashedBlue / eLap shape): names resolve verbatim
+# ---------------------------------------------------------------------------
+
+
+def _write_lowercase_theme(root: Path) -> None:
+    """A minimal theme whose border, iclasses and art paths are lowercase
+    German (WashedBlue's ``titelleiste``/``knopf_kill``) with one unquoted
+    image path and one name ending in a hyphen."""
+    from PIL import Image
+
+    (root / "art").mkdir()
+    Image.new("RGBA", (16, 16), (200, 60, 60, 255)).save(root / "art" / "titel.png")
+    Image.new("RGBA", (8, 8), (60, 60, 200, 255)).save(root / "art" / "kill.png")
+    (root / "borders.cfg").write_text(
+        "__BORDER fenster\n__BGN\n"
+        "__BORDER_SIZE_LEFT 2\n__BORDER_SIZE_RIGHT 2\n"
+        "__BORDER_SIZE_TOP 18\n__BORDER_SIZE_BOTTOM 2\n"
+        "__BORDER_PART\n__BGN\n"
+        "  __ICLASS titelleiste-\n  __ACLASS ACTION_MOVE\n"
+        "  __TOPLEFT_X_PERCENTAGE 0\n  __TOPLEFT_X_ABSOLUTE 2\n"
+        "  __TOPLEFT_Y_PERCENTAGE 0\n  __TOPLEFT_Y_ABSOLUTE 0\n"
+        "  __BOTTOMRIGHT_X_PERCENTAGE 1024\n  __BOTTOMRIGHT_X_ABSOLUTE -20\n"
+        "  __BOTTOMRIGHT_Y_PERCENTAGE 0\n  __BOTTOMRIGHT_Y_ABSOLUTE 17\n"
+        "__END\n"
+        "__BORDER_PART\n__BGN\n"
+        "  __ICLASS knopf_kill\n  __ACLASS ACTION_KILL\n"
+        "  __TOPLEFT_X_PERCENTAGE 1024\n  __TOPLEFT_X_ABSOLUTE -18\n"
+        "  __TOPLEFT_Y_PERCENTAGE 0\n  __TOPLEFT_Y_ABSOLUTE 1\n"
+        "  __BOTTOMRIGHT_X_PERCENTAGE 1024\n  __BOTTOMRIGHT_X_ABSOLUTE -2\n"
+        "  __BOTTOMRIGHT_Y_PERCENTAGE 0\n  __BOTTOMRIGHT_Y_ABSOLUTE 16\n"
+        "__END\n"
+        "__END\n",
+        encoding="utf-8",
+    )
+    (root / "imageclasses.cfg").write_text(
+        "__ICLASS __BGN\n  __NAME titelleiste-\n"
+        "  __EDGE_SCALING 2 2 0 0\n"
+        "  __NORMAL art/titel.png\n  __NORMAL_ACTIVE \"art/titel.png\"\n__END\n"
+        "__ICLASS knopf_kill\n__BGN\n"
+        "  __NORMAL art/kill.png\n  __NORMAL_ACTIVE art/kill.png\n__END\n",
+        encoding="utf-8",
+    )
+
+
+def test_build_theme_resolves_lowercase_names_verbatim(tmp_path: Path) -> None:
+    """E16 matches iclass names with strcmp (iclass.c:341) after reading them
+    as sscanf("%s") words (config.c:185): lowercase, trailing hyphen and an
+    unquoted art path all round-trip. Before the lexer fix WashedBlue and
+    eLap resolved zero iclasses and rendered a blank frame."""
+    from themey.etheme.parse import parse_tree
+
+    _write_lowercase_theme(tmp_path)
+    theme = build_theme(tmp_path, parse_tree(tmp_path), name="lower")
+    assert theme.border.name == "fenster"
+    assert [p.iclass_name for p in theme.border.parts] == ["titelleiste-", "knopf_kill"]
+    assert set(theme.iclasses) >= {"titelleiste-", "knopf_kill"}
+    assert theme.iclasses["titelleiste-"].normal == tmp_path / "art" / "titel.png"
+    assert theme.iclasses["titelleiste-"].normal_active == tmp_path / "art" / "titel.png"
+    assert theme.iclasses["knopf_kill"].normal == tmp_path / "art" / "kill.png"
+    assert theme.iclasses["titelleiste-"].edge_scaling == (2, 2, 0, 0)
