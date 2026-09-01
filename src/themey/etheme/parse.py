@@ -27,6 +27,10 @@ themes rely on cpp semantics the token grammar alone cannot express:
 
 Macro expansion never touches quoted strings, and comments are stripped
 before directive scanning so a commented-out ``#include`` is not spliced.
+``#if``/``#ifdef``/``#ifndef``/``#elif``/``#else``/``#endif`` are honoured
+(integer literals, ``defined(X)``, macro names; E16's always-present epp
+symbols count as defined, ``_PREDEFINED``) — eMac keeps its base colour
+art instead of the last ``#ifdef`` variant, and ``#if 0`` blocks vanish.
 
 **Leniency.** E16's own config reader (config.c) is line-based and lenient;
 the parser mirrors three tolerated corpus shapes instead of raising, each
@@ -149,6 +153,19 @@ _RE_DEFINE = re.compile(
     r"^\s*#\s*define\s+([A-Za-z_][A-Za-z0-9_]*)(\([^)]*\))?[ \t]*(.*)$"
 )
 _RE_INCLUDE_LINE = re.compile(r'^\s*#\s*include\s+(?:<([^>]+)>|"([^"]+)")')
+_RE_COND = re.compile(r"^\s*#\s*(ifdef|ifndef|if|elif|else|endif)\b\s*(.*)$")
+_RE_DEFINED = re.compile(r"defined\s*\(?\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)?")
+
+#: Symbols E16's epp run predefines (config.c:243-255) that a theme can
+#: test with #ifdef: the version/path symbols are always set. The
+#: SCREEN_RESOLUTION_WxH / SCREEN_WIDTH_W / SCREEN_HEIGHT_H / SCREEN_DEPTH_D
+#: and THEME_VARIANT_<name> symbols depend on the user's display/choice
+#: and are left undefined (the corpus only ever tests THEME_VARIANT_
+#: colour names — eMac — whose default build has none defined).
+_PREDEFINED = frozenset({
+    "ENLIGHTENMENT_VERSION", "ENLIGHTENMENT_ROOT", "ENLIGHTENMENT_BIN",
+    "ENLIGHTENMENT_THEME", "ECONFDIR", "ECACHEDIR",
+})
 _RE_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 #: Verbatim E16 1.0.31 ``config/definitions`` (see data/README.md).
@@ -331,6 +348,40 @@ def _expand_line(line: str, defines: _Defines) -> str:
     return line
 
 
+def _cond_value(expr: str, defines: _Defines) -> bool:
+    """Evaluate a ``#if``/``#elif`` expression the way the corpus uses them:
+    an integer literal (``#if 0`` — ThiNicE/Spring/Summer disable an
+    iclass), ``defined(X)``/``defined X`` with optional ``!``, and
+    object-like macro names (their value, atoi). Anything richer is
+    treated as false, matching epp's result for undefined identifiers."""
+    e = expr.strip()
+    if not e:
+        return False
+    m = re.fullmatch(r"([+-]?\d+)", e)
+    if m:
+        return int(m.group(1)) != 0
+    neg = e.startswith("!")
+    if neg:
+        e = e[1:].strip()
+    m = _RE_DEFINED.fullmatch(e)
+    if m:
+        name = m.group(1)
+        val = name in defines or name in _PREDEFINED
+        return (not val) if neg else val
+    m = re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", e)
+    if m:
+        macro = defines.get(e)
+        val = False
+        if macro is not None and macro[0] is None:
+            body = macro[1].strip()
+            mm = re.match(r"[+-]?\d+", body)
+            val = bool(mm and int(mm.group(0)) != 0)
+        elif e in _PREDEFINED:
+            val = True
+        return (not val) if neg else val
+    return False
+
+
 def _preprocess(
     path: Path,
     root: Path,
@@ -354,8 +405,40 @@ def _preprocess(
         text = _join_continuations(_strip_c_comments(text))
 
         out_lines: list[str] = []
+        # Conditional stack: (this arm active, some arm of this #if already
+        # taken, enclosing region active). epp honours #if/#ifdef/#ifndef/
+        # #elif/#else/#endif; before this every arm was parsed, so eMac's
+        # six #ifdef colour variants all applied and the LAST one won.
+        cond: list[tuple[bool, bool, bool]] = []
         for ln in text.split("\n"):
             if ln.lstrip().startswith("#"):
+                mc = _RE_COND.match(ln)
+                if mc:
+                    kind, arg = mc.group(1), mc.group(2)
+                    outer = cond[-1][0] if cond else True
+                    if kind in ("if", "ifdef", "ifndef"):
+                        if kind == "if":
+                            val = _cond_value(arg, defines)
+                        else:
+                            name = arg.strip().split()[0] if arg.strip() else ""
+                            val = name in defines or name in _PREDEFINED
+                            if kind == "ifndef":
+                                val = not val
+                        cond.append((outer and val, val, outer))
+                    elif kind == "elif" and cond:
+                        _active, taken, enclosing = cond[-1]
+                        val = (not taken) and _cond_value(arg, defines)
+                        cond[-1] = (enclosing and val, taken or val, enclosing)
+                    elif kind == "else" and cond:
+                        _active, taken, enclosing = cond[-1]
+                        cond[-1] = (enclosing and not taken, True, enclosing)
+                    elif kind == "endif" and cond:
+                        cond.pop()
+                    out_lines.append("")
+                    continue
+                if cond and not cond[-1][0]:
+                    out_lines.append("")  # directive inside an inactive arm
+                    continue
                 m = _RE_DEFINE.match(ln)
                 if m:
                     name, paren, body = m.group(1), m.group(2), m.group(3)
@@ -386,6 +469,9 @@ def _preprocess(
                         out_lines.append("")
                     continue
                 out_lines.append("")  # any other '#' line is a plain comment
+                continue
+            if cond and not cond[-1][0]:
+                out_lines.append("")
                 continue
             out_lines.append(_expand_line(ln, defines) if defines else ln)
         return "\n".join(out_lines)

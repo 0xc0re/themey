@@ -30,6 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **cpp conditionals** — the mini-preprocessor honours `#if`/`#ifdef`/
+  `#ifndef`/`#elif`/`#else`/`#endif` like E16's epp (integer literals,
+  `defined(X)`, macro names; E16's always-present symbols such as
+  `ENLIGHTENMENT_VERSION` count as defined). eMac's six `#ifdef` colour
+  variants no longer all apply with the last one winning, and `#if 0`
+  blocks (ThiNicE, Spring, Summer) vanish.
 - **Highlight strips no longer smear** — `widgets/viewitem` caps for a
   rectangular (opaque-cornered) MENU_SEL strip follow the declared
   `__EDGE_SCALING` instead of the pill radius pin (OldE's 3 px bevels were
