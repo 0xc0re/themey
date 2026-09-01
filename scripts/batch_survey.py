@@ -399,7 +399,12 @@ def run_all(
 # --------------------------------------------------------------------- #
 
 _NUM_RE = re.compile(r"\d+(?:\.\d+)?")
-_FILE_RE = re.compile(r"\S+\.(?:png|jpe?g|bmp|gif|ttf|otf|xbm|xpm|pcf|fnt)\b", re.I)
+# A path token stops at quotes/parens so a macro('path') wrapper or a
+# repr'd 'path' keeps its punctuation (the old \S+ swallowed them and
+# rendered overlay notes as "FILE')").
+_FILE_RE = re.compile(
+    r"[^\s'\"()]+\.(?:png|jpe?g|bmp|gif|ttf|otf|xbm|xpm|pcf|fnt)\b", re.I
+)
 _ICLASS_RE = re.compile(r"\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b")
 _RGB_RE = re.compile(r"rgb\([^)]*\)")
 

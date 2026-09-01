@@ -96,13 +96,13 @@ def _gif(path: Path, size: tuple[int, int] = (8, 6)) -> Path:
 def test_write_package_png_passthrough(tmp_path: Path) -> None:
     src = _png(tmp_path / "src" / "bg.png", (32, 24))
     theme = _make_theme()
-    spec = WallpaperSpec(path=src, fill_mode="scaled")
+    spec = WallpaperSpec(path=src, fill_mode="stretch")
     pkg_dir = tmp_path / wallpaper_id(theme.name, "bg")
     pkg = write_package(theme, spec, pkg_dir)
 
     assert pkg.width == 32
     assert pkg.height == 24
-    assert pkg.fill_mode == "scaled"
+    assert pkg.fill_mode == "stretch"
     assert pkg.id == wallpaper_id(theme.name, "bg")
     image_path = pkg_dir / "contents" / "images" / "32x24.png"
     assert image_path.is_file()
@@ -113,13 +113,13 @@ def test_write_package_png_passthrough(tmp_path: Path) -> None:
 def test_write_package_metadata_json_shape(tmp_path: Path) -> None:
     src = _png(tmp_path / "src" / "bg.png")
     theme = _make_theme(name="Aliens", display_name="Aliens")
-    spec = WallpaperSpec(path=src, fill_mode="tiled")
+    spec = WallpaperSpec(path=src, fill_mode="tile")
     pkg_dir = tmp_path / wallpaper_id(theme.name, "bg")
     write_package(theme, spec, pkg_dir)
 
     meta = json.loads((pkg_dir / "metadata.json").read_text())
     assert set(meta.keys()) == {"KPlugin", "X-Themey-FillMode"}
-    assert meta["X-Themey-FillMode"] == "tiled"
+    assert meta["X-Themey-FillMode"] == "tile"
     assert meta["KPlugin"]["Id"] == wallpaper_id("Aliens", "bg")
     assert "Aliens" in meta["KPlugin"]["Name"]
     assert "bg" in meta["KPlugin"]["Name"]
@@ -129,7 +129,7 @@ def test_write_package_metadata_json_shape(tmp_path: Path) -> None:
 def test_write_package_gif_converts_to_png_first_frame(tmp_path: Path) -> None:
     src = _gif(tmp_path / "src" / "anim.gif", (10, 5))
     theme = _make_theme()
-    spec = WallpaperSpec(path=src, fill_mode="scaled")
+    spec = WallpaperSpec(path=src, fill_mode="stretch")
     pkg_dir = tmp_path / wallpaper_id(theme.name, "anim")
     pkg = write_package(theme, spec, pkg_dir)
 
@@ -163,7 +163,7 @@ def test_write_package_bomb_guard(tmp_path: Path) -> None:
     try:
         assert 20_000 * 20_000 > MAX_IMAGE_PIXELS
         theme = _make_theme()
-        spec = WallpaperSpec(path=src, fill_mode="scaled")
+        spec = WallpaperSpec(path=src, fill_mode="stretch")
         with pytest.raises(WallpaperError, match="pixel guard"):
             write_package(theme, spec, tmp_path / "pkg")
     finally:
@@ -172,7 +172,7 @@ def test_write_package_bomb_guard(tmp_path: Path) -> None:
 
 def test_write_package_missing_file_raises(tmp_path: Path) -> None:
     theme = _make_theme()
-    spec = WallpaperSpec(path=tmp_path / "nope.png", fill_mode="scaled")
+    spec = WallpaperSpec(path=tmp_path / "nope.png", fill_mode="stretch")
     with pytest.raises(WallpaperError):
         write_package(theme, spec, tmp_path / "pkg")
 
@@ -184,7 +184,7 @@ def test_write_package_cleans_up_pkg_dir_on_mid_write_failure(
     must still leave no partial package directory behind."""
     src = _png(tmp_path / "src" / "bg.png", (10, 10))
     theme = _make_theme()
-    spec = WallpaperSpec(path=src, fill_mode="scaled")
+    spec = WallpaperSpec(path=src, fill_mode="stretch")
     pkg_dir = tmp_path / "pkg"
 
     import themey.generate.wallpaper as wallpaper_mod
@@ -206,7 +206,7 @@ def test_write_package_cleans_up_pkg_dir_on_metadata_write_failure(
     must also roll back the whole package dir, not just the image."""
     src = _png(tmp_path / "src" / "bg.png", (10, 10))
     theme = _make_theme()
-    spec = WallpaperSpec(path=src, fill_mode="scaled")
+    spec = WallpaperSpec(path=src, fill_mode="stretch")
     pkg_dir = tmp_path / "pkg"
 
     import themey.generate.wallpaper as wallpaper_mod
@@ -229,7 +229,7 @@ def test_write_package_solid_only(tmp_path: Path) -> None:
     """A SET_SOLID-only spec becomes a small flat 128x128 PNG package."""
     theme = _make_theme(name="OPENSTEP", display_name="OPENSTEP")
     spec = WallpaperSpec(
-        path=None, fill_mode="scaled", solid_rgb=(200, 200, 200),
+        path=None, fill_mode="stretch", solid_rgb=(200, 200, 200),
         name="OPENSTEP_Background",
     )
     pkg_dir = tmp_path / wallpaper_id(theme.name, spec.stem)
@@ -237,7 +237,7 @@ def test_write_package_solid_only(tmp_path: Path) -> None:
 
     assert pkg.solid is True
     assert pkg.width == pkg.height == 128
-    assert pkg.fill_mode == "scaled"
+    assert pkg.fill_mode == "stretch"
     image_path = pkg_dir / "contents" / "images" / "128x128.png"
     assert image_path.is_file()
     with Image.open(image_path) as im:
@@ -256,7 +256,7 @@ def test_write_package_flattens_alpha_over_solid(tmp_path: Path) -> None:
     im.save(src, format="PNG")
 
     theme = _make_theme()
-    spec = WallpaperSpec(path=src, fill_mode="tiled", solid_rgb=(0, 0, 0))
+    spec = WallpaperSpec(path=src, fill_mode="tile", solid_rgb=(0, 0, 0))
     pkg_dir = tmp_path / wallpaper_id(theme.name, "tanbg")
     pkg = write_package(theme, spec, pkg_dir)
 
@@ -277,7 +277,7 @@ def test_write_package_opaque_with_solid_copied_through(tmp_path: Path) -> None:
     Image.new("RGB", (16, 12), (10, 20, 30)).save(src, format="PNG")
 
     theme = _make_theme()
-    spec = WallpaperSpec(path=src, fill_mode="scaled", solid_rgb=(1, 2, 3))
+    spec = WallpaperSpec(path=src, fill_mode="stretch", solid_rgb=(1, 2, 3))
     pkg_dir = tmp_path / wallpaper_id(theme.name, "bg")
     write_package(theme, spec, pkg_dir)
 
@@ -289,7 +289,7 @@ def test_write_package_alpha_without_solid_copied_through(tmp_path: Path) -> Non
     """RGBA with NO solid underneath keeps today's byte-copy behavior."""
     src = _png(tmp_path / "src" / "bg.png", (16, 12))  # RGBA helper
     theme = _make_theme()
-    spec = WallpaperSpec(path=src, fill_mode="scaled")
+    spec = WallpaperSpec(path=src, fill_mode="stretch")
     pkg_dir = tmp_path / wallpaper_id(theme.name, "bg")
     write_package(theme, spec, pkg_dir)
     dest = pkg_dir / "contents" / "images" / "16x12.png"
@@ -297,9 +297,9 @@ def test_write_package_alpha_without_solid_copied_through(tmp_path: Path) -> Non
 
 
 def test_pick_default_largest_area() -> None:
-    small = WallpaperPackage(id="a", dir=Path("a"), width=10, height=10, fill_mode="scaled")
-    big = WallpaperPackage(id="b", dir=Path("b"), width=100, height=50, fill_mode="tiled")
-    medium = WallpaperPackage(id="c", dir=Path("c"), width=40, height=40, fill_mode="scaled")
+    small = WallpaperPackage(id="a", dir=Path("a"), width=10, height=10, fill_mode="stretch")
+    big = WallpaperPackage(id="b", dir=Path("b"), width=100, height=50, fill_mode="tile")
+    medium = WallpaperPackage(id="c", dir=Path("c"), width=40, height=40, fill_mode="stretch")
     assert pick_default([small, big, medium]) is big
 
 
@@ -311,10 +311,10 @@ def test_pick_default_solid_never_outranks_art() -> None:
     """A solid package loses to real art regardless of area; it wins only
     when it's the only package (OPENSTEP's case)."""
     solid = WallpaperPackage(
-        id="s", dir=Path("s"), width=128, height=128, fill_mode="scaled", solid=True
+        id="s", dir=Path("s"), width=128, height=128, fill_mode="stretch", solid=True
     )
     art = WallpaperPackage(
-        id="a", dir=Path("a"), width=64, height=48, fill_mode="tiled"
+        id="a", dir=Path("a"), width=64, height=48, fill_mode="tile"
     )
     assert pick_default([solid, art]) is art
     assert pick_default([solid]) is solid
@@ -341,3 +341,44 @@ def test_aliens_fixture_four_packages_one_gif_converted(tmp_path: Path) -> None:
     gif_images = list((gif_pkg.dir / "contents" / "images").glob("*"))
     assert len(gif_images) == 1
     assert gif_images[0].suffix == ".png"
+
+
+# --------------------------------------------------------------------- #
+# Fill-mode vocabulary + SET_SOLID letterbox color in the metadata
+# --------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("mode", ["stretch", "tile", "tile-h", "tile-v", "pad", "fit"])
+def test_write_package_metadata_carries_every_fill_mode(tmp_path: Path, mode: str) -> None:
+    src = _png(tmp_path / "src" / "bg.png")
+    theme = _make_theme()
+    pkg_dir = tmp_path / wallpaper_id(theme.name, "bg")
+    pkg = write_package(theme, WallpaperSpec(path=src, fill_mode=mode), pkg_dir)
+    meta = json.loads((pkg_dir / "metadata.json").read_text())
+    assert meta["X-Themey-FillMode"] == mode
+    assert pkg.fill_mode == mode
+
+
+def test_write_package_metadata_solid_color_for_letterbox(tmp_path: Path) -> None:
+    """A block's SET_SOLID is the letterbox color of a fit/pad wallpaper —
+    written as KConfig's QColor spelling so apply can hand it straight to
+    the Image wallpaper's Color key."""
+    src = tmp_path / "src" / "logo.png"
+    src.parent.mkdir(parents=True)
+    Image.new("RGB", (16, 12), (10, 20, 30)).save(src, format="PNG")
+    theme = _make_theme()
+    spec = WallpaperSpec(path=src, fill_mode="pad", solid_rgb=(100, 70, 40))
+    pkg_dir = tmp_path / wallpaper_id(theme.name, "logo")
+    write_package(theme, spec, pkg_dir)
+    meta = json.loads((pkg_dir / "metadata.json").read_text())
+    assert set(meta.keys()) == {"KPlugin", "X-Themey-FillMode", "X-Themey-SolidColor"}
+    assert meta["X-Themey-SolidColor"] == "100,70,40"
+
+
+def test_write_package_metadata_no_solid_key_without_solid(tmp_path: Path) -> None:
+    src = _png(tmp_path / "src" / "bg.png")
+    theme = _make_theme()
+    pkg_dir = tmp_path / wallpaper_id(theme.name, "bg")
+    write_package(theme, WallpaperSpec(path=src, fill_mode="fit"), pkg_dir)
+    meta = json.loads((pkg_dir / "metadata.json").read_text())
+    assert "X-Themey-SolidColor" not in meta

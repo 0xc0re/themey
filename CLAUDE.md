@@ -105,12 +105,12 @@ receives no fidelity work.
 | Package | Role |
 |---------|------|
 | `etheme/` | `archive.py` (validating tar extract), `lex.py`, `parse.py`, `ast.py` — the E16 grammar front end |
-| `analyze/` | AST → frozen `ir.Theme`: iclass resolution, state collapse, button binning, coordinate math, borders, `fonts.py` (__FONTS scan), `colors.py` (median-cut sampling of the theme's own border art into a full 8-group `ColorScheme` + the 4-field `[WM]` active/inactive background+foreground set, WCAG-AA-guarded) |
+| `analyze/` | AST → frozen `ir.Theme`: iclass resolution, state collapse, button binning, coordinate math, borders, `fonts.py` (__FONTS scan), `wallpaper.py` (text pipeline over `desktops.cfg` + its archive `#include`s: `ADD_BACKGROUND_*` macros expanded to the raw `__BACKGROUND_LAYER file tile keep_aspect xjust yjust xperc yperc` tuple from `config/definitions:943-1009`, so Rebound/Fossils' hand-written raw blocks parse too; `fill_mode_for_layer` maps the tuple — never the macro name — onto `stretch`/`tile`/`tile-h` (scaled to screen height, tiled across — the gradient-strip TILED_SCALED_VERTICALLY)/`tile-v`/`pad` (CENTERED)/`fit` (SCALED_RETAIN_ASPECT and ALIGN_*, alignment lost + noted); `__FORGROUND_LAYER` overlays stay note-only), `colors.py` (median-cut sampling of the theme's own border art into a full 8-group `ColorScheme` + the 4-field `[WM]` active/inactive background+foreground set, WCAG-AA-guarded) |
 | `images/` | `ninepatch.py`, `opaque.py`, `upscale.py` (`upscale_part`: scale_px-dim targets, nearest/quality modes), `hqx.py` (opt-in quality scaler), `embed.py` — raster primitives, NEAREST default |
 | `generate/qmldeco/` | DEFAULT backend: `theme_js.py` (part model, `SHADE_BUTTON_MODES`), `resolver.py` (E16 geometry, Python mirror), `actions.py`, `package.py`, `runtime/` (4 verbatim QML/JS files) |
 | `generate/` (rest) | SVG backend: `aurorae.py` orchestrates `decoration_svg.py`, `aurorae_rc.py`, `aurorae_meta.py`, `button_svg.py`, `composite.py` |
 | `generate/colors.py` | `.colors` writer — the 13-group/12-key Breeze-shaped file census; sampled colors from `analyze/colors.py`, semantic foregrounds + ColorEffects verbatim from Breeze stock |
-| `generate/wallpaper.py` | One Plasma wallpaper package per E16 background image (`WallpaperPackage`); PNG/JPEG/BMP copied through at real dimensions, everything else re-saved as PNG. Two `SET_SOLID` exceptions: alpha-carrying sources with a solid underneath are flattened over it (e13's tanbg.png over black — E16 composites the tile over the solid), and a SET_SOLID-only block (OPENSTEP) becomes a small flat 128×128 package. `pick_default` ranks by `(not solid, area)` — a solid never outranks art |
+| `generate/wallpaper.py` | One Plasma wallpaper package per E16 background image (`WallpaperPackage`); PNG/JPEG/BMP copied through at real dimensions, everything else re-saved as PNG. Two `SET_SOLID` exceptions: alpha-carrying sources with a solid underneath are flattened over it (e13's tanbg.png over black — E16 composites the tile over the solid), and a SET_SOLID-only block (OPENSTEP) becomes a small flat 128×128 package. `pick_default` ranks by `(not solid, area)` — a solid never outranks art. `metadata.json` carries `X-Themey-FillMode` (the six-mode vocabulary above) and, when the block had a SET_SOLID, `X-Themey-SolidColor` (`r,g,b`) for the fit/pad letterbox |
 | `generate/cursors.py` | E16 `__CURSOR` → XCursor pointer theme via the hand-rolled XBM parser + `xcursorgen`; modern Plasma 6.6 names canonical, legacy X11 names as symlinks |
 | `generate/plasmastyle.py` | Plasma Style (`Plasma/Theme` KPackage under `plasma/desktoptheme/themey_<slug>/`, selected by the bundle's `[plasmarc][Theme] name=`) — panel/popup/tooltip/pager chrome as KSvg FrameSvg sets. Deliberately sparse: ship an SVG only where E16 has real counterpart art and let Breeze fill in per missing file, re-tinted through the package's own `colors`. Every shipped SVG is mirrored byte-identically into `solid/` and `opaque/`. The panel background ships real dragbar/iconbox art (middle STRETCHED whenever E16 stretched it, i.e. the default `__FILLRULE` — `hint-tile-center` is never emitted for stretched E16 middles: tiling repeated photographic troughs across the whole bar, HandOfGod's capless cloud and NorthernLights' 58 px aurora even with caps, both verified live 2026-09-01 — and emitted exactly when E16 itself tiled the state's art, `IClassSpec.fill_for(state)` ≠ stretch from a per-state `__FILLRULE __TILE*`; `west-`/`east-` sets from the vertical bar art) when a candidate passes the shaped + `PANEL_MAX_REF_CAPS` guards (baked-in wordmarks live in the caps and would stretch unreadably across a 40 px panel); guard failures fall back to the flat translucent tint, whose mirrors alone are re-rendered opaque; the art panel's `hint-*-margin` rects hug the painted caps (`cap − 4` output px, E16 `__PADDING` dropped — Plasma's Panel.qml pads content by `margin + smallSpacing(4)` per side, so cap-based hints land the padding exactly on the cap's inner edge; calibrated live 2026-09-01, the `__PADDING` hints read as an empty trough before the first task button). `widgets/tasks.svg` comes from the iconbox button art (focus = clicked art); `dialogs/background.svg` composes MENU_T/B/L/R strip pieces around the center when authored (corners only when dims match the adjacent strips — FrameSvg stretches a corner to the border thicknesses) |
 | `generate/lookandfeel.py` | Plasma Global Theme (Look-and-Feel) bundle writer — `metadata.json` + `contents/defaults`, one conditional INI group per artifact this conversion actually deployed |
@@ -186,28 +186,36 @@ desktops one per row (kwinrc `[Desktops] Rows=Number` AND the writable
 `VirtualDesktopManager.rows` D-Bus property — KWin reads the config key
 only at startup, verified live 2026-08-31; `PrevDesktopRows` baseline,
 restored on revert). Then the
-tiled-wallpaper fix-up, and one `qdbus`
+wallpaper fill-mode step, and one `qdbus`
 reconfigure last. The panel steps come BEFORE the wallpaper one on
 purpose: the wallpaper step is the likeliest to raise, and a failed apply
 should still have delivered the panel feel.
 
-`_set_wallpaper_tiled` runs when the bundle's default wallpaper package's
-`X-Themey-FillMode` is `tiled`, and it takes TWO steps because
-`plasma-apply-wallpaperimage -f` exposes no tile token at all on Plasma
-6.6.6 (verified live 2026-08-31: every spelling of tile is "Invalid fill
-mode"; only the camelCase QML names
-`stretch`/`preserveAspectFit`/`preserveAspectCrop`/`pad` are accepted, and
-Plasma's Image wallpaper plugin doesn't read fill-mode from the package
-either). So: `plasma-apply-wallpaperimage <image>` sets the image, then a
-plasmashell scripting D-Bus call writes `FillMode =
-_WALLPAPER_TILE_FILL_MODE_INT` (3, QML `Image.Tile`) on every desktop's
-Image wallpaper config. The CONFIG lands (KCM shows Tiled) but plasmashell
+`_set_wallpaper_fill(image, mode, solid)` runs with the bundle's default
+wallpaper package's `X-Themey-FillMode` (legacy `tiled`/`scaled` read as
+`tile`/`stretch`; unknown values log a warning and leave the wallpaper
+alone) and dispatches two ways, because `plasma-apply-wallpaperimage -f`
+accepts only the camelCase QML names
+`stretch`/`preserveAspectFit`/`preserveAspectCrop`/`pad` on Plasma 6.6.6
+(verified live 2026-08-31: every spelling of tile is "Invalid fill mode",
+and Plasma's Image wallpaper plugin doesn't read fill-mode from the package
+either). `stretch`/`fit`/`pad` go through the tool's `-f`
+(`_WALLPAPER_FILL_MODE_TOKENS`; E16's SCALED is a stretch and Plasma's
+default is a crop, so even the plain mode needs it); when the package also
+carries `X-Themey-SolidColor` and the mode is `fit`/`pad`, a plasmashell
+scripting call writes the Image wallpaper's `Color` key so the letterbox
+shows E16's solid. The three tile modes set the image without `-f`, then
+the same scripting shape writes `FillMode` with the QML `Image.fillMode`
+int (`_WALLPAPER_FILL_MODE_INTS`: `tile`=3 Tile, `tile-v`=4
+TileVertically, `tile-h`=5 TileHorizontally) on every desktop's Image
+wallpaper config. The CONFIG lands (KCM shows the mode) but plasmashell
 6.6.6 does NOT repaint fill-mode from ANY scripting write (verified live
 2026-08-31 — FillMode alone, +reloadConfig, even an Image swap left the
-render pixel-identical), so a tiled apply ends with
+render pixel-identical), so a tile-mode apply ends with
 `systemctl --user restart plasma-plasmashell` (`_restart_plasmashell`,
 dead last so it can't race any evaluateScript; failure = warning, never a
-failed apply; opt-out `--no-restart-shell`).
+failed apply; opt-out `--no-restart-shell`). Whether the `-f` path and the
+`Color` write repaint live without a restart is NOT yet verified.
 
 `themey apply --revert` reads
 the markers back, reapplies the recorded Look-and-Feel package (no

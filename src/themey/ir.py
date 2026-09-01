@@ -297,21 +297,25 @@ class CursorSpec:
 class WallpaperSpec:
     """One background image declared in ``desktops.cfg``, with its fill mode.
 
-    ``fill_mode`` is ``"tiled"`` for ``ADD_BACKGROUND_TILED*`` macros and
-    ``"scaled"`` for ``ADD_BACKGROUND_SCALED``/``BG_FILE`` — it becomes the
-    wallpaper package's ``X-Themey-FillMode`` (see
-    ``generate/wallpaper.py``), so ``apply`` can read tiled-ness back out of
-    the installed package without re-parsing the E16 source.
+    ``fill_mode`` is one of ``analyze.wallpaper.FILL_MODES`` — ``stretch``,
+    ``tile``, ``tile-h`` (scaled to screen height, tiled across),
+    ``tile-v``, ``pad`` (native, centered), ``fit`` (aspect kept) — derived
+    from the ``__BACKGROUND_LAYER`` 6-int tuple by
+    ``analyze.wallpaper.fill_mode_for_layer``. It becomes the wallpaper
+    package's ``X-Themey-FillMode`` (see ``generate/wallpaper.py``), so
+    ``apply`` can dispatch on it without re-parsing the E16 source.
 
     ``solid_rgb`` carries the enclosing block's ``SET_SOLID("r g b")`` — E16
     composites the (often partially transparent) background image over that
-    solid, so the generator flattens RGBA sources over it. A spec with
-    ``path=None`` is solid-only (OPENSTEP declares nothing but SET_SOLID);
-    ``name`` is then the ``BEGIN_BACKGROUND`` block name and feeds ``stem``.
+    solid, so the generator flattens RGBA sources over it, and for
+    ``fit``/``pad`` it is the letterbox color (``X-Themey-SolidColor``). A
+    spec with ``path=None`` is solid-only (OPENSTEP declares nothing but
+    SET_SOLID); ``name`` is then the ``BEGIN_BACKGROUND`` block name and
+    feeds ``stem``.
     """
 
     path: Path | None  # under asset_root; None for a SET_SOLID-only block
-    fill_mode: str  # "tiled" | "scaled"
+    fill_mode: str  # analyze.wallpaper.FILL_MODES
     solid_rgb: tuple[int, int, int] | None = None  # SET_SOLID underneath
     name: str = ""  # BEGIN_BACKGROUND block name (stem source when path=None)
 
