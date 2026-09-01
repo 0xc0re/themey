@@ -688,18 +688,38 @@ def _opaque_trim(
     return img.crop(bbox), edge, trims
 
 
-#: Mean per-pixel contrast (0-1) between a side's outermost line and the
-#: line ``cap // 2`` inward, below which the side is judged BORDERLESS —
-#: an open end. A painted rim scores ≥ ~0.4 on its rim rows and a rounded
-#: (alpha-cut) end scores 1.0 on every cut row; Yellow's open right end
-#: (fill straight to the edge) scores 0.
-_OPEN_EDGE_CONTRAST = 0.15
+#: Ref-px cross-section (post-trim ``min(w, h)``) at or below which
+#: MENU_SEL art is a highlight PILL — a strip authored at item height,
+#: whose rounded ends and vertical shading the radius pin keeps crisp.
+#: Anything larger is a menu BACKGROUND pointed at MENU_SEL (47 corpus
+#: themes: 64x64 tiles up to Ganymede's 484x400).
+VIEWITEM_PILL_MAX_REF = 40
+
+#: Ref-px ceiling for any viewitem cap. A Kickoff row is ~30 px; the old
+#: unclamped radius gave 94/215 corpus themes caps past this (IceBerg's
+#: 256x256 background → 127 px caps, StarEnli 64 left / 14 right) with
+#: no stretching middle left at all.
+VIEWITEM_MAX_REF_CAP = 12
+
+#: Per-pixel contrast (0-1: luminance delta for two painted pixels, 1.0
+#: when the shape mask cuts exactly one of them) at or above which a pixel
+#: pair counts as OUTLINE — a painted rim or a rounded end's alpha edge.
+_RIM_PIXEL_CONTRAST = 0.25
+#: Share of a side's painted span that must be outline pixels (outer line
+#: vs the line ``cap // 2`` inward) for the side to count as RIMMED.
+#: Yellow's rounded left end scores 1.0; Detroit's soft pill bottom, whose
+#: only contrast is a 4-px decorative mark, scores ~0.2.
+_RIM_MIN_FRACTION = 0.5
+#: Share at or below which a side is flat fill running to the edge.
+_OPEN_MAX_FRACTION = 0.15
 
 _SIDE_INDEX = {"left": 0, "right": 1, "top": 2, "bottom": 3}
 _OPPOSITE = {"left": "right", "right": "left", "top": "bottom", "bottom": "top"}
 
+RGBA = tuple[int, int, int, int]
 
-def _edge_line(img: Image.Image, side: str, offset: int) -> list[tuple[int, int, int, int]]:
+
+def _edge_line(img: Image.Image, side: str, offset: int) -> list[RGBA]:
     """RGBA pixels of the row/column *offset* px inward from *side*."""
     w, h = img.size
     if side == "left":
@@ -717,28 +737,53 @@ def _edge_line(img: Image.Image, side: str, offset: int) -> list[tuple[int, int,
     ]
 
 
-def _edge_has_border(img: Image.Image, side: str, cap: int) -> bool:
-    """True when *side*'s outermost line differs from the line ``cap // 2``
-    inward (luminance for opaque pairs, alpha when the mask cuts one of
-    them) by more than ``_OPEN_EDGE_CONTRAST`` on average — a painted rim
-    or a rounded end. False for fill running straight to the edge."""
-    span = img.height if side in ("left", "right") else img.width
+def _pixel_contrast(p: RGBA, q: RGBA) -> float | None:
+    """0-1 contrast of a pixel pair; None when neither is painted."""
+    cut_p, cut_q = p[3] < 128, q[3] < 128
+    if cut_p and cut_q:
+        return None
+    if cut_p != cut_q:
+        return 1.0
+    return abs((p[0] + p[1] + p[2]) - (q[0] + q[1] + q[2])) / 765
+
+
+def _edge_profile(img: Image.Image, side: str, cap: int) -> tuple[bool, float]:
+    """``(flat, rim_fraction)`` of *side*'s outermost line against the line
+    ``cap // 2`` inward: *flat* — both lines have the same shape mask (a
+    straight cut, no rounding); *rim_fraction* — share of the painted span
+    whose pixel pairs are outline (``_RIM_PIXEL_CONTRAST``)."""
     depth = img.width if side in ("left", "right") else img.height
     inward = min(max(1, cap // 2), depth - 1)
-    if inward <= 0 or span <= 0:
-        return False
+    if inward <= 0:
+        return False, 0.0
     outer = _edge_line(img, side, 0)
     inner = _edge_line(img, side, inward)
-    total = 0.0
-    for (r1, g1, b1, a1), (r2, g2, b2, a2) in zip(outer, inner, strict=True):
-        cut1, cut2 = a1 < 128, a2 < 128
-        if cut1 and cut2:
-            continue
-        if cut1 != cut2:
-            total += 1.0
-        else:
-            total += abs((r1 + g1 + b1) - (r2 + g2 + b2)) / (3 * 255)
-    return total / span >= _OPEN_EDGE_CONTRAST
+    contrasts = [_pixel_contrast(p, q) for p, q in zip(outer, inner, strict=True)]
+    painted = [c for c in contrasts if c is not None]
+    if not painted:
+        return False, 0.0
+    flat = all((p[3] < 128) == (q[3] < 128) for p, q in zip(outer, inner, strict=True))
+    rim = sum(1 for c in painted if c >= _RIM_PIXEL_CONTRAST) / len(painted)
+    return flat, rim
+
+
+def _cut_carries_rims(img: Image.Image, side: str) -> bool:
+    """True when the outermost line's first and last painted pixels
+    contrast with its middle third — the perpendicular sides' rims run
+    straight into the cut, the signature of a rimmed shape sliced open
+    (Yellow's right end: dark top/bottom rows, fill between). A bevel's lit
+    edge (Nebula) or a soft pill (Detroit) is uniform end to end."""
+    painted = [p for p in _edge_line(img, side, 0) if p[3] >= 128]
+    n = len(painted)
+    if n < 3:
+        return False
+    third = painted[n // 3 : n - n // 3] or painted
+    lum = sum(p[0] + p[1] + p[2] for p in third) / len(third)
+    mid: RGBA = (int(lum / 3), int(lum / 3), int(lum / 3), 255)
+    return all(
+        (_pixel_contrast(end, mid) or 0.0) >= _RIM_PIXEL_CONTRAST
+        for end in (painted[0], painted[-1])
+    )
 
 
 def _mirror_cap_onto(img: Image.Image, side: str, cap: int) -> Image.Image:
@@ -777,17 +822,27 @@ def _close_open_edges(
     restore it: this repair DIVERGES FROM E16 on purpose and is noted in
     ``report.txt``.
 
-    Per axis, a side is closed when it was TRIMMED (``trims[side] > 0`` —
-    the art stopped short of its canvas there), its outermost line has no
-    border signature (:func:`_edge_has_border`), and the opposite side
-    HAS one; the opposite cap band is mirrored onto it and the side's cap
-    becomes the opposite cap (Yellow: 10/8 → 10/10). Full-canvas art
-    (``trims`` None — pager ``p_sel.png``/``bg_win.png`` bevels, whose
-    light bottom/right edges are authored asymmetry) is returned as-is.
-    *caps* are the source-px caps in force (post ``edge_override``).
-    Returns ``(image, caps, closed sides)``.
+    Only PILL art (``min(w, h) <= VIEWITEM_PILL_MAX_REF``) is considered;
+    full-canvas art (``trims`` None — pager ``p_sel.png``/``bg_win.png``
+    bevels, whose light bottom/right edges are authored asymmetry) is
+    returned as-is. Per axis, a side is closed only when ALL of: it was
+    TRIMMED (``trims[side] > 0`` — the art stopped short of its canvas
+    there); it is a straight cut with fill running to the edge
+    (:func:`_edge_profile`: flat mask, rim fraction ≤
+    ``_OPEN_MAX_FRACTION``); the perpendicular rims run into that cut
+    (:func:`_cut_carries_rims`); and the opposite side is rimmed (rim
+    fraction ≥ ``_RIM_MIN_FRACTION``). The opposite cap band is then
+    mirrored onto it and the side's cap becomes the opposite cap (Yellow:
+    10/8 → 10/10). The rim-into-cut test is what separates a sliced-open
+    rimmed pill from art that is merely lit on one side: a raised bevel
+    with alpha margins (Nebula — light top/left, dark right/bottom
+    shadow) and a soft pill whose only bottom contrast is a decorative
+    mark (Detroit) were closed by a looser rule (corpus audit
+    2026-09-01) and came out boxed in. *caps* are the source-px caps in
+    force (post ``edge_override``). Returns ``(image, caps, closed
+    sides)``.
     """
-    if trims is None:
+    if trims is None or min(img.size) > VIEWITEM_PILL_MAX_REF:
         return img, caps, ()
     out = img
     new_caps = list(caps)
@@ -799,9 +854,10 @@ def _close_open_edges(
         depth = out.width if side in ("left", "right") else out.height
         if trims[i] <= 0 or new_caps[o] <= 0 or new_caps[o] > depth:
             continue
-        if _edge_has_border(out, side, new_caps[i]):
+        flat, rim = _edge_profile(out, side, new_caps[i])
+        if not flat or rim > _OPEN_MAX_FRACTION or not _cut_carries_rims(out, side):
             continue
-        if not _edge_has_border(out, opp, new_caps[o]):
+        if _edge_profile(out, opp, new_caps[o])[1] < _RIM_MIN_FRACTION:
             continue
         out = _mirror_cap_onto(out, side, new_caps[o])
         new_caps[i] = new_caps[o]
@@ -1364,20 +1420,6 @@ def build_button(theme: Theme) -> ET.Element | None:
         "(focus ring reuses the hilited art)"
     )
     return canvas.finish()
-
-
-#: Ref-px cross-section (post-trim ``min(w, h)``) at or below which
-#: MENU_SEL art is a highlight PILL — a strip authored at item height,
-#: whose rounded ends and vertical shading the radius pin keeps crisp.
-#: Anything larger is a menu BACKGROUND pointed at MENU_SEL (47 corpus
-#: themes: 64x64 tiles up to Ganymede's 484x400).
-VIEWITEM_PILL_MAX_REF = 40
-
-#: Ref-px ceiling for any viewitem cap. A Kickoff row is ~30 px; the old
-#: unclamped radius gave 94/215 corpus themes caps past this (IceBerg's
-#: 256x256 background → 127 px caps, StarEnli 64 left / 14 right) with
-#: no stretching middle left at all.
-VIEWITEM_MAX_REF_CAP = 12
 
 
 def _viewitem_caps(

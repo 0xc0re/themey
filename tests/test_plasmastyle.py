@@ -919,6 +919,81 @@ def test_viewitem_full_bbox_bevel_is_not_mirrored(tmp_path: Path) -> None:
     assert not any("trimmed" in n for n in theme.notes)
 
 
+def _nebula_bevel(tmp_path: Path) -> Path:
+    """Replica of Nebula's menu-item-lit.png (68x20): 2 px transparent
+    margins, light fill, a dark RIGHT column and BOTTOM row (drop shadow),
+    light top/left (lit edges), top-right/bottom-right corners rounded by
+    1 px. A raised bevel — its lit top is not an open end."""
+    img = Image.new("RGBA", (68, 20), (0, 0, 0, 0))
+    for y in range(1, 19):
+        for x in range(2, 66):
+            img.putpixel((x, y), (90, 170, 190, 255))
+    for y in range(2, 19):
+        img.putpixel((66, y), (25, 40, 45, 255))
+    for x in range(3, 66):
+        img.putpixel((x, 18), (25, 40, 45, 255))
+    png = tmp_path / "menu-item-lit.png"
+    img.save(png)
+    return png
+
+
+def _detroit_soft_pill(tmp_path: Path) -> Path:
+    """Replica of Detroit's mb2_menu.png (29x11): 1 px transparent margin,
+    a light rimless pill with 1 px rounded corners and a 4 px dark
+    decorative mark on the bottom row."""
+    img = Image.new("RGBA", (29, 11), (0, 0, 0, 0))
+    for y in range(1, 10):
+        x0, x1 = (2, 27) if y in (1, 9) else (1, 28)
+        for x in range(x0, x1):
+            img.putpixel((x, y), (200, 200, 210, 255))
+    for x in range(5, 9):
+        img.putpixel((x, 9), (30, 30, 30, 255))
+    png = tmp_path / "mb2_menu.png"
+    img.save(png)
+    return png
+
+
+@pytest.mark.parametrize("make", [_nebula_bevel, _detroit_soft_pill])
+def test_close_open_edges_leaves_bevels_and_soft_pills_alone(tmp_path: Path, make) -> None:
+    """Corpus audit 2026-09-01: a looser rule boxed in Nebula's raised
+    bevel (dark shadow mirrored onto its lit top) and doubled Detroit's
+    decorative mark. Neither is a sliced-open rim."""
+    png = make(tmp_path)
+    theme = _theme(tmp_path, {
+        "MENU_SEL": _iclass("MENU_SEL", edge=(4, 4, 3, 3), hilited=png),
+    })
+    svg = plasmastyle.build_viewitem(theme)
+    assert svg is not None
+    assert not any("end was open" in n for n in theme.notes)
+    with Image.open(png) as im:
+        src = im.convert("RGBA")
+    trimmed = plasmastyle._opaque_trim(src, (4, 4, 3, 3))
+    assert trimmed is not None
+    img, edge, trims = trimmed
+    caps, _ = plasmastyle._viewitem_caps(edge, *img.size)
+    out, out_caps, closed = plasmastyle._close_open_edges(img, caps, trims)
+    assert closed == () and out is img and out_caps == caps
+
+
+def test_close_open_edges_ignores_large_backgrounds(tmp_path: Path) -> None:
+    """EvilJester's 100x150 MENU_SEL background is framed on top/left only;
+    it is not a pill and is left alone."""
+    img = Image.new("RGBA", (100, 150), (0, 0, 0, 0))
+    for y in range(1, 149):
+        for x in range(1, 99):
+            img.putpixel((x, y), (120, 60, 140, 255))
+    for x in range(1, 99):
+        img.putpixel((x, 1), (230, 200, 240, 255))
+    for y in range(1, 149):
+        img.putpixel((1, y), (230, 200, 240, 255))
+    trimmed = plasmastyle._opaque_trim(img, (4, 4, 4, 4))
+    assert trimmed is not None
+    art, edge, trims = trimmed
+    caps, branch = plasmastyle._viewitem_caps(edge, *art.size)
+    assert branch == "declared"
+    assert plasmastyle._close_open_edges(art, caps, trims)[2] == ()
+
+
 def test_viewitem_fully_transparent_art_not_shipped(tmp_path: Path) -> None:
     """Aphex2/ChromiumNoise/Cronos/Ecdysis/Inferno point MENU_SEL at fully
     transparent art: a shipped-but-blank viewitem.svg blocks the Breeze
