@@ -379,3 +379,74 @@ def test_default_entry_files_include_menustyles(tmp_path: Path) -> None:
     (tmp_path / "menustyles.cfg").write_text(_MENUSTYLE_CFG)
     nodes = parse_tree(tmp_path)
     assert len(_blocks(nodes, "__MENU_STYLE")) == 1
+
+
+# ---------------------------------------------------------------------------
+# Conditional directives (epp honors them; eMac ships per-variant art)
+# ---------------------------------------------------------------------------
+
+
+def _first_kv_value(nodes: list, block_kw: str, key: str):
+    block = _blocks(nodes, block_kw)[0]
+    kv = _kv(block, key)
+    return kv.values[0] if kv is not None else None
+
+
+def test_ifdef_variant_blocks_are_skipped_when_undefined(tmp_path: Path) -> None:
+    """eMac: ``__NORMAL "raised_normal.png"`` then ``#ifdef GRAPE __NORMAL
+    "raised_purple.png" #endif`` (six variants). E16 runs epp with only
+    THEME_VARIANT_<name> defined, so the base art wins; parsing every arm
+    made the LAST variant win."""
+    (tmp_path / "imageclasses.cfg").write_text(
+        "__ICLASS __BGN\n  __NAME PAGER_BACKGROUND\n"
+        '  __NORMAL "artwork/raised_normal.png"\n'
+        "#ifdef BONDIBLUE\n"
+        '  __NORMAL "artwork/raised_cyan.png"\n'
+        "#endif\n"
+        "#ifdef LIME\n"
+        '  __NORMAL "artwork/raised_green.png"\n'
+        "#endif  \n"
+        "  __EDGE_SCALING 3 3 3 3\n__END\n"
+    )
+    nodes = parse_tree(tmp_path, ["imageclasses.cfg"])
+    block = _blocks(nodes, "__ICLASS")[0]
+    normals = [c for c in block.children if isinstance(c, KeyVal) and c.keyword == "__NORMAL"]
+    assert [c.values[0] for c in normals] == ["artwork/raised_normal.png"]
+    assert _kv(block, "__EDGE_SCALING") is not None
+
+
+def test_if_zero_block_dropped_and_else_taken(tmp_path: Path) -> None:
+    """ThiNicE/Spring/Summer disable an iclass with ``#if 0``."""
+    (tmp_path / "imageclasses.cfg").write_text(
+        "#if 0\n__ICLASS __BGN\n  __NAME COVER\n__END\n#else\n"
+        "__ICLASS __BGN\n  __NAME KEPT\n__END\n#endif\n"
+        "#if 1\n__ICLASS __BGN\n  __NAME ALSO\n__END\n#endif\n"
+    )
+    nodes = parse_tree(tmp_path, ["imageclasses.cfg"])
+    names = [_kv(b, "__NAME").values[0] for b in _blocks(nodes, "__ICLASS")]
+    assert names == ["KEPT", "ALSO"]
+
+
+def test_ifdef_sees_theme_defines_and_nesting(tmp_path: Path) -> None:
+    (tmp_path / "borders.cfg").write_text(
+        "#define GREEN 1\n"
+        "#ifdef GREEN\n__ICLASS __BGN\n  __NAME G\n"
+        "#ifndef GREEN\n  __NORMAL \"no.png\"\n#else\n  __NORMAL \"yes.png\"\n#endif\n"
+        "__END\n#endif\n"
+        "#ifdef ENLIGHTENMENT_VERSION\n__ICLASS __BGN\n  __NAME E\n__END\n#endif\n"
+    )
+    nodes = parse_tree(tmp_path, ["borders.cfg"])
+    blocks = _blocks(nodes, "__ICLASS")
+    assert [_kv(b, "__NAME").values[0] for b in blocks] == ["G", "E"]
+    assert _kv(blocks[0], "__NORMAL").values[0] == "yes.png"
+
+
+def test_directives_inside_inactive_region_are_inert(tmp_path: Path) -> None:
+    """A #define or #include under a false condition must not take effect."""
+    (tmp_path / "extra.cfg").write_text("__ICLASS __BGN\n  __NAME FROM_INCLUDE\n__END\n")
+    (tmp_path / "borders.cfg").write_text(
+        "#if 0\n#define SIZE 99\n#include <extra.cfg>\n#endif\n"
+        "#ifdef SIZE\n__ICLASS __BGN\n  __NAME HAS_SIZE\n__END\n#endif\n"
+    )
+    nodes = parse_tree(tmp_path, ["borders.cfg"])
+    assert _blocks(nodes, "__ICLASS") == []
