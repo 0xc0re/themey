@@ -4,8 +4,13 @@ E16 has up to 16 image-state cells; Aurorae has 2 (active, inactive)
 plus 3 button SVG sub-states (default, hover, pressed). The 8-state
 practical model E16 themes actually ship maps as below.
 
-Sticky variants and disabled drop with logged notes — Aurorae has no
-per-desktop button state and no separate disabled rendering.
+Disabled art drops with a logged note (no Aurorae rendering for it). The
+sticky groups are NOT dropped any more: the default QML backend shows them
+on windows on all desktops (theme_js ``*Sticky`` slots, E16's four
+ImageState arrays). This module only serves the legacy SVG backend's
+two-state collapse; ``__NORMAL_ACTIVE_HILITED`` is E16 id 364 =
+sticky_active.hilited, so it is no hover-of-active alias and stays out of
+the hover chain.
 """
 from __future__ import annotations
 
@@ -20,22 +25,12 @@ DECORATION_STATE_MAP: dict[str, list[str]] = {
 # Per-button state (in button SVG; not decoration.svg)
 BUTTON_STATE_MAP: dict[str, list[str]] = {
     "button-default": ["__NORMAL_ACTIVE", "__NORMAL"],
-    # __NORMAL_ACTIVE_HILITED is E16's hover-of-active alias; e13 declares it
-    # 22x alongside __HILITED_ACTIVE with identical art, so it slots BETWEEN
-    # the canonical states rather than being dropped.
-    "button-hover": ["__HILITED_ACTIVE", "__NORMAL_ACTIVE_HILITED", "__HILITED"],
+    "button-hover": ["__HILITED_ACTIVE", "__HILITED"],
     "button-pressed": ["__CLICKED_ACTIVE", "__CLICKED"],
 }
 
-# Always-dropped E16 states (no Aurorae target):
+# Always-dropped E16 states (no target in either backend):
 DROPPED_STATES: frozenset[str] = frozenset({
-    "__NORMAL_STICKY",
-    "__NORMAL_ACTIVE_STICKY",
-    "__CLICKED_STICKY",
-    "__CLICKED_ACTIVE_STICKY",
-    "__HILITED_STICKY",
-    "__HILITED_ACTIVE_STICKY",
-    "__NORMAL_ACTIVE_CLICKED",
     "__DISABLED",
 })
 
@@ -77,20 +72,6 @@ def collapse_image_states(
         if src_state in DROPPED_STATES and path is not None:
             notes.append(
                 f"{context_label}: {src_state} dropped "
-                f"(no Aurorae target for sticky/disabled/clicked-active variants)"
-            )
-
-    # Shadowed hover-of-active alias: when both __HILITED_ACTIVE and
-    # __NORMAL_ACTIVE_HILITED are declared with DIFFERENT art, the alias is
-    # unreachable through the chain. Identical art (e13's pattern) stays
-    # silent — a note there would be a false alarm 22x per theme.
-    if target == "button-hover":
-        ha = state_dict.get("__HILITED_ACTIVE")
-        nah = state_dict.get("__NORMAL_ACTIVE_HILITED")
-        if ha is not None and nah is not None and ha != nah:
-            notes.append(
-                f"{context_label}: __NORMAL_ACTIVE_HILITED shadowed by "
-                f"__HILITED_ACTIVE (different art; hover-of-active uses "
-                f"__HILITED_ACTIVE)"
+                f"(no Aurorae target for disabled variants)"
             )
     return result

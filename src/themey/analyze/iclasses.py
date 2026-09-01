@@ -180,7 +180,17 @@ def build_iclasses(
             clicked_active=states.get("__CLICKED_ACTIVE"),
             normal_sticky=states.get("__NORMAL_STICKY"),
             normal_active_sticky=states.get("__NORMAL_ACTIVE_STICKY"),
-            normal_active_hilited=states.get("__NORMAL_ACTIVE_HILITED"),
+            # Keyword pairs sharing one E16 config id (definitions: 364, 363).
+            normal_active_hilited=(
+                states.get("__HILITED_ACTIVE_STICKY")
+                or states.get("__NORMAL_ACTIVE_HILITED")
+            ),
+            hilited_sticky=states.get("__HILITED_STICKY"),
+            clicked_sticky=states.get("__CLICKED_STICKY"),
+            clicked_active_sticky=(
+                states.get("__CLICKED_ACTIVE_STICKY")
+                or states.get("__NORMAL_ACTIVE_CLICKED")
+            ),
             padding=padding,
             edge_by_state=edge_by_state,
             fill_by_state=fill_by_state,

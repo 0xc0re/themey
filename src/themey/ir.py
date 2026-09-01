@@ -92,9 +92,22 @@ class IClassSpec:
     clicked_active: Path | None
     normal_sticky: Path | None
     normal_active_sticky: Path | None
-    # __NORMAL_ACTIVE_HILITED: E16's hover-of-active alias. e13 declares it
-    # alongside __HILITED_ACTIVE (identical art); themes may ship it alone.
+    # E16 keeps FOUR ImageState arrays — norm, active, sticky, sticky_active
+    # (iclass.c ImageclassGetImageState) — each with normal/hilited/clicked.
+    # config/definitions gives the sticky keywords these ids:
+    #   __NORMAL_STICKY 359, __CLICKED_STICKY 360, __HILITED_STICKY 361,
+    #   __NORMAL_ACTIVE_STICKY 362,
+    #   __NORMAL_ACTIVE_CLICKED == __CLICKED_ACTIVE_STICKY == 363,
+    #   __NORMAL_ACTIVE_HILITED == __HILITED_ACTIVE_STICKY == 364.
+    # So ``normal_active_hilited`` IS sticky_active.hilited (the hover art of
+    # an active window on all desktops), not a hover-of-active alias — e13
+    # and OldE ship it identical to __HILITED_ACTIVE, 40 corpus themes do
+    # not. ImageclassPopulate fallbacks: hilited/clicked → that group's
+    # normal; active.normal, sticky.normal AND sticky_active.normal → norm.normal.
     normal_active_hilited: Path | None = None
+    hilited_sticky: Path | None = None
+    clicked_sticky: Path | None = None
+    clicked_active_sticky: Path | None = None
     # __PADDING l r t b: inner-content padding for this image class. Distinct
     # from __EDGE_SCALING, which is the 9-patch slice configuration. No
     # consumer yet — captured for a future fidelity pass.

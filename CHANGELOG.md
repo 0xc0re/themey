@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Sticky-window art** — the QML decoration now carries E16's sticky and
+  sticky-active image groups (`*Sticky` slots) and shows them on windows on
+  all desktops, as E16 did for every part (122 corpus themes ship distinct
+  sticky art). State fallbacks follow `ImageclassPopulate` verbatim, so an
+  active window no longer borrows the inactive hover/click art when it has
+  no active hover art (DeepBlue's title bar flickered). The keywords are
+  mapped by E16's own ids: `__NORMAL_ACTIVE_HILITED` is sticky-active
+  hover (id 364), not a hover-of-active alias. Runtime v5.
 - **E16 menu styles** — `menustyles.cfg` is parsed: `#include <definitions>`
   now resolves to a bundled copy of E16's macro file (function-like macros
   only), so the `NORMAL_/NEXTSTEP_MENU_STYLE_VERTICAL` blocks every corpus

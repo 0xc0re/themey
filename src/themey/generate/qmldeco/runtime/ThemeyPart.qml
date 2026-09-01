@@ -66,7 +66,7 @@ Item {
 
     // The image slot currently shown — resolved once so the BorderImage
     // source and its per-slot insets can never disagree.
-    readonly property string imageSlot: {
+    readonly property string baseSlot: {
         var imgs = partItem.part ? partItem.part.images : null;
         if (!imgs)
             return "";
@@ -81,6 +81,19 @@ Item {
             return a && imgs.toggledActive ? "toggledActive"
                  : (imgs.toggled ? "toggled" : (imgs.pressed ? "pressed" : "normal"));
         return a && imgs.normalActive ? "normalActive" : "normal";
+    }
+    // E16's sticky / sticky_active groups (iclass.c ImageclassGetImageState):
+    // a window on all desktops wears the "<slot>Sticky" art on every part.
+    // theme.js resolves those slots through ImageclassPopulate's chains, so
+    // a theme without sticky art simply repeats its normal art here.
+    readonly property string imageSlot: {
+        var imgs = partItem.part ? partItem.part.images : null;
+        var base = partItem.baseSlot;
+        if (!imgs || !base)
+            return base;
+        if (root.clientOnAllDesktops && imgs[base + "Sticky"])
+            return base + "Sticky";
+        return base;
     }
     readonly property var slotInsets: {
         var p = partItem.part;

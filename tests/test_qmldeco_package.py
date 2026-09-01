@@ -262,42 +262,74 @@ def test_toggled_falls_back_to_clicked_without_sticky_art(tmp_path):
     assert images["toggledActive"] == "../images/btn_clicked.png"
 
 
-def test_hover_active_falls_back_to_normal_active_hilited(tmp_path):
-    """hoverActive resolves __NORMAL_ACTIVE_HILITED when __HILITED_ACTIVE is
-    absent (and __HILITED_ACTIVE still wins when both exist — e13's case)."""
+def _spec(tmp_path, **states):
     from PIL import Image
 
-    from themey.generate.qmldeco.theme_js import _BUTTON_SLOTS, _resolve_images
     from themey.ir import IClassSpec
 
-    normal = tmp_path / "normal.png"
-    nah = tmp_path / "nah.png"
-    ha = tmp_path / "ha.png"
-    for p in (normal, nah, ha):
+    paths = {}
+    for name in states:
+        p = tmp_path / f"{name}.png"
         Image.new("RGBA", (4, 4)).save(p)
+        paths[name] = p
+    base = {
+        "normal": None, "normal_active": None, "hilited": None,
+        "hilited_active": None, "clicked": None, "clicked_active": None,
+        "normal_sticky": None, "normal_active_sticky": None,
+    }
+    base.update(paths)
+    return IClassSpec(name="BTN", edge_scaling=(0, 0, 0, 0), **base)
 
-    def spec(hilited_active):
-        return IClassSpec(
-            name="BTN",
-            edge_scaling=(0, 0, 0, 0),
-            normal=normal,
-            normal_active=None,
-            hilited=None,
-            hilited_active=hilited_active,
-            clicked=None,
-            clicked_active=None,
-            normal_sticky=None,
-            normal_active_sticky=None,
-            normal_active_hilited=nah,
-        )
 
-    images = _resolve_images(spec(None), _BUTTON_SLOTS, {})
+def test_slot_chains_follow_e16_imageclass_populate(tmp_path):
+    """iclass.c ImageclassPopulate: within a group hilited/clicked fall back
+    to that group's normal; active.normal ← norm.normal; sticky.normal ←
+    norm.normal; sticky_active.normal ← norm.normal (NOT active.normal).
+    An active window never borrows the INACTIVE hover/click art — DeepBlue's
+    title bar (hilited + normal_active, no hilited_active) flickered to the
+    inactive hover look on hover before this."""
+    from themey.generate.qmldeco.theme_js import _BUTTON_SLOTS, _resolve_images
+
+    ic = _spec(tmp_path, normal=1, normal_active=1, hilited=1, clicked=1)
+    images = _resolve_images(ic, _BUTTON_SLOTS, {})
     assert images is not None
-    assert images["hoverActive"] == "../images/btn_normal_active_hilited.png"
+    assert images["hover"] == "../images/btn_hilited.png"
+    assert images["hoverActive"] == "../images/btn_normal_active.png"
+    assert images["pressedActive"] == "../images/btn_normal_active.png"
+    # sticky window, only non-sticky art: E16 paints norm.normal even when
+    # the window is active (sticky_active.normal ← norm.normal).
+    assert images["normalSticky"] == "../images/btn_normal.png"
+    assert images["normalActiveSticky"] == "../images/btn_normal.png"
+    assert images["hoverActiveSticky"] == "../images/btn_normal.png"
 
-    images = _resolve_images(spec(ha), _BUTTON_SLOTS, {})
+
+def test_sticky_slots_resolve_sticky_art(tmp_path):
+    from themey.generate.qmldeco.theme_js import _BUTTON_SLOTS, _resolve_images
+
+    ic = _spec(
+        tmp_path, normal=1, normal_active=1, hilited_active=1,
+        normal_sticky=1, normal_active_sticky=1, hilited_sticky=1,
+        normal_active_hilited=1, clicked_active_sticky=1,
+    )
+    images = _resolve_images(ic, _BUTTON_SLOTS, {})
     assert images is not None
+    assert images["normalSticky"] == "../images/btn_normal_sticky.png"
+    assert images["normalActiveSticky"] == "../images/btn_normal_active_sticky.png"
+    assert images["hoverSticky"] == "../images/btn_hilited_sticky.png"
+    # id 364: __NORMAL_ACTIVE_HILITED IS sticky_active.hilited
+    assert images["hoverActiveSticky"] == "../images/btn_normal_active_hilited.png"
+    assert images["pressedActiveSticky"] == "../images/btn_clicked_active_sticky.png"
+    assert images["pressedSticky"] == "../images/btn_normal_sticky.png"
+    # and it is NOT the non-sticky active hover
     assert images["hoverActive"] == "../images/btn_hilited_active.png"
+
+
+def test_chrome_slots_include_sticky(tmp_path):
+    """Non-button parts (title, borders) switch to the sticky group too —
+    E16 picks the group per WINDOW state for every part (borders.c:179)."""
+    from themey.generate.qmldeco.theme_js import _CHROME_SLOTS
+
+    assert "normalSticky" in _CHROME_SLOTS and "normalActiveSticky" in _CHROME_SLOTS
 
 
 @pytest.mark.parametrize("name", FIXTURE_NAMES)
