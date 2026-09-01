@@ -160,6 +160,7 @@ _PANEL_EDGE, _PANEL_CENTER = 4, 24
 #: Relative SVG paths (also the ``shipped`` vocabulary and the mirror set).
 PANEL_SVG = "widgets/panel-background.svg"
 PAGER_SVG = "widgets/pager.svg"
+TASKS_SVG = "widgets/tasks.svg"
 DIALOG_SVG = "dialogs/background.svg"
 TOOLTIP_SVG = "widgets/tooltip.svg"
 BUTTON_SVG = "widgets/button.svg"
@@ -1082,6 +1083,72 @@ def build_pager(theme: Theme) -> ET.Element | None:
     return canvas.finish()
 
 
+#: (element direction, ICONBOX arrow iclass) for the task-group expanders.
+_EXPANDER_SOURCES: tuple[tuple[str, str], ...] = (
+    ("left", "ICONBOX_ARROW_LEFT"),
+    ("right", "ICONBOX_ARROW_RIGHT"),
+    ("top", "ICONBOX_ARROW_UP"),
+    ("bottom", "ICONBOX_ARROW_DOWN"),
+)
+
+
+def build_tasks(theme: Theme) -> ET.Element | None:
+    """``widgets/tasks.svg`` — task-manager frames from the iconbox button.
+
+    themey's own apply creates the iconbox panel with an icons-only task
+    manager, so these frames land exactly where E16's iconbox buttons
+    lived. The taskmanager plasmoid (icontasks shares its Task.qml) reads
+    prefixes ``normal``/``minimized``/``hover``/``focus``/``attention``/
+    ``progress`` plus the unprefixed launcher set; ALL of them ship
+    (per-FILE fallback — a partial set paints nothing for missing
+    prefixes). ``focus-`` wears the CLICKED chain — E16's active iconbox
+    button is the depressed one; ``attention-``/``progress-`` approximate
+    with the hilited chain (E16 has no such states — noted).
+    ``group-expander-*`` come from the four ``ICONBOX_ARROW_*`` when all
+    exist (the ``build_arrows`` census), else they are omitted with a
+    note.
+    """
+    src = _iclass_with_art(theme, "DEFAULT_ICON_BUTTON", "DEFAULT_DOCK_BUTTON")
+    if src is None:
+        return None
+    canvas = _Canvas()
+    for prefix, state in (
+        ("normal-", "normal"),
+        ("minimized-", "normal"),
+        ("", "normal"),  # launcher frame
+        ("hover-", "hover"),
+        ("attention-", "hover"),
+        ("progress-", "hover"),
+        ("focus-", "pressed"),
+    ):
+        _emit_set(theme, canvas, prefix, src, state, hints=True)
+
+    expanders: list[tuple[str, Path]] = []
+    for direction, name in _EXPANDER_SOURCES:
+        path = _state_image(theme.iclasses.get(name), "normal")
+        if path is None:
+            expanders = []
+            break
+        expanders.append((f"group-expander-{direction}", path))
+    if expanders:
+        _emit_plain_row(
+            canvas,
+            [(el, _load_scaled(p, theme.scale)) for el, p in expanders],
+        )
+    else:
+        theme.notes.append(
+            "plasmastyle: not all four ICONBOX_ARROW_* have art; task "
+            "group expanders left to the Breeze fallback"
+        )
+    theme.notes.append(
+        f"plasmastyle: task frames from iclass {src.name} (E16 iconbox "
+        "button; focus wears the clicked art — the active task shows the "
+        "depressed button; attention/progress approximate with the "
+        "hilited art)"
+    )
+    return canvas.finish()
+
+
 # --------------------------------------------------------------------- #
 # Dialog-widget builders — check/radio marks, slider, separator, frame
 # --------------------------------------------------------------------- #
@@ -1389,6 +1456,7 @@ _BUILDERS: tuple[tuple[str, Callable[[Theme], ET.Element | None]], ...] = (
     (LINE_SVG, build_line),
     (FRAME_SVG, build_frame),
     (PAGER_SVG, build_pager),
+    (TASKS_SVG, build_tasks),
 )
 
 

@@ -314,6 +314,108 @@ def test_tile_center_hint_only_in_panel_background(tmp_path: Path) -> None:
 
 
 # ------------------------------------------------------------------ #
+# Tasks — widgets/tasks.svg from the iconbox button art
+# ------------------------------------------------------------------ #
+
+
+def _arrow_iclasses(tmp_path: Path) -> dict[str, IClassSpec]:
+    return {
+        name: _iclass(name, normal=_png(tmp_path, f"{name}.png", size=(8, 8)))
+        for name in (
+            "ICONBOX_ARROW_UP", "ICONBOX_ARROW_DOWN",
+            "ICONBOX_ARROW_LEFT", "ICONBOX_ARROW_RIGHT",
+        )
+    }
+
+
+def test_tasks_all_prefixes_ship_even_from_normal_only_art(
+    tmp_path: Path,
+) -> None:
+    """Per-FILE fallback means a partial prefix set paints nothing for the
+    missing states — every prefix ships, reusing normal art."""
+    png = _png(tmp_path, "iconbtn.png")
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass(
+            "DEFAULT_ICON_BUTTON", normal=png, padding=(2, 2, 2, 2)
+        ),
+    })
+    svg = plasmastyle.build_tasks(theme)
+    assert svg is not None
+    ids = _ids(svg)
+    for prefix in (
+        "normal-", "minimized-", "hover-", "attention-", "progress-",
+        "focus-",
+    ):
+        assert f"{prefix}center" in ids, prefix
+        assert f"{prefix}hint-left-margin" in ids, prefix
+    assert "center" in ids  # unprefixed launcher set
+    assert not any("tile-center" in i for i in ids)
+    assert any(
+        "task frames from iclass DEFAULT_ICON_BUTTON" in n for n in theme.notes
+    )
+
+
+def test_tasks_focus_wears_clicked_art(tmp_path: Path) -> None:
+    """The active task wears the depressed button — E16's pressed-in look."""
+    normal = _png(tmp_path, "n.png", size=(16, 16))
+    clicked = _png(tmp_path, "c.png", size=(24, 24), color=(10, 10, 10, 255))
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass(
+            "DEFAULT_ICON_BUTTON", normal=normal, clicked=clicked
+        ),
+    })
+    svg = plasmastyle.build_tasks(theme)
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    focus_img = next(iter(by_id["focus-center"]))
+    normal_img = next(iter(by_id["normal-center"]))
+    # 24x24 art with 2/2 caps vs 16x16: the center widths differ.
+    assert focus_img.get("width") != normal_img.get("width")
+
+
+def test_tasks_group_expanders_from_all_four_arrows(tmp_path: Path) -> None:
+    png = _png(tmp_path, "iconbtn.png")
+    iclasses = {"DEFAULT_ICON_BUTTON": _iclass("DEFAULT_ICON_BUTTON", normal=png)}
+    iclasses.update(_arrow_iclasses(tmp_path))
+    theme = _theme(tmp_path, iclasses)
+    svg = plasmastyle.build_tasks(theme)
+    assert svg is not None
+    ids = _ids(svg)
+    for direction in ("left", "right", "top", "bottom"):
+        assert f"group-expander-{direction}" in ids
+
+
+def test_tasks_group_expanders_omitted_when_partial(tmp_path: Path) -> None:
+    png = _png(tmp_path, "iconbtn.png")
+    iclasses = {"DEFAULT_ICON_BUTTON": _iclass("DEFAULT_ICON_BUTTON", normal=png)}
+    arrows = _arrow_iclasses(tmp_path)
+    del arrows["ICONBOX_ARROW_LEFT"]
+    iclasses.update(arrows)
+    theme = _theme(tmp_path, iclasses)
+    svg = plasmastyle.build_tasks(theme)
+    assert svg is not None
+    assert not any(i.startswith("group-expander-") for i in _ids(svg))
+    assert any("group expanders" in n for n in theme.notes)
+
+
+def test_tasks_skipped_without_iconbox_button_art(tmp_path: Path) -> None:
+    theme = _theme(tmp_path, {})
+    assert plasmastyle.build_tasks(theme) is None
+
+
+def test_tasks_falls_back_to_dock_button(tmp_path: Path) -> None:
+    png = _png(tmp_path, "dock.png")
+    theme = _theme(tmp_path, {
+        "DEFAULT_DOCK_BUTTON": _iclass("DEFAULT_DOCK_BUTTON", normal=png),
+    })
+    svg = plasmastyle.build_tasks(theme)
+    assert svg is not None
+    assert any(
+        "task frames from iclass DEFAULT_DOCK_BUTTON" in n for n in theme.notes
+    )
+
+
+# ------------------------------------------------------------------ #
 # Button / viewitem / scrollbar / arrows
 # ------------------------------------------------------------------ #
 

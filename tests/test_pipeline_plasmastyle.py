@@ -30,6 +30,7 @@ ALIENS_EXPECTED_SVGS = {
     plasmastyle.SLIDER_SVG,
     plasmastyle.LINE_SVG,
     plasmastyle.FRAME_SVG,
+    plasmastyle.TASKS_SVG,  # DEFAULT_ICON_BUTTON / DEFAULT_DOCK_BUTTON art
 }
 
 
