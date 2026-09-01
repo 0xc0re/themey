@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Plasma Style highlights** — Kickoff/list selection art (`MENU_SEL`) now
+  clamps its FrameSvg caps to 12 ref px (101 corpus themes shipped caps up
+  to 199 px, smearing whole menu backgrounds into a 30 px row), honors the
+  declared edge for non-pill art, refuses fully transparent art so Breeze
+  fills in (5 themes had no selection highlight at all), and closes an
+  open-ended pill by mirroring its rimmed cap (Yellow's missing right
+  border). Wordmark dragbar caps are allowed on the panel's length axis
+  (67 more themes ship their real bar art). `widgets/button` prefers
+  `DIALOG_WIDGET_BUTTON`, E16's real push button.
+- **Decoration text** — captions are placed inside the part with E16's
+  justification formula (centered titles on fixed-width bars, 135 themes),
+  shadow/outline effects paint in the tclass state's `__BACKGROUND_COLOR`
+  (E16's `bg_col`; `__EFFECT_COLOR` never existed) and `__EFFECT_OUTLINE`
+  renders as an outline.
+- **E16 grammar** — `__EDGE_SCALING` and `__FILLRULE` are per image state;
+  the lexer reads whole `sscanf` words in any case (lowercase and
+  punctuated iclass names, quote-glued words, `//` comments, `atoi`
+  numerics) — WashedBlue, eLap, LiteGnome and the Base family regain
+  their parts; `__KEEP_ON_TOP __OFF` parts stack under on-top parts;
+  max-clamp recentering and min-clamp order match `borders.c` exactly.
+- **Cursors** — E16 swaps fg/bg for every theme pointer; converted
+  pointers were color-inverted before.
+- **Wallpapers** — the full `__BACKGROUND_LAYER` tuple (macro and raw
+  forms, `#include`-followed) maps to `stretch|tile|tile-h|tile-v|pad|fit`;
+  `themey apply` dispatches each mode and writes the letterbox solid.
+  Rebound, Fossils_of_the_Machines and BS-E gain their wallpapers.
+- **apply** — the Plasma tools no longer inherit a snap-sandbox
+  `XDG_DATA_HOME` (the VS Code terminal broke `plasma-apply-lookandfeel`).
+
+### Added
+
+- `scripts/batch_survey.py` — in-process corpus convert survey (223
+  archives, ~17 s) with crash classes, outlier tables, note histograms and
+  a delta against a previous run; `ConvertResult.notes` exposes the full
+  fidelity notes for it.
+
 ## [0.1.0] - 2026-08-31
 
 First release. Converts an Enlightenment DR16 `.etheme` archive into an
