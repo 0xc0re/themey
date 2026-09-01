@@ -159,7 +159,12 @@ scheme) — then, when the Plasma Style package is installed,
 `_clear_style_cache` followed by `plasma-apply-desktoptheme themey_<slug>`
 (explicit for the same user-layer-shadowing reason; the cache clear must
 come first or plasmashell repaints from the stale Version-keyed kcache of a
-previous conversion) — re-assert the decoration keys via
+previous conversion; when the effective plasmarc name — kdedefaults
+cascade included — is ALREADY `themey_<slug>` the tool is a no-op and
+plasmashell keeps the previous conversion's SVGs in memory, so the step
+first bounces through Breeze's `default` style — verified live
+2026-09-01, OldE's rejected wordmark cap survived re-convert + apply
+until bounced) — re-assert the decoration keys via
 the same `_write_deco` the deco-only path uses (required even though the
 LnF apply already wrote deco defaults — those land in the
 `~/.config/kdedefaults/` layer, and only an explicit user-layer write is

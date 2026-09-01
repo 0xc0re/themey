@@ -787,6 +787,46 @@ def test_apply_full_style_failure_raises_apply_error(
         apply_mod.apply_full("e13")
 
 
+def test_apply_full_style_already_current_bounces_through_default(
+    fake_kconfig: FakeKConfig, monkeypatch,
+) -> None:
+    """A re-apply of the style that is ALREADY current must go through
+    Plasma's ``default`` style first: ``plasma-apply-desktoptheme`` with
+    the current name is a no-op ("already set"), so plasmashell keeps the
+    previous conversion's SVGs in memory (live 2026-09-01: OldE's panel
+    kept a rejected wordmark cap after re-convert + apply)."""
+    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    _install_fake_style("e13")
+    fake_kconfig.store["PrevPlasmaTheme"] = "Otto"
+    fake_kconfig.store["name"] = "themey_e13"  # effective plasmarc name
+
+    apply_mod.apply_full("e13")
+
+    i_bounce = fake_kconfig.index_of("plasma-apply-desktoptheme", "default")
+    i_style = fake_kconfig.index_of("plasma-apply-desktoptheme", "themey_e13")
+    assert fake_kconfig.calls[i_bounce][-1] == "default"
+    assert i_bounce < i_style
+    # The bounce never touches the recorded baseline.
+    assert fake_kconfig.store["PrevPlasmaTheme"] == "Otto"
+
+
+def test_apply_full_style_not_current_applies_directly(
+    fake_kconfig: FakeKConfig, monkeypatch,
+) -> None:
+    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    _install_fake_style("e13")
+    fake_kconfig.store["name"] = "Otto"
+
+    apply_mod.apply_full("e13")
+
+    styles = [c[-1] for c in fake_kconfig.calls if "plasma-apply-desktoptheme" in c[0]]
+    assert styles == ["themey_e13"]
+
+
 def test_clear_style_cache_respects_xdg_cache_home(
     monkeypatch, tmp_path: Path,
 ) -> None:

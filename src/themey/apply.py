@@ -108,6 +108,9 @@ _THEMEY_GROUP = "Themey"
 _PLASMARC = "plasmarc"
 _PLASMA_THEME_GROUP = "Theme"
 _PLASMA_NAME_KEY = "name"
+#: Plasma Style to bounce through when the themey style is already the
+#: current one (Breeze's package id, present on every install).
+_STYLE_BOUNCE = "default"
 
 #: themey fill mode (``X-Themey-FillMode``, ``analyze.wallpaper.FILL_MODES``)
 #: -> the ``plasma-apply-wallpaperimage -f`` token. Only the camelCase QML
@@ -1134,6 +1137,18 @@ def apply_full(
         # Version-keyed kcache of a previous conversion.
         clear_style_cache(pkg_id)
         plasma_apply_style = _which("plasma-apply-desktoptheme")
+        if _cfg_read(kr, _PLASMARC, _PLASMA_THEME_GROUP, _PLASMA_NAME_KEY) == pkg_id:
+            # plasma-apply-desktoptheme with the CURRENT name is a no-op
+            # ("already set as the theme"), and plasmashell then keeps the
+            # previous conversion's SVGs in memory even though the
+            # package on disk and the kcache are fresh (live 2026-09-01:
+            # OldE's panel kept a wordmark cap the new guard had rejected
+            # until the style was bounced). The read cascades through
+            # kdedefaults, so a Look-and-Feel-layer name counts too.
+            _run_checked(
+                [plasma_apply_style, _STYLE_BOUNCE],
+                f"plasma-apply-desktoptheme {_STYLE_BOUNCE} (reload bounce)",
+            )
         _run_checked(
             [plasma_apply_style, pkg_id],
             f"plasma-apply-desktoptheme {pkg_id}",
