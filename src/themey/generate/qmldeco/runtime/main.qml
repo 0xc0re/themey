@@ -50,7 +50,9 @@ Decoration {
         id: fontInstantiator
         model: root.themeData.fonts
         delegate: FontLoader {
-            source: Qt.resolvedUrl(modelData.source)
+            // Source-less entries are server (XLFD/xft) fonts: family and
+            // weight/slant only, no file to load.
+            source: modelData.source ? Qt.resolvedUrl(modelData.source) : ""
         }
     }
     function fontFamilyAt(idx) {

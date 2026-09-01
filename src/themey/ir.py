@@ -156,17 +156,37 @@ class FontSpec:
     """One E16 font alias from ``fonts.theme.cfg`` / ``fonts.cfg``.
 
     ``ttf_path`` points under asset_root for ``name/size`` TTF entries and is
-    None for XLFD-only entries (no shippable font file). ``family`` is the
+    None for XLFD/xft entries (no shippable font file). ``family`` is the
     face's real family name (read from the TTF when possible, else a
     best-effort guess) — QML ``FontLoader.name`` reports the same family, so
-    consumers can pre-fill it. ``size`` is E16's pixel-ish size; the QML
-    runtime maps it to ``font.pixelSize = size * scale``.
+    consumers can pre-fill it.
+
+    ``size`` is the raw number from the alias; ``points`` says what unit it
+    is. E16 hands ``name/size`` to ``imlib_load_font`` (text_ift.c:67) and
+    Imlib2 sets ``FT_Set_Char_Size(size*64, 96, 96)`` — POINTS at 96 dpi,
+    so ``ariali/9`` is 12 px (113 corpus themes title with a TTF; every
+    caption was ~25% too small before 2026-09-01). ``xft:family-size``
+    patterns are points too (fontconfig). An XLFD's pixel field (7) is
+    pixels; its point field (8, deci-points) is points. ``pixel_size``
+    resolves the unit; the QML runtime uses ``pixel_size * scale``.
+    ``bold``/``italic`` come from the XLFD weight/slant fields or xft
+    ``:bold``/``:italic`` (XCreateFontSet/XftFontOpenName honour them).
     """
 
     alias: str  # e.g. "font-default"
-    ttf_path: Path | None  # under asset_root; None for XLFD entries
+    ttf_path: Path | None  # under asset_root; None for XLFD/xft entries
     family: str | None
     size: int
+    points: bool = False
+    bold: bool = False
+    italic: bool = False
+
+    @property
+    def pixel_size(self) -> int:
+        """``size`` in pixels: points × 96/72 (half-up), else as is."""
+        if self.points:
+            return max(1, int(self.size * 96 / 72 + 0.5))
+        return self.size
 
 
 @dataclass(frozen=True)

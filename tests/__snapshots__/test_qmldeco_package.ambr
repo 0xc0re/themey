@@ -110,7 +110,14 @@
       "right": 40,
       "top": 60
     },
-    "fonts": [],
+    "fonts": [
+      {
+        "bold": false,
+        "family": "helvetica",
+        "italic": false,
+        "source": ""
+      }
+    ],
     "name": "Aliens",
     "parts": [
       {
@@ -498,9 +505,9 @@
           "effectNormal": "shadow",
           "effectSticky": "shadow",
           "effectStickyActive": "shadow",
-          "fontIndex": -1,
+          "fontIndex": 0,
           "orientation": 0,
-          "pixelSize": 20
+          "pixelSize": 26
         },
         "tlOrigin": -1,
         "tlXA": 153,
@@ -1355,7 +1362,7 @@
           "effectStickyActive": "none",
           "fontIndex": 0,
           "orientation": 0,
-          "pixelSize": 12
+          "pixelSize": 16
         },
         "tlOrigin": -1,
         "tlXA": 0,
@@ -2370,7 +2377,7 @@
           "effectStickyActive": "shadow",
           "fontIndex": 0,
           "orientation": 0,
-          "pixelSize": 22
+          "pixelSize": 30
         },
         "tlOrigin": -1,
         "tlXA": 19,
@@ -3294,7 +3301,14 @@
       "right": 2,
       "top": 44
     },
-    "fonts": [],
+    "fonts": [
+      {
+        "bold": true,
+        "family": "helvetica",
+        "italic": false,
+        "source": ""
+      }
+    ],
     "name": "OPENSTEP",
     "parts": [
       {
@@ -3376,7 +3390,7 @@
           "effectNormal": "none",
           "effectSticky": "none",
           "effectStickyActive": "none",
-          "fontIndex": -1,
+          "fontIndex": 0,
           "orientation": 0,
           "pixelSize": 24
         },
@@ -4699,7 +4713,7 @@
           "effectStickyActive": "none",
           "fontIndex": 0,
           "orientation": 0,
-          "pixelSize": 18
+          "pixelSize": 24
         },
         "tlOrigin": -1,
         "tlXA": 40,

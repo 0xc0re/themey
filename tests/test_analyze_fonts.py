@@ -47,8 +47,10 @@ def test_e13_xlfd_entry_has_no_ttf(e13_root):
     assert spec.ttf_path is None
     assert spec.family == "lucida"
     # "-*-lucida-bold-r-normal-*-*-100-*-*-p-*-iso8859-1": pixel field is a
-    # wildcard, point field 100 → size 10.
+    # wildcard, point field 100 → size 10 POINTS (points=True → 13 px).
     assert spec.size == 10
+    assert spec.points is True and spec.pixel_size == 13
+    assert spec.bold is True and spec.italic is False
 
 
 def test_parse_fonts_missing_files(tmp_path):
@@ -88,3 +90,42 @@ def test_theme_fonts_defaulted():
     from themey.ir import Theme
 
     assert inspect.signature(Theme).parameters["fonts"].default is not inspect.Parameter.empty
+
+
+def test_xlfd_weight_slant_and_pixel_field(tmp_path):
+    """XCreateFontSet honours the XLFD weight/slant fields (text_xfs.c);
+    the pixel-size field (7) is pixels, the point field (8) deci-points."""
+    from themey.analyze.fonts import _parse_xlfd
+
+    spec = _parse_xlfd("f", "-*-helvetica-bold-o-*-*-12-*-*-*-*-*-*-*")
+    assert spec.family == "helvetica" and spec.size == 12
+    assert spec.points is False and spec.pixel_size == 12
+    assert spec.bold is True and spec.italic is True
+    spec = _parse_xlfd("g", "-*-lucida-medium-r-*-*-*-120-*-*-*-*-*-*")
+    assert spec.size == 12 and spec.points is True and spec.pixel_size == 16
+    assert spec.bold is False and spec.italic is False
+    # "strong" is a nonstandard weight 8 corpus entries use — bold.
+    assert _parse_xlfd("h", "-*-clean-strong-i-*-*-10-*").bold is True
+
+
+def test_ttf_sizes_are_points_at_96_dpi(e13_root):
+    """E16 hands "ariali/9" to imlib_load_font (text_ift.c:67); Imlib2 sets
+    FT_Set_Char_Size(size*64, 96, 96) — 9 pt at 96 dpi = 12 px."""
+    spec = parse_fonts(e13_root)["font-default"]
+    assert spec.points is True
+    assert spec.pixel_size == 12
+
+
+def test_xft_pattern_entries(tmp_path):
+    """JavaSteel: ``xft:sans-8:bold`` — an Xft/fontconfig pattern
+    (XftFontOpenName): family, point size, style flags."""
+    (tmp_path / "fonts.cfg").write_text(
+        '__FONTS __BGN\n  font-default "xft:sans-8:bold"\n'
+        '  font-i "xft:Sans Serif-10:italic"\n  font-p "xft:mono-6"\n__END\n'
+    )
+    fonts = parse_fonts(tmp_path)
+    f = fonts["font-default"]
+    assert f.ttf_path is None and f.family == "sans" and f.size == 8
+    assert f.points is True and f.bold is True and f.italic is False
+    assert fonts["font-i"].family == "Sans Serif" and fonts["font-i"].italic is True
+    assert fonts["font-p"].size == 6 and fonts["font-p"].bold is False

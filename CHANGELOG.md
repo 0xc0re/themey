@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (fonts)
+
+- **Font sizes and styles** — theme TTF sizes (`ariali/9`) are points at
+  Imlib2's 96 dpi, so captions now render at size × 4/3 px (every TTF
+  title was ~25% too small; 113 corpus themes). XLFD aliases keep their
+  weight/slant (38 bold titles) and family as a source-less font entry, and
+  their point field is treated as points; `xft:family-size:bold` patterns
+  (3 themes) are parsed.
+
 ### Added
 
 - **Text states, orientation, hovered menu text** — the title caption

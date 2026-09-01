@@ -249,12 +249,26 @@ def _font_index(
     tclass = theme.tclasses.get(part.tclass_name or "")
     alias = tclass.font_alias if tclass is not None else None
     spec = theme.fonts.get(alias) if alias else None
-    if spec is None or spec.ttf_path is None:
-        size = spec.size if spec is not None else DEFAULT_TITLE_SIZE
-        return (-1, scale_px(size, theme.scale))
+    if spec is None:
+        return (-1, scale_px(DEFAULT_TITLE_SIZE, theme.scale))
+    pixel_size = scale_px(spec.pixel_size, theme.scale)
+    if spec.ttf_path is None:
+        # XLFD / xft: no file to ship, but the family and weight/slant
+        # are real (XCreateFontSet / XftFontOpenName honour them) — a
+        # source-less fonts entry; fontFamilyAt falls back to `family`.
+        if not spec.family:
+            return (-1, pixel_size)
+        for i, entry in enumerate(fonts_model):
+            if entry.get("source") in ("", None) and entry.get("family") == spec.family \
+                    and entry.get("bold") == spec.bold and entry.get("italic") == spec.italic:
+                return (i, pixel_size)
+        fonts_model.append(
+            {"source": "", "family": spec.family, "italic": spec.italic, "bold": spec.bold}
+        )
+        return (len(fonts_model) - 1, pixel_size)
     for i, src in enumerate(font_sources):
         if src == spec.ttf_path:
-            return (i, scale_px(spec.size, theme.scale))
+            return (i, pixel_size)
     style = ""
     try:
         from PIL import ImageFont
@@ -271,7 +285,7 @@ def _font_index(
         }
     )
     font_sources.append(spec.ttf_path)
-    return (len(fonts_model) - 1, scale_px(spec.size, theme.scale))
+    return (len(fonts_model) - 1, pixel_size)
 
 
 def build_theme_data(
