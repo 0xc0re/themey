@@ -151,6 +151,12 @@ PANEL_ALPHA = 0.85
 #: strips; 2 px keeps widgets off the very edge without Breeze's chrome).
 PANEL_MARGIN_REF = 2
 
+#: ``Kirigami.Units.smallSpacing`` — Plasma's Panel.qml pads panel content
+#: by ``min(fixedMargins.side + smallSpacing, spacingAtMinSize)`` per side
+#: (Plasma 6.6 Panel.qml l. 59-62), so a margin hint of ``cap − 4`` lands
+#: the effective padding exactly on the cap art's inner edge.
+_PANEL_SMALL_SPACING = 4
+
 #: Cell geometry of the flat 3x3 panel grid: 4 px edges, 24 px center
 #: (32 px tile, mirroring Breeze's edge/center proportions; cosmetic —
 #: FrameSvg reads border thickness from the edge cells' size, and a 4 px
@@ -619,18 +625,20 @@ def _emit_set(
     hints: bool = False,
     edge_override: Callable[[tuple[int, int, int, int], int, int], tuple[int, int, int, int]]
     | None = None,
-) -> bool:
+) -> tuple[int, int, int, int] | None:
     """One prefixed 9-part set (+ optional margin hints) for *spec*/*state*.
 
-    Returns False when the state resolves to no image at all. Oversized
-    caps degrade to a center-only set with a ``plasmastyle:`` note rather
-    than failing (per the mapping contract). ``edge_override`` maps
-    ``(declared_edge, src_w, src_h)`` to the edge actually used — the
-    viewitem builder pins synthetic caps with it.
+    Returns the painted cap sizes (L R T B, output px, post-shave) so the
+    panel builder can derive cap-hugging margin hints, or None when the
+    state resolves to no image at all. Oversized caps degrade to a
+    center-only set with a ``plasmastyle:`` note rather than failing (per
+    the mapping contract). ``edge_override`` maps ``(declared_edge, src_w,
+    src_h)`` to the edge actually used — the viewitem builder pins
+    synthetic caps with it.
     """
     path = _state_image(spec, state)
     if path is None:
-        return False
+        return None
     src_w, src_h = _source_size(path)
     edge = spec.edge_scaling
     if edge_override is not None:
@@ -655,9 +663,14 @@ def _emit_set(
             f"exceeds its {path.name} image; whole image stretched instead"
         )
         _frame_group(canvas, prefix, img, (0, 0, 0, 0))
+        caps = (0, 0, 0, 0)
+    else:
+        left, right = _shave_for_center(caps[0], caps[1], img.width)
+        top, bottom = _shave_for_center(caps[2], caps[3], img.height)
+        caps = (left, right, top, bottom)
     if hints:
         _margin_hints(canvas, prefix, spec.padding, scale)
-    return True
+    return caps
 
 
 def _surface_scale(
@@ -780,14 +793,28 @@ def _panel_svg(theme: Theme, alpha: float) -> ET.Element:
 
 
 def _panel_margins(
-    canvas: _Canvas, prefix: str, spec: IClassSpec, scale: float
+    canvas: _Canvas, prefix: str, caps: tuple[int, int, int, int], scale: float
 ) -> None:
-    """``__PADDING``-based margin hints, else the flat-panel default."""
-    if spec.padding != (0, 0, 0, 0):
-        _margin_hints(canvas, prefix, spec.padding, scale)
-    else:
-        m = PANEL_MARGIN_REF
-        _margin_hints(canvas, prefix, (m, m, m, m), scale)
+    """Cap-hugging margin hints for the art panel.
+
+    Per side: ``max(1, cap − _PANEL_SMALL_SPACING)`` output px, so Plasma's
+    Panel.qml padding (``margin + smallSpacing``) lands exactly on the cap
+    art's inner edge — content hugs the cap with zero empty trough
+    (calibrated live on themey_e13, 2026-09-01: 12 px __PADDING hints read
+    as a broken empty button before the first task icon). A capless side
+    keeps the flat-panel ``PANEL_MARGIN_REF`` default. The 1 px floor
+    keeps every rect emitted — a missing hint would fall back to the
+    border element's own thickness, resurrecting the trough.
+    """
+    fallback = max(1, scale_px(PANEL_MARGIN_REF, scale))
+
+    def hint(cap: int) -> int:
+        return max(1, cap - _PANEL_SMALL_SPACING) if cap > 0 else fallback
+
+    left, right, top, bottom = caps
+    # Values are already output px; scale 1.0 passes them through scale_px
+    # unchanged.
+    _margin_hints(canvas, prefix, (hint(left), hint(right), hint(top), hint(bottom)), 1.0)
 
 
 def _panel_art_svg(theme: Theme, src: IClassSpec) -> ET.Element:
@@ -803,13 +830,13 @@ def _panel_art_svg(theme: Theme, src: IClassSpec) -> ET.Element:
     hint to every prefix in the file, verticals included.
     """
     canvas = _Canvas()
-    _emit_set(theme, canvas, "", src, "normal")
-    _panel_margins(canvas, "", src, theme.scale)
+    caps = _emit_set(theme, canvas, "", src, "normal") or (0, 0, 0, 0)
+    _panel_margins(canvas, "", caps, theme.scale)
     vert = _panel_art_source(theme, _PANEL_VERT_SOURCES)
     if vert is not None:
         for prefix in ("west-", "east-"):
-            _emit_set(theme, canvas, prefix, vert, "normal")
-            _panel_margins(canvas, prefix, vert, theme.scale)
+            vcaps = _emit_set(theme, canvas, prefix, vert, "normal") or (0, 0, 0, 0)
+            _panel_margins(canvas, prefix, vcaps, theme.scale)
     _emit_size_hint(canvas, "hint-tile-center", 1, 1)
     theme.notes.append(
         f"plasmastyle: panel background from iclass {src.name} art, middle "
@@ -819,6 +846,11 @@ def _panel_art_svg(theme: Theme, src: IClassSpec) -> ET.Element:
             if vert is not None
             else ""
         )
+    )
+    theme.notes.append(
+        "plasmastyle: panel margin hints hug the cap art (cap − 4 px per "
+        "side; E16 __PADDING dropped — Plasma pads panel content on top of "
+        "the frame margins, and the sum read as an empty trough)"
     )
     return canvas.finish()
 

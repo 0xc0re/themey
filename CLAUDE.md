@@ -112,7 +112,7 @@ receives no fidelity work.
 | `generate/colors.py` | `.colors` writer — the 13-group/12-key Breeze-shaped file census; sampled colors from `analyze/colors.py`, semantic foregrounds + ColorEffects verbatim from Breeze stock |
 | `generate/wallpaper.py` | One Plasma wallpaper package per E16 background image (`WallpaperPackage`); PNG/JPEG/BMP copied through at real dimensions, everything else re-saved as PNG. Two `SET_SOLID` exceptions: alpha-carrying sources with a solid underneath are flattened over it (e13's tanbg.png over black — E16 composites the tile over the solid), and a SET_SOLID-only block (OPENSTEP) becomes a small flat 128×128 package. `pick_default` ranks by `(not solid, area)` — a solid never outranks art |
 | `generate/cursors.py` | E16 `__CURSOR` → XCursor pointer theme via the hand-rolled XBM parser + `xcursorgen`; modern Plasma 6.6 names canonical, legacy X11 names as symlinks |
-| `generate/plasmastyle.py` | Plasma Style (`Plasma/Theme` KPackage under `plasma/desktoptheme/themey_<slug>/`, selected by the bundle's `[plasmarc][Theme] name=`) — panel/popup/tooltip/pager chrome as KSvg FrameSvg sets. Deliberately sparse: ship an SVG only where E16 has real counterpart art and let Breeze fill in per missing file, re-tinted through the package's own `colors`. Every shipped SVG is mirrored byte-identically into `solid/` and `opaque/`. The panel background ships real dragbar/iconbox art (middle TILED via `hint-tile-center` — the only file allowed that hint; `west-`/`east-` sets from the vertical bar art) when a candidate passes the shaped + `PANEL_MAX_REF_CAPS` guards (baked-in wordmarks live in the caps and would stretch unreadably across a 40 px panel); guard failures fall back to the flat translucent tint, whose mirrors alone are re-rendered opaque. `widgets/tasks.svg` comes from the iconbox button art (focus = clicked art); `dialogs/background.svg` composes MENU_T/B/L/R strip pieces around the center when authored (corners only when dims match the adjacent strips — FrameSvg stretches a corner to the border thicknesses) |
+| `generate/plasmastyle.py` | Plasma Style (`Plasma/Theme` KPackage under `plasma/desktoptheme/themey_<slug>/`, selected by the bundle's `[plasmarc][Theme] name=`) — panel/popup/tooltip/pager chrome as KSvg FrameSvg sets. Deliberately sparse: ship an SVG only where E16 has real counterpart art and let Breeze fill in per missing file, re-tinted through the package's own `colors`. Every shipped SVG is mirrored byte-identically into `solid/` and `opaque/`. The panel background ships real dragbar/iconbox art (middle TILED via `hint-tile-center` — the only file allowed that hint; `west-`/`east-` sets from the vertical bar art) when a candidate passes the shaped + `PANEL_MAX_REF_CAPS` guards (baked-in wordmarks live in the caps and would stretch unreadably across a 40 px panel); guard failures fall back to the flat translucent tint, whose mirrors alone are re-rendered opaque; the art panel's `hint-*-margin` rects hug the painted caps (`cap − 4` output px, E16 `__PADDING` dropped — Plasma's Panel.qml pads content by `margin + smallSpacing(4)` per side, so cap-based hints land the padding exactly on the cap's inner edge; calibrated live 2026-09-01, the `__PADDING` hints read as an empty trough before the first task button). `widgets/tasks.svg` comes from the iconbox button art (focus = clicked art); `dialogs/background.svg` composes MENU_T/B/L/R strip pieces around the center when authored (corners only when dims match the adjacent strips — FrameSvg stretches a corner to the border thicknesses) |
 | `generate/lookandfeel.py` | Plasma Global Theme (Look-and-Feel) bundle writer — `metadata.json` + `contents/defaults`, one conditional INI group per artifact this conversion actually deployed |
 | root modules | `ir.py` (IR), `paths.py` (XDG install roots), `install.py` (atomic deploy — `deploy` for package dirs, `deploy_file` for single files like `.colors`, `clear_style_cache` for the Version-keyed plasmashell kcache, called at both convert and apply time), `report.py`, `preview.py`, `kwin.py`, `render.py`, `apply.py`, `external.py` (xcursorgen wrapper), `slug.py` (naming contract), `log.py` |
 
@@ -145,8 +145,10 @@ once (`kdeglobals [Themey] PrevLookAndFeelPackage` mirrors kdeglobals
 written only the first time so a second `apply` never clobbers the real
 baseline with an already-themey'd one; `kdeglobals [Themey] PrevColorScheme`
 snapshots the user-layer `[General] ColorScheme` the same way when a themey
-scheme is installed; `PrevPlasmaTheme` and `PrevPanelLengthModes` follow the
-same pattern for the Plasma Style and the per-panel `lengthMode` map), run
+scheme is installed; `PrevPlasmaTheme`, `PrevPanelLengthModes` and
+`PrevPanelFloating` follow the
+same pattern for the Plasma Style and the per-panel `lengthMode`/`floating`
+maps), run
 `plasma-apply-lookandfeel -a
 themey_<slug>` (never `--resetLayout`), then `plasma-apply-colorscheme
 themey_<slug>` — REQUIRED, not belt-and-braces: verified live on Plasma
@@ -162,8 +164,9 @@ the same `_write_deco` the deco-only path uses (required even though the
 LnF apply already wrote deco defaults — those land in the
 `~/.config/kdedefaults/` layer, and only an explicit user-layer write is
 guaranteed to win), then `_set_panels_fit` (every panel's `lengthMode` to
-`fit` — E16's iconbox/dragbar are content-sized and a full-width bar reads
-as Plasma, not E16), then `_ensure_furniture` (E16's left-edge furniture:
+`fit` AND `floating` off — E16's iconbox/dragbar are content-sized docked
+strips: a full-width bar reads as Plasma and a floating one adds an 8 px
+halo), then `_ensure_furniture` (E16's left-edge furniture:
 a thick content-sized pager panel hugging TOP-left — E16's pager window
 spot — and a slim iconbox panel hugging BOTTOM-left with an icons-only
 task manager showing only MINIMIZED windows; TWO panels because pager
@@ -210,7 +213,7 @@ failed apply; opt-out `--no-restart-shell`).
 the markers back, reapplies the recorded Look-and-Feel package (no
 Breeze special-case — a real baseline is typically a third-party theme,
 e.g. `com.github.vinceliuice.MacVentura-Dark`), restores the deco
-triple, button layout and panel length modes, removes the themey-created
+triple, button layout and panel length/floating modes, removes the themey-created
 iconbox panel (before the panel-mode restore, so that script iterates only
 surviving panels), then clears the markers it
 actually restored; a

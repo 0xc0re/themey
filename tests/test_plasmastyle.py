@@ -81,8 +81,9 @@ def _ids(svg: ET.Element) -> set[str]:
 
 def test_panel_background_from_art_middle_tiled(tmp_path: Path) -> None:
     """Small-cap opaque bar art becomes a real 9-part panel set with a
-    TILED middle (hint-tile-center — Breeze's own panel ships it) and the
-    default flat-panel margins when the iclass has no __PADDING."""
+    TILED middle (hint-tile-center — Breeze's own panel ships it) and
+    cap-hugging margin hints (2 px caps − 4 px smallSpacing floors at the
+    1 px minimum that keeps the rect emitted)."""
     png = _png(tmp_path, "dragbar.png")  # solid, 16x16, caps 2/2/2/2
     theme = _theme(tmp_path, {
         "DESKTOP_DRAGBUTTON_HORIZ": _iclass(
@@ -95,8 +96,9 @@ def test_panel_background_from_art_middle_tiled(tmp_path: Path) -> None:
             "bottomleft", "bottom", "bottomright"} <= ids
     assert "hint-tile-center" in ids
     assert "hint-stretch-borders" in ids
-    assert {"hint-left-margin", "hint-right-margin", "hint-top-margin",
-            "hint-bottom-margin"} <= ids
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    for side in ("left", "right", "top", "bottom"):
+        assert by_id[f"hint-{side}-margin"].get("width") == "1"
     # Real art: embedded images, not tint rects.
     assert any(e.tag.endswith("image") for e in svg.iter())
     assert any(
@@ -104,6 +106,38 @@ def test_panel_background_from_art_middle_tiled(tmp_path: Path) -> None:
         and "tiled" in n
         for n in theme.notes
     )
+
+
+def test_panel_margin_hints_hug_the_caps(tmp_path: Path) -> None:
+    """The e13 shape: __EDGE_SCALING 5 at scale 2 → 10 px painted caps →
+    6 px margin hints (cap − Kirigami smallSpacing), landing Plasma's
+    panel padding exactly on the cap art's inner edge. The E16 __PADDING
+    is dropped — Panel.qml pads on top of the frame margins, and __PADDING
+    + smallSpacing read as an empty trough before the first task button
+    (calibrated live on themey_e13, 2026-09-01). A capless axis keeps the
+    flat-panel PANEL_MARGIN_REF default at theme scale."""
+    png = _png(tmp_path, "iconbox.png", size=(32, 32))
+    theme = _theme(tmp_path, {
+        "ICONBOX_HORIZONTAL": _iclass(
+            "ICONBOX_HORIZONTAL", edge=(5, 5, 5, 5), padding=(6, 6, 6, 6),
+            normal=png,
+        ),
+    }, scale=2)
+    svg = plasmastyle.build_panel_background(theme)
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    for side in ("left", "right", "top", "bottom"):
+        assert by_id[f"hint-{side}-margin"].get("width") == "6"
+    assert any("margin hints hug the cap art" in n for n in theme.notes)
+    # Capless top/bottom: PANEL_MARGIN_REF (2 ref px) at scale 2 -> 4 px.
+    theme2 = _theme(tmp_path, {
+        "ICONBOX_HORIZONTAL": _iclass(
+            "ICONBOX_HORIZONTAL", edge=(5, 5, 0, 0), normal=png
+        ),
+    }, scale=2)
+    svg2 = plasmastyle.build_panel_background(theme2)
+    by_id2 = {e.get("id"): e for e in svg2.iter() if e.get("id")}
+    assert by_id2["hint-left-margin"].get("width") == "6"
+    assert by_id2["hint-top-margin"].get("width") == "4"
 
 
 def test_panel_background_cap_guard_falls_back_to_tint(tmp_path: Path) -> None:
@@ -199,9 +233,12 @@ def test_panel_background_west_east_sets_from_vertical_art(
     })
     svg = plasmastyle.build_panel_background(theme)
     ids = _ids(svg)
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
     for prefix in ("west-", "east-"):
         assert f"{prefix}center" in ids
-        assert f"{prefix}hint-top-margin" in ids
+        # Cap-hugging: hints come from the 2 px caps (floored at 1), NOT
+        # from the iclass __PADDING (1, 1, 3, 3), which is dropped.
+        assert by_id[f"{prefix}hint-top-margin"].get("width") == "1"
     # No vertical art -> no west/east sets (the unprefixed set serves all).
     theme2 = _theme(tmp_path, {
         "ICONBOX_HORIZONTAL": _iclass("ICONBOX_HORIZONTAL", normal=h),

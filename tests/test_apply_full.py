@@ -39,6 +39,8 @@ class FakeKConfig:
         #: stdout served for the plasmashell panel-length READ script
         #: ("" = no panels reported).
         self.panel_read_reply: str = ""
+        #: stdout served for the plasmashell panel-floating READ script.
+        self.panel_floating_reply: str = ""
         #: stdout served for the iconbox CREATE script (the new panel's id;
         #: "" = plasmashell printed nothing, the failure signal).
         self.iconbox_create_reply: str = "301"
@@ -58,9 +60,12 @@ class FakeKConfig:
                 cmd, 1, stdout="", stderr=self.fail_on[prog]
             )
         if any("evaluateScript" in tok for tok in cmd) and "out.push" in cmd[-1]:
-            return subprocess.CompletedProcess(
-                cmd, 0, stdout=self.panel_read_reply + "\n"
+            reply = (
+                self.panel_floating_reply
+                if "p.floating" in cmd[-1]
+                else self.panel_read_reply
             )
+            return subprocess.CompletedProcess(cmd, 0, stdout=reply + "\n")
         if any("evaluateScript" in tok for tok in cmd) and "new Panel" in cmd[-1]:
             reply = (
                 self.iconbox_create_reply
@@ -785,6 +790,56 @@ def test_revert_panel_restore_failure_keeps_marker(
     with pytest.raises(apply_mod.ApplyError, match="panel"):
         apply_mod.revert()
     assert fake_kconfig.store["PrevPanelLengthModes"] == "1058=fill"
+
+
+def test_apply_full_unfloats_panels_and_records_floating(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """E16 bars are docked strips: apply snapshots each panel's floating
+    state (once) and un-floats every panel in the same fit script."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.panel_read_reply = "1058=fill|1060=custom"
+    fake_kconfig.panel_floating_reply = "1058=true|1060=false"
+    apply_mod.apply_full("e13")
+    assert fake_kconfig.store["PrevPanelFloating"] == "1058=true|1060=false"
+    i = fake_kconfig.index_of("p.lengthMode = 'fit'")
+    assert "p.floating = false" in fake_kconfig.calls[i][-1]
+
+
+def test_apply_full_floating_marker_written_once(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.panel_read_reply = "1058=fill"
+    fake_kconfig.panel_floating_reply = "1058=true"
+    apply_mod.apply_full("e13")
+    fake_kconfig.panel_floating_reply = "1058=false"  # already themey'd
+    apply_mod.apply_full("e13")
+    assert fake_kconfig.store["PrevPanelFloating"] == "1058=true"
+
+
+def test_revert_restores_panel_floating_and_clears_marker(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["PrevPanelFloating"] = "1058=true|1060=false"
+    assert apply_mod.revert() is True
+    i = fake_kconfig.index_of("p.floating = true")
+    script = fake_kconfig.calls[i][-1]
+    assert "p.id == 1058" in script
+    assert "p.id == 1060" in script and "p.floating = false" in script
+    assert "PrevPanelFloating" not in fake_kconfig.store
+
+
+def test_revert_floating_restore_failure_keeps_marker(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["PrevPanelFloating"] = "1058=true"
+    fake_kconfig.fail_on["qdbus6"] = "plasmashell gone"
+    with pytest.raises(apply_mod.ApplyError, match="floating"):
+        apply_mod.revert()
+    assert fake_kconfig.store["PrevPanelFloating"] == "1058=true"
 
 
 def test_apply_full_creates_pager_panel_and_records_marker(
