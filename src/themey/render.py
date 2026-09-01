@@ -43,6 +43,11 @@ log = logging.getLogger(__name__)
 
 REQUIRED_TOOLS: tuple[str, ...] = ("kwin_wayland", "dbus-run-session", "spectacle", "kdialog")
 
+# The style target swaps kdialog for plasmoidviewer (the FrameSvg host).
+REQUIRED_STYLE_TOOLS: tuple[str, ...] = (
+    "kwin_wayland", "dbus-run-session", "spectacle", "plasmoidviewer",
+)
+
 SCREEN_W = 900
 SCREEN_H = 600
 CLIENT_W = 520
@@ -223,6 +228,246 @@ def _qml_error_lines(text: str) -> list[str]:
         ):
             out.append(line.strip())
     return out
+
+
+# --------------------------------------------------------------------- #
+# Style target: render the Plasma Style (desktoptheme) FrameSvg sets via a
+# scratch probe applet inside the same nested-KWin harness. This is the
+# proven Aliens-popup debug loop (plasmoidviewer -t themey_<slug> + spectacle
+# in a kwin_wayland --virtual session) as a repeatable command.
+# --------------------------------------------------------------------- #
+
+# (imagePath, prefix) pairs the probe paints, one labeled cell each. Covers
+# every surface the plasmastyle generator ships plus the tasks/tooltip sets
+# so B-track work can be eyeballed; a file the theme doesn't ship falls back
+# to Breeze inside plasmoidviewer exactly as it would on the live desktop.
+_STYLE_PROBE_CELLS: tuple[tuple[str, str], ...] = (
+    ("widgets/panel-background", ""),
+    ("widgets/panel-background", "west"),
+    ("dialogs/background", ""),
+    ("widgets/tooltip", ""),
+    ("widgets/tasks", "normal"),
+    ("widgets/tasks", "focus"),
+    ("widgets/tasks", "hover"),
+    ("widgets/tasks", "minimized"),
+    ("widgets/button", "normal"),
+    ("widgets/viewitem", "hover"),
+    ("widgets/slider", "groove"),
+    ("widgets/frame", "raised"),
+)
+
+_STYLE_PROBE_ID = "org.themey.styleprobe"
+
+_STYLE_PROBE_METADATA = """{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Id": "org.themey.styleprobe",
+        "Name": "Themey Style Probe",
+        "Version": "1.0"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
+}
+"""
+
+_STYLE_PROBE_QML_TEMPLATE = """\
+import QtQuick
+import org.kde.ksvg as KSvg
+import org.kde.plasma.plasmoid
+
+PlasmoidItem {{
+    id: root
+    width: {w}
+    height: {h}
+    preferredRepresentation: fullRepresentation
+    fullRepresentation: Rectangle {{
+        color: "#b06060"
+        implicitWidth: {w}
+        implicitHeight: {h}
+        Grid {{
+            anchors.fill: parent
+            anchors.margins: 6
+            columns: 4
+            columnSpacing: 6
+            rowSpacing: 4
+            Repeater {{
+                model: {model_json}
+                delegate: Column {{
+                    spacing: 1
+                    Text {{
+                        text: modelData.path
+                              + (modelData.prefix ? " [" + modelData.prefix + "]" : "")
+                        color: "black"
+                        font.pixelSize: 10
+                    }}
+                    KSvg.FrameSvgItem {{
+                        width: {cell_w}
+                        height: {cell_h}
+                        imagePath: modelData.path
+                        prefix: modelData.prefix
+                    }}
+                }}
+            }}
+        }}
+    }}
+}}
+"""
+
+
+def _write_style_probe(data: Path) -> None:
+    """Write the scratch probe applet under *data*'s plasmoids dir."""
+    import json as _json
+
+    pkg = data / "plasma" / "plasmoids" / _STYLE_PROBE_ID
+    (pkg / "contents" / "ui").mkdir(parents=True, exist_ok=True)
+    (pkg / "metadata.json").write_text(_STYLE_PROBE_METADATA, encoding="utf-8")
+    model = [{"path": p, "prefix": pre} for p, pre in _STYLE_PROBE_CELLS]
+    qml = _STYLE_PROBE_QML_TEMPLATE.format(
+        w=SCREEN_W - 200,
+        h=SCREEN_H - 160,
+        cell_w=(SCREEN_W - 200) // 4 - 10,
+        cell_h=(SCREEN_H - 160) // 3 - 30,
+        model_json=_json.dumps(model),
+    )
+    (pkg / "contents" / "ui" / "main.qml").write_text(qml, encoding="utf-8")
+
+
+def resolve_style_dir(
+    theme: str, *, scale: float, work: Path, upscale: str = "nearest"
+) -> tuple[str, Path]:
+    """Return ``(desktop_theme_id, package_dir)`` for a ``.etheme`` path or
+    an installed Plasma Style name under ``plasma/desktoptheme/``."""
+    from .slug import plugin_id
+
+    p = Path(theme)
+    if p.suffix == ".etheme" or p.is_file():
+        if not p.is_file():
+            raise RenderError(f"no such file: {p}")
+        result = convert(
+            p, scale=scale, output_dir=work / "convert", backend="qml",
+            upscale=upscale,
+        )
+        if result.desktop_theme_id is None or result.desktop_theme_dir is None:
+            raise RenderError(
+                f"conversion produced no Plasma Style package for {p.name} "
+                "(see its report.txt for the plasmastyle: note)"
+            )
+        return result.desktop_theme_id, result.desktop_theme_dir
+    pkg_id = theme if theme.startswith("themey_") else plugin_id(theme)
+    pkg = paths.desktop_themes() / pkg_id
+    if (pkg / "metadata.json").is_file():
+        return pkg_id, pkg
+    raise RenderError(
+        f"{theme!r} is neither a .etheme file nor an installed Plasma Style "
+        f"under {paths.desktop_themes()}"
+    )
+
+
+def _style_session_script(work: Path, out: Path, log_path: Path) -> Path:
+    script = work / "session.sh"
+    script.write_text(
+        "#!/bin/bash\n"
+        f"exec >{_q(log_path)} 2>&1\n"
+        'echo "WAYLAND_DISPLAY=$WAYLAND_DISPLAY"\n'
+        "export QT_QPA_PLATFORM=wayland\n"
+        f"plasmoidviewer -a {_STYLE_PROBE_ID} &\n"
+        f"sleep {SETTLE_SECONDS + 2}\n"
+        f"spectacle -b -n -o {_q(out)}\n"
+        'echo "spectacle rc=$?"\n'
+        "sleep 0.5\n",
+        encoding="utf-8",
+    )
+    script.chmod(script.stat().st_mode | stat.S_IXUSR)
+    return script
+
+
+def render_style(
+    theme: str,
+    *,
+    out: Path | None = None,
+    scale: float = 2,
+    upscale: str = "nearest",
+    keep_work: bool = False,
+) -> Path:
+    """Screenshot the theme's Plasma Style FrameSvg sets in a nested KWin.
+
+    Runs ``plasmoidviewer`` against the converted (or installed)
+    ``themey_<slug>`` desktoptheme with a scratch probe applet that paints
+    one labeled FrameSvgItem per interesting (imagePath, prefix) pair —
+    panel background (plain + west), popup/dialog background, tooltip, task
+    frames, buttons. Selection happens via the nested session's ``plasmarc``
+    (not plasmoidviewer's ``-t``, which resolves the theme before our
+    XDG_DATA_HOME package would be scanned on some installs).
+    """
+    missing = [t for t in REQUIRED_STYLE_TOOLS if shutil.which(t) is None]
+    if missing:
+        raise RenderError(f"missing tools on PATH: {', '.join(missing)}")
+
+    work = Path(tempfile.mkdtemp(prefix="themey-render-style-"))
+    try:
+        name, style_dir = resolve_style_dir(theme, scale=scale, work=work,
+                                            upscale=upscale)
+        cfg = work / "config"
+        data = work / "data"
+        runtime = work / "runtime"
+        runtime.mkdir(mode=0o700)
+        shutil.copytree(style_dir, data / "plasma" / "desktoptheme" / name)
+        _write_style_probe(data)
+        cfg.mkdir(parents=True, exist_ok=True)
+        (cfg / "plasmarc").write_text(
+            f"[Theme]\nname={name}\n", encoding="utf-8"
+        )
+        write_kwinrc(cfg, name="Breeze", plugin="v2", border_size="Normal")
+
+        if out is None:
+            out = paths.themey_previews() / f"{name}-style.png"
+        out = out.resolve()
+        out.parent.mkdir(parents=True, exist_ok=True)
+        if out.exists():
+            out.unlink()
+
+        session_log = work / "session.log"
+        script = _style_session_script(work, out, session_log)
+
+        env = dict(os.environ)
+        env.update(
+            XDG_CONFIG_HOME=str(cfg),
+            XDG_DATA_HOME=str(data),
+            XDG_RUNTIME_DIR=str(runtime),
+            XDG_CACHE_HOME=str(work / "cache"),
+        )
+        for var in ("WAYLAND_DISPLAY", "DISPLAY", "DBUS_SESSION_BUS_ADDRESS"):
+            env.pop(var, None)
+        cmd = [
+            "dbus-run-session", "--", "kwin_wayland", "--virtual",
+            "--no-lockscreen",
+            "--width", str(SCREEN_W), "--height", str(SCREEN_H),
+            "--exit-with-session", str(script),
+        ]
+        log.info("render style: %s", name)
+        try:
+            proc = subprocess.run(
+                cmd, env=env, cwd=work, capture_output=True, text=True,
+                timeout=TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RenderError(
+                f"nested kwin_wayland timed out after {TIMEOUT_SECONDS}s"
+            ) from exc
+        if not out.is_file() or out.stat().st_size == 0:
+            tail = (
+                session_log.read_text(errors="replace")[-2000:]
+                if session_log.exists() else ""
+            )
+            raise RenderError(
+                f"no screenshot produced (kwin rc={proc.returncode}).\n"
+                f"session log:\n{tail}\nkwin stderr:\n{proc.stderr[-2000:]}"
+            )
+        return out
+    finally:
+        if keep_work:
+            log.info("render style: work dir kept at %s", work)
+        else:
+            shutil.rmtree(work, ignore_errors=True)
 
 
 def render(
