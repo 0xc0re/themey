@@ -136,10 +136,35 @@ def _mk_part(**over) -> dict:
 
 
 def test_max_clamp_recenters():
-    """E16 re-centers a part inside its declared span when exceeding max."""
+    """E16 re-centers a part inside its declared span when exceeding max:
+    borders.c BorderWinpartCalc ``x = ((x + ox) - w) >> 1`` with ``ox``
+    the INCLUSIVE bottom-right anchor — i.e. ``(2x + span - 1 - max) >> 1``,
+    one px left of the naive ``x + (span - max) >> 1`` whenever
+    ``span - max`` is even."""
     data = {"scale": 1, "parts": [_mk_part(brXA=19, brYA=19, maxW=10, maxH=10)]}
-    # raw w = 19 - 0 + 1 = 20; max 10 → x += (20-10)>>1 = 5
-    assert part_geometry(data, 0, 100, 100, lambda _: 0) == (5, 5, 10, 10)
+    # raw w = 19 - 0 + 1 = 20; max 10 → x = (0 + 19 - 10) >> 1 = 4
+    assert part_geometry(data, 0, 100, 100, lambda _: 0) == (4, 4, 10, 10)
+    # odd difference: span 20, max 11 → (0 + 19 - 11) >> 1 = 4 (== naive)
+    data = {"scale": 1, "parts": [_mk_part(brXA=19, brYA=19, maxW=11, maxH=11)]}
+    assert part_geometry(data, 0, 100, 100, lambda _: 0) == (4, 4, 11, 11)
+
+
+def test_min_clamp_only_when_not_max_clamped():
+    """borders.c: ``if (w > max) {...} else if (w < min) w = min;`` — a
+    contradictory min > max declaration resolves to max, not min."""
+    data = {"scale": 1, "parts": [_mk_part(brXA=19, brYA=19, maxW=10, maxH=10, minW=15, minH=15)]}
+    assert part_geometry(data, 0, 100, 100, lambda _: 0) == (4, 4, 10, 10)
+
+
+def test_title_min_clamp_after_span_clamp():
+    """Text-sized title (borders.c:449-453): ``w = min(text + pads, span)``
+    THEN ``else if (w < min) w = min`` — a min wider than the span wins,
+    without re-centering (E16 lets the plaque overhang)."""
+    data = {"scale": 1, "parts": [_mk_part(
+        brXA=19, brYA=9, isTitle=True, maxW=0, minW=30, justification=512,
+    )]}
+    # span 20, text 8 → tw 8 → justified x = (20-8)*512>>10 = 6; then min 30
+    assert part_geometry(data, 0, 100, 100, lambda _: 8) == (6, 0, 30, 10)
 
 
 def test_origin_chaining_adds_origin_position():

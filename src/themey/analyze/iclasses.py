@@ -4,6 +4,11 @@ EDGE_SCALING order is L R T B (verified in E16's iclass.c sscanf order).
 The four values in __EDGE_SCALING map to indices 0..3 as (left, right,
 top, bottom).
 
+__FILLRULE is per image state too (``ICLASS_FILLRULE`` → ``is->pixmapfillstyle``);
+``IClassSpec.fill_by_state`` / ``fill_for`` expose it as
+``stretch | tile | tile-h | tile-v`` (see ``_fill_rule`` for the token and
+numeric mapping).
+
 __EDGE_SCALING is PER IMAGE STATE in E16 (iclass.c ``ICLASS_LRTB`` writes
 ``is->border`` on the most recently opened state, and is an error before
 any state). ``IClassSpec.edge_by_state`` records each state's own edge
@@ -29,7 +34,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from themey.etheme.ast import Block, KeyVal
-from themey.ir import IClassSpec
+from themey.ir import FILL_STRETCH, FILL_TILE, FILL_TILE_H, FILL_TILE_V, IClassSpec
 
 
 def _to_int(v: object) -> int:
@@ -51,6 +56,37 @@ def _block_name(block: Block) -> str | None:
         if isinstance(child, KeyVal) and child.keyword == "__NAME" and child.values:
             return str(child.values[0])
     return None
+
+
+# __FILLRULE tokens (config/definitions) and E16's numeric encoding
+# (iclass.h): FILL_STRETCH 0, FILL_TILE_H 1, FILL_TILE_V 2 — __TILE is 3
+# (both bits). FILL_INT_TILE_H 4 / FILL_INT_TILE_V 8 (integer-count tiling,
+# never spelled in the corpus) are approximated as the plain tile on that
+# axis. Anything else — the corpus's undefined ``__SCALE``/``__TITLE`` —
+# is what E16's atoi() makes of an unexpanded macro: 0, stretch.
+_FILL_TOKENS: dict[str, int] = {
+    "__STRETCH": 0, "__TILE_H": 1, "__TILE_V": 2, "__TILE": 3,
+}
+
+
+def _fill_rule(value: object) -> str:
+    token = str(value).strip().upper()
+    if token in _FILL_TOKENS:
+        bits = _FILL_TOKENS[token]
+    else:
+        try:
+            bits = int(token, 0)
+        except ValueError:
+            bits = 0
+    tile_h = bool(bits & 1 or bits & 4)
+    tile_v = bool(bits & 2 or bits & 8)
+    if tile_h and tile_v:
+        return FILL_TILE
+    if tile_h:
+        return FILL_TILE_H
+    if tile_v:
+        return FILL_TILE_V
+    return FILL_STRETCH
 
 
 # State keywords whose presence as a KeyVal with one string value sets the
@@ -96,6 +132,7 @@ def build_iclasses(
             continue
         edge = (0, 0, 0, 0)  # left, right, top, bottom — LRTB order per E16 iclass.c
         edge_by_state: dict[str, tuple[int, int, int, int]] = {}
+        fill_by_state: dict[str, str] = {}
         current_state: str | None = None  # attribute-name form
         padding = (0, 0, 0, 0)
         states: dict[str, Path | None] = {}
@@ -112,6 +149,9 @@ def build_iclasses(
                 )
                 if current_state is not None:
                     edge_by_state[current_state] = edge
+            elif kv.keyword == "__FILLRULE" and kv.values:
+                if current_state is not None:
+                    fill_by_state[current_state] = _fill_rule(kv.values[0])
             elif kv.keyword == "__PADDING" and len(kv.values) >= 4:
                 padding = (
                     _to_int(kv.values[0]),
@@ -149,6 +189,7 @@ def build_iclasses(
             normal_active_hilited=states.get("__NORMAL_ACTIVE_HILITED"),
             padding=padding,
             edge_by_state=edge_by_state,
+            fill_by_state=fill_by_state,
         )
 
     return typed, raw

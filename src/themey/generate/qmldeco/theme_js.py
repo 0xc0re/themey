@@ -15,6 +15,11 @@ resolved HERE so the runtime only ever binds concrete filenames; origin
 topology is validated HERE (an origin must reference an earlier-declared
 part — violations degrade to window-relative with a ``qmldeco:`` note).
 
+``slotTile[slot]`` is E16's per-state ``__FILLRULE`` (``null`` stretch,
+``"h"``/``"v"``/``"both"`` tile — BorderImage repeat modes on the
+middle); ``keepOnTop`` mirrors ``__KEEP_ON_TOP`` (off = the part stacks
+under every on-top part, as E16 put it under the client).
+
 Caption text: ``text.effect`` is ``"none" | "shadow" | "outline"``
 (E16 ``__DRAWING_EFFECT``; ``text.c`` TsTextDraw draws the shadow at
 +1,+1 and the outline at the four neighbours) painted in
@@ -93,6 +98,11 @@ _SLOT_CHAINS: dict[str, tuple[str, ...]] = {
         "normal",
     ),
 }
+# IClassSpec.fill_for → theme.js slotTile value (null = stretch).
+_TILE_AXES: dict[str, str | None] = {
+    "stretch": None, "tile": "both", "tile-h": "h", "tile-v": "v",
+}
+
 _BUTTON_SLOTS = tuple(_SLOT_CHAINS)
 _CHROME_SLOTS = ("normal", "normalActive")
 
@@ -411,6 +421,14 @@ def build_theme_data(
                     slot: _clamped_insets(ic, scale, state)
                     for slot, state in (slot_states or {}).items()
                 },
+                # E16 __FILLRULE per image state → BorderImage tile modes.
+                "slotTile": {
+                    slot: _TILE_AXES[ic.fill_for(state)] if ic else None
+                    for slot, state in (slot_states or {}).items()
+                },
+                # __KEEP_ON_TOP __OFF parts stack under every on-top part
+                # (E16 puts them under the client window).
+                "keepOnTop": part.keep_on_top,
                 "images": images,
                 "text": text,
             }

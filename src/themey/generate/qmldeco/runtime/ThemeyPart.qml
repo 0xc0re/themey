@@ -41,7 +41,12 @@ Item {
     y: geo.y
     width: geo.w
     height: geo.h
-    z: partIndex
+    // E16 stacks __KEEP_ON_TOP __OFF parts under the client window; KWin's
+    // client covers the deco there anyway, so the visible consequence is
+    // that every off part sits under every on-top part, declaration order
+    // within each group.
+    z: (partItem.part && partItem.part.keepOnTop === false)
+       ? partIndex - root.themeData.parts.length : partIndex
     visible: {
         if (!partItem.part)
             return false;
@@ -99,6 +104,16 @@ Item {
         border.right: partItem.slotInsets.right
         border.top: partItem.slotInsets.top
         border.bottom: partItem.slotInsets.bottom
+        // E16 __FILLRULE per image state: __TILE / __TILE_H / __TILE_V
+        // repeat the art at native size on that axis instead of
+        // stretching it (iclass.c ImagestateMakeBg EImageTile).
+        readonly property string tile: {
+            var p = partItem.part;
+            var tt = p && p.slotTile ? p.slotTile[partItem.imageSlot] : null;
+            return tt ? tt : "";
+        }
+        horizontalTileMode: tile === "h" || tile === "both" ? BorderImage.Repeat : BorderImage.Stretch
+        verticalTileMode: tile === "v" || tile === "both" ? BorderImage.Repeat : BorderImage.Stretch
         smooth: false
     }
 

@@ -3,8 +3,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from themey.analyze.iclasses import build_iclasses
 from themey.etheme.ast import Block, KeyVal
+from themey.ir import IClassSpec
 
 # ---------------------------------------------------------------------------
 # Helpers: synthetic AST factories
@@ -304,3 +307,55 @@ def test_iclass_edge_for_accepts_keyword_form(tmp_path: Path) -> None:
     spec = build_iclasses([block], tmp_path)[0]["X"]
     assert spec.edge_for("__NORMAL_ACTIVE") == (3, 3, 3, 3)
     assert spec.edge_for("normal_active") == (3, 3, 3, 3)
+
+
+# ---------------------------------------------------------------------------
+# Per-state __FILLRULE (E16 iclass.c ICLASS_FILLRULE: is->pixmapfillstyle,
+# config/definitions __STRETCH 0 / __TILE_H 1 / __TILE_V 2 / __TILE 3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "token, fill",
+    [
+        ("__STRETCH", "stretch"),
+        ("__TILE_H", "tile-h"),
+        ("__TILE_V", "tile-v"),
+        ("__TILE", "tile"),
+        (0, "stretch"),
+        (1, "tile-h"),
+        (2, "tile-v"),
+        (3, "tile"),
+        ("__SCALE", "stretch"),  # undefined macro → atoi() = 0
+        ("__TITLE", "stretch"),  # corpus typo, same fate
+        (4, "tile-h"),  # FILL_INT_TILE_H approximated as the plain tile
+        (8, "tile-v"),  # FILL_INT_TILE_V
+        (12, "tile"),
+    ],
+)
+def test_iclass_fillrule_vocabulary(tmp_path: Path, token: object, fill: str) -> None:
+    block = _iclass_block("X", _kv("__NORMAL", "n.png"), _kv("__FILLRULE", token))
+    spec = build_iclasses([block], tmp_path)[0]["X"]
+    assert spec.fill_for("normal") == fill
+
+
+def test_iclass_fillrule_is_per_state_with_stretch_default(tmp_path: Path) -> None:
+    block = _iclass_block(
+        "X",
+        _kv("__NORMAL", "n.png"),
+        _kv("__FILLRULE", "__TILE"),
+        _kv("__HILITED", "h.png"),
+        _kv("__CLICKED", "c.png"),
+        _kv("__FILLRULE", "__TILE_H"),
+    )
+    spec = build_iclasses([block], tmp_path)[0]["X"]
+    assert spec.fill_for("normal") == "tile"
+    assert spec.fill_for("__CLICKED") == "tile-h"
+    # E16 default pixmapfillstyle is FILL_STRETCH (iclass.c ImagestateCreate)
+    assert spec.fill_for("hilited") == "stretch"
+    assert spec.fill_by_state == {"normal": "tile", "clicked": "tile-h"}
+    assert IClassSpec(
+        name="Y", edge_scaling=(0, 0, 0, 0), normal=None, normal_active=None,
+        hilited=None, hilited_active=None, clicked=None, clicked_active=None,
+        normal_sticky=None, normal_active_sticky=None,
+    ).fill_for("normal") == "stretch"
