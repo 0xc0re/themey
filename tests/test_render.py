@@ -108,9 +108,9 @@ def test_style_probe_paints_wide_and_tall_viewitem_cells(tmp_path):
     assert cells.get("widgets/viewitem") is not None
     prefixes = {pre for path, pre in render._STYLE_PROBE_CELLS if path == "widgets/viewitem"}
     assert {"hover", "selected"} <= prefixes
-    sizes = render._STYLE_PROBE_CELL_SIZES
-    wide = sizes[("widgets/viewitem", "hover")]
-    tall = sizes[("widgets/viewitem", "selected")]
-    assert wide[0] > 3 * wide[1]
-    assert tall[1] > 3 * tall[0]
-    assert '"w"' in qml and '"h"' in qml
+    shapes = render._STYLE_PROBE_CELL_SHAPES
+    assert shapes[("widgets/viewitem", "hover")] == "wide"
+    assert shapes[("widgets/viewitem", "selected")] == "tall"
+    assert '"shape": "wide"' in qml and '"shape": "tall"' in qml
+    # The grid must hold every cell: rows x columns >= cells.
+    assert render._STYLE_PROBE_ROWS * render._STYLE_PROBE_COLUMNS >= len(render._STYLE_PROBE_CELLS)
