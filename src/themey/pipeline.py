@@ -58,6 +58,11 @@ class ConvertResult:
     preview_path: Path
     report_path: Path
     notes_count: int
+    notes: tuple[str, ...] = ()
+    """The full ``theme.notes`` list at the end of the convert — every
+    fidelity note, unlike ``report.txt`` which truncates the unprefixed
+    per-state bucket at 20 (``report.py``). ``scripts/batch_survey.py``
+    reads this to histogram note patterns across the corpus."""
     installed: bool = True
     """False when ``output_dir`` was given: ``installed_dir`` is then the
     theme tree under that directory and nothing was written to XDG paths."""
@@ -462,6 +467,7 @@ def convert(
         preview_path=preview_path,
         report_path=report_path,
         notes_count=len(theme.notes),
+        notes=tuple(theme.notes),
         installed=output_dir is None,
         qml_installed_dir=qml_installed,
         qml_plugin_id=pkg_id if want_qml else None,
