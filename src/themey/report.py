@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .analyze.tclasses import title_tclass
 from .generate.cursors import CursorTheme
 from .generate.decoration_svg import strip_thicknesses
 from .ir import Theme, WallpaperSpec
@@ -70,8 +71,8 @@ def write(
             f"  right={theme.right_buttons or '(none)'} "
             "(order on screen follows kwinrc ButtonsOnLeft/Right, not the theme)"
         )
-    if "TEXT1" in theme.tclasses:
-        t = theme.tclasses["TEXT1"]
+    t = title_tclass(theme.border, theme.tclasses)
+    if t is not None:
         if t.fg_active:
             lines.append(
                 f"- Titlebar text colors: "

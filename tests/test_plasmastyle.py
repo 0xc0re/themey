@@ -79,8 +79,11 @@ def _ids(svg: ET.Element) -> set[str]:
 # ------------------------------------------------------------------ #
 
 
-def test_panel_background_is_flat_translucent_tint(tmp_path: Path) -> None:
-    png = _png(tmp_path, "dragbar.png")  # solid (200, 60, 60)
+def test_panel_background_from_art_middle_tiled(tmp_path: Path) -> None:
+    """Small-cap opaque bar art becomes a real 9-part panel set with a
+    TILED middle (hint-tile-center — Breeze's own panel ships it) and the
+    default flat-panel margins when the iclass has no __PADDING."""
+    png = _png(tmp_path, "dragbar.png")  # solid, 16x16, caps 2/2/2/2
     theme = _theme(tmp_path, {
         "DESKTOP_DRAGBUTTON_HORIZ": _iclass(
             "DESKTOP_DRAGBUTTON_HORIZ", edge=(2, 2, 2, 2), normal=png
@@ -90,16 +93,81 @@ def test_panel_background_is_flat_translucent_tint(tmp_path: Path) -> None:
     ids = _ids(svg)
     assert {"topleft", "top", "topright", "left", "center", "right",
             "bottomleft", "bottom", "bottomright"} <= ids
+    assert "hint-tile-center" in ids
+    assert "hint-stretch-borders" in ids
     assert {"hint-left-margin", "hint-right-margin", "hint-top-margin",
             "hint-bottom-margin"} <= ids
-    # A tint, not art: no embedded images anywhere.
+    # Real art: embedded images, not tint rects.
+    assert any(e.tag.endswith("image") for e in svg.iter())
+    assert any(
+        "panel background from iclass DESKTOP_DRAGBUTTON_HORIZ" in n
+        and "tiled" in n
+        for n in theme.notes
+    )
+
+
+def test_panel_background_cap_guard_falls_back_to_tint(tmp_path: Path) -> None:
+    """Wordmark-sized caps (the Aliens dragbar failure mode) trip the cap
+    guard; with no other candidate the panel degrades to the flat tint."""
+    png = _png(tmp_path, "dragbar.png", size=(160, 16))  # solid (200, 60, 60)
+    theme = _theme(tmp_path, {
+        "DESKTOP_DRAGBUTTON_HORIZ": _iclass(
+            "DESKTOP_DRAGBUTTON_HORIZ", edge=(133, 2, 0, 0), normal=png
+        ),
+    })
+    svg = plasmastyle.build_panel_background(theme)
     assert not any(e.tag.endswith("image") for e in svg.iter())
     center = next(e for e in svg.iter() if e.get("id") == "center")
     style = center.get("style", "")
     assert "fill:#c83c3c" in style  # dominant of the (200, 60, 60) art
     assert "opacity:0.85" in style
     assert any(
-        "translucent tint" in n and "DESKTOP_DRAGBUTTON_HORIZ" in n
+        "rejected for the panel background" in n and "caps" in n
+        for n in theme.notes
+    )
+    assert any("translucent tint" in n for n in theme.notes)
+
+
+def test_panel_background_shaped_guard_falls_back(tmp_path: Path) -> None:
+    """>10%-transparent art is shaped (1-bit E16 mask) — rejected."""
+    p = tmp_path / "shaped.png"
+    im = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+    for x in range(16):
+        for y in range(6):  # 6/16 opaque rows -> 62% transparent
+            im.putpixel((x, y), (10, 200, 10, 255))
+    im.save(p, format="PNG")
+    theme = _theme(tmp_path, {
+        "DESKTOP_DRAGBUTTON_HORIZ": _iclass(
+            "DESKTOP_DRAGBUTTON_HORIZ", normal=p
+        ),
+    })
+    svg = plasmastyle.build_panel_background(theme)
+    assert not any(e.tag.endswith("image") for e in svg.iter())
+    assert any(
+        "rejected for the panel background" in n and "shaped" in n
+        for n in theme.notes
+    )
+
+
+def test_panel_background_guard_falls_through_to_next_source(
+    tmp_path: Path,
+) -> None:
+    """Aliens' census shape: dragbar rejected (giant cap) -> the iconbox
+    trough (small caps) backs the panel instead."""
+    big = _png(tmp_path, "dragbar.png", size=(160, 16))
+    small = _png(tmp_path, "iconbox.png", color=(20, 90, 20, 255))
+    theme = _theme(tmp_path, {
+        "DESKTOP_DRAGBUTTON_HORIZ": _iclass(
+            "DESKTOP_DRAGBUTTON_HORIZ", edge=(133, 2, 0, 0), normal=big
+        ),
+        "ICONBOX_HORIZONTAL": _iclass(
+            "ICONBOX_HORIZONTAL", edge=(4, 4, 4, 4), normal=small
+        ),
+    })
+    svg = plasmastyle.build_panel_background(theme)
+    assert any(e.tag.endswith("image") for e in svg.iter())
+    assert any(
+        "panel background from iclass ICONBOX_HORIZONTAL" in n
         for n in theme.notes
     )
 
@@ -116,18 +184,31 @@ def test_panel_background_scheme_fallback_without_art(tmp_path: Path) -> None:
     assert any("the sampled color scheme" in n for n in theme.notes)
 
 
-def test_panel_background_drops_east_west_sets(tmp_path: Path) -> None:
+def test_panel_background_west_east_sets_from_vertical_art(
+    tmp_path: Path,
+) -> None:
+    """A vertical bar iclass passing the guards adds west-/east- sets so
+    the left-edge furniture panels wear the vertical art."""
     h = _png(tmp_path, "h.png")
-    v = _png(tmp_path, "v.png")
+    v = _png(tmp_path, "v.png", color=(60, 60, 200, 255))
     theme = _theme(tmp_path, {
         "ICONBOX_HORIZONTAL": _iclass("ICONBOX_HORIZONTAL", normal=h),
-        "ICONBOX_VERTICAL": _iclass("ICONBOX_VERTICAL", normal=v),
+        "ICONBOX_VERTICAL": _iclass(
+            "ICONBOX_VERTICAL", normal=v, padding=(1, 1, 3, 3)
+        ),
     })
     svg = plasmastyle.build_panel_background(theme)
     ids = _ids(svg)
-    # A flat tint has no orientation; every prefix falls back to unprefixed.
+    for prefix in ("west-", "east-"):
+        assert f"{prefix}center" in ids
+        assert f"{prefix}hint-top-margin" in ids
+    # No vertical art -> no west/east sets (the unprefixed set serves all).
+    theme2 = _theme(tmp_path, {
+        "ICONBOX_HORIZONTAL": _iclass("ICONBOX_HORIZONTAL", normal=h),
+    })
+    svg2 = plasmastyle.build_panel_background(theme2)
     assert not any(
-        i.startswith(("north-", "south-", "east-", "west-")) for i in ids
+        i.startswith(("north-", "south-", "east-", "west-")) for i in _ids(svg2)
     )
 
 
@@ -201,16 +282,248 @@ def test_shave_for_center() -> None:
     assert plasmastyle._shave_for_center(2, 0, 2) == (1, 0)
 
 
-def test_never_emits_tile_center_hint(tmp_path: Path) -> None:
-    png = _png(tmp_path, "bar.png")
+def test_tile_center_hint_only_in_panel_background(tmp_path: Path) -> None:
+    """E16 stretches middles everywhere EXCEPT bar troughs — the tile hint
+    is allowed only in widgets/panel-background.svg. Build every file from
+    a maximal synthetic theme and check the census."""
+    art = _png(tmp_path, "art.png")
+    art2 = _png(tmp_path, "art2.png", color=(40, 40, 200, 255))
+    iclasses = {
+        name: _iclass(name, normal=art, hilited=art2, normal_active=art2)
+        for name in (
+            "DESKTOP_DRAGBUTTON_HORIZ", "MENU_BG", "TT_MAIN", "DIALOG_BUTTON",
+            "MENU_SEL", "ICONBOX_SCROLLBAR_KNOB_VERTICAL",
+            "ICONBOX_ARROW_UP", "ICONBOX_ARROW_DOWN", "ICONBOX_ARROW_LEFT",
+            "ICONBOX_ARROW_RIGHT", "DIALOG_WIDGET_CHECK_BUTTON",
+            "DIALOG_WIDGET_RADIO_BUTTON",
+            "DIALOG_WIDGET_SLIDER_BASE_HORIZONTAL",
+            "DIALOG_WIDGET_SLIDER_KNOB_HORIZONTAL",
+            "DIALOG_WIDGET_SEPARATOR", "DIALOG_WIDGET_AREA", "PAGER_SEL",
+        )
+    }
+    theme = _theme(tmp_path, iclasses)
+    for rel, builder in plasmastyle._BUILDERS:
+        svg = builder(theme)
+        if svg is None:
+            continue
+        has_tile = any("tile-center" in i for i in _ids(svg))
+        if rel == plasmastyle.PANEL_SVG:
+            assert has_tile, "art panel must tile its middle"
+        else:
+            assert not has_tile, f"{rel} must not tile its middle"
+
+
+# ------------------------------------------------------------------ #
+# Dialog background — composite frame from MENU_T/B/L/R (+ corners)
+# ------------------------------------------------------------------ #
+
+
+def test_dialog_composite_frame_from_menu_strips(tmp_path: Path) -> None:
+    """Aliens' shape: MENU_T/MENU_B strips + opaque DIALOG center, no L/R
+    strips -> top/bottom/center only; corner pieces are dropped (a corner
+    paints at leftWidth x topHeight, and with no left strip that is 0 wide)."""
+    t = _png(tmp_path, "menu_t.png", size=(115, 6))
+    b = _png(tmp_path, "menu_b.png", size=(206, 4))
+    tl = _png(tmp_path, "menu_tl.png", size=(11, 23))
+    dialog = _png(tmp_path, "bg.png", size=(64, 64), color=(90, 90, 100, 255))
     theme = _theme(tmp_path, {
-        "DESKTOP_DRAGBUTTON_HORIZ": _iclass(
-            "DESKTOP_DRAGBUTTON_HORIZ", normal=png, padding=(2, 2, 2, 2)
+        "MENU_T": _iclass("MENU_T", normal=t),
+        "MENU_B": _iclass("MENU_B", normal=b),
+        "MENU_TL": _iclass("MENU_TL", normal=tl),
+        "DIALOG": _iclass("DIALOG", edge=(0, 0, 0, 0), normal=dialog),
+    })
+    svg = plasmastyle.build_dialog_background(theme)
+    assert svg is not None
+    ids = _ids(svg)
+    assert {"top", "bottom", "center"} <= ids
+    assert "left" not in ids and "right" not in ids
+    assert "topleft" not in ids
+    assert "hint-stretch-borders" in ids
+    assert any(
+        "composed from menu frame pieces" in n for n in theme.notes
+    ), theme.notes
+    assert any("MENU_TL" in n and "dropped" in n for n in theme.notes)
+
+
+def test_dialog_composite_corner_with_matching_strips(tmp_path: Path) -> None:
+    """A corner ships only when BOTH adjacent strips exist and the corner's
+    dims match theirs (FrameSvg stretches the corner to exactly
+    leftWidth x topHeight — sectionRect, ksvg 6.24)."""
+    t = _png(tmp_path, "menu_t.png", size=(60, 6))
+    left = _png(tmp_path, "menu_l.png", size=(6, 60))
+    tl = _png(tmp_path, "menu_tl.png", size=(6, 6))
+    dialog = _png(tmp_path, "bg.png", size=(64, 64))
+    theme = _theme(tmp_path, {
+        "MENU_T": _iclass("MENU_T", normal=t),
+        "MENU_L": _iclass("MENU_L", normal=left),
+        "MENU_TL": _iclass("MENU_TL", normal=tl),
+        "DIALOG": _iclass("DIALOG", normal=dialog),
+    })
+    svg = plasmastyle.build_dialog_background(theme)
+    assert svg is not None
+    assert "topleft" in _ids(svg)
+
+
+def test_dialog_composite_corner_dropped_on_dim_mismatch(tmp_path: Path) -> None:
+    """Aliens' MENU_TL: 23 px tall against a 6 px top strip — squashing it
+    to the strip thickness mangles the art, so it is dropped with a note."""
+    t = _png(tmp_path, "menu_t.png", size=(60, 6))
+    left = _png(tmp_path, "menu_l.png", size=(6, 60))
+    tl = _png(tmp_path, "menu_tl.png", size=(11, 23))
+    dialog = _png(tmp_path, "bg.png", size=(64, 64))
+    theme = _theme(tmp_path, {
+        "MENU_T": _iclass("MENU_T", normal=t),
+        "MENU_L": _iclass("MENU_L", normal=left),
+        "MENU_TL": _iclass("MENU_TL", normal=tl),
+        "DIALOG": _iclass("DIALOG", normal=dialog),
+    })
+    svg = plasmastyle.build_dialog_background(theme)
+    assert svg is not None
+    assert "topleft" not in _ids(svg)
+    assert any("MENU_TL" in n and "dropped" in n for n in theme.notes)
+
+
+def test_dialog_composite_center_mandatory_flat_fallback(tmp_path: Path) -> None:
+    """Strips with NO center source still get a center element (a flat
+    dominant-color rect) — a center-less set paints NOTHING."""
+    t = _png(tmp_path, "menu_t.png", size=(60, 6), color=(10, 120, 10, 255))
+    theme = _theme(tmp_path, {
+        "MENU_T": _iclass("MENU_T", normal=t),
+    })
+    svg = plasmastyle.build_dialog_background(theme)
+    assert svg is not None
+    ids = _ids(svg)
+    assert "center" in ids and "top" in ids
+    center = next(e for e in svg.iter() if e.get("id") == "center")
+    # Flat rect, not an image.
+    assert not any(c.tag.endswith("image") for c in center.iter())
+
+
+def test_dialog_without_pieces_keeps_single_set_path(tmp_path: Path) -> None:
+    """e13's shape: no MENU_T/B/L/R -> the classic one-set emission."""
+    menu = _png(tmp_path, "menu.png")
+    theme = _theme(tmp_path, {
+        "MENU_BG": _iclass("MENU_BG", edge=(5, 5, 5, 5), normal=menu),
+    })
+    svg = plasmastyle.build_dialog_background(theme)
+    assert svg is not None
+    assert not any("composed from menu frame pieces" in n for n in theme.notes)
+
+
+def test_menu_sub_and_root_titlebar_noted_not_shipped(tmp_path: Path) -> None:
+    menu = _png(tmp_path, "menu.png")
+    sub = _png(tmp_path, "sub.png")
+    tb = _png(tmp_path, "tb.png")
+    theme = _theme(tmp_path, {
+        "MENU_BG": _iclass("MENU_BG", normal=menu),
+        "MENU_SUB": _iclass("MENU_SUB", normal=sub),
+        "MENU_TITLE_BAR": _iclass("MENU_TITLE_BAR", normal=tb),
+    })
+    plasmastyle.build_dialog_background(theme)
+    assert any("MENU_SUB" in n for n in theme.notes)
+    assert any("MENU_TITLE_BAR" in n for n in theme.notes)
+
+
+# ------------------------------------------------------------------ #
+# Tasks — widgets/tasks.svg from the iconbox button art
+# ------------------------------------------------------------------ #
+
+
+def _arrow_iclasses(tmp_path: Path) -> dict[str, IClassSpec]:
+    return {
+        name: _iclass(name, normal=_png(tmp_path, f"{name}.png", size=(8, 8)))
+        for name in (
+            "ICONBOX_ARROW_UP", "ICONBOX_ARROW_DOWN",
+            "ICONBOX_ARROW_LEFT", "ICONBOX_ARROW_RIGHT",
+        )
+    }
+
+
+def test_tasks_all_prefixes_ship_even_from_normal_only_art(
+    tmp_path: Path,
+) -> None:
+    """Per-FILE fallback means a partial prefix set paints nothing for the
+    missing states — every prefix ships, reusing normal art."""
+    png = _png(tmp_path, "iconbtn.png")
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass(
+            "DEFAULT_ICON_BUTTON", normal=png, padding=(2, 2, 2, 2)
         ),
     })
-    svg = plasmastyle.build_panel_background(theme)
+    svg = plasmastyle.build_tasks(theme)
     assert svg is not None
-    assert not any("tile-center" in i for i in _ids(svg))
+    ids = _ids(svg)
+    for prefix in (
+        "normal-", "minimized-", "hover-", "attention-", "progress-",
+        "focus-",
+    ):
+        assert f"{prefix}center" in ids, prefix
+        assert f"{prefix}hint-left-margin" in ids, prefix
+    assert "center" in ids  # unprefixed launcher set
+    assert not any("tile-center" in i for i in ids)
+    assert any(
+        "task frames from iclass DEFAULT_ICON_BUTTON" in n for n in theme.notes
+    )
+
+
+def test_tasks_focus_wears_clicked_art(tmp_path: Path) -> None:
+    """The active task wears the depressed button — E16's pressed-in look."""
+    normal = _png(tmp_path, "n.png", size=(16, 16))
+    clicked = _png(tmp_path, "c.png", size=(24, 24), color=(10, 10, 10, 255))
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass(
+            "DEFAULT_ICON_BUTTON", normal=normal, clicked=clicked
+        ),
+    })
+    svg = plasmastyle.build_tasks(theme)
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    focus_img = next(iter(by_id["focus-center"]))
+    normal_img = next(iter(by_id["normal-center"]))
+    # 24x24 art with 2/2 caps vs 16x16: the center widths differ.
+    assert focus_img.get("width") != normal_img.get("width")
+
+
+def test_tasks_group_expanders_from_all_four_arrows(tmp_path: Path) -> None:
+    png = _png(tmp_path, "iconbtn.png")
+    iclasses = {"DEFAULT_ICON_BUTTON": _iclass("DEFAULT_ICON_BUTTON", normal=png)}
+    iclasses.update(_arrow_iclasses(tmp_path))
+    theme = _theme(tmp_path, iclasses)
+    svg = plasmastyle.build_tasks(theme)
+    assert svg is not None
+    ids = _ids(svg)
+    for direction in ("left", "right", "top", "bottom"):
+        assert f"group-expander-{direction}" in ids
+
+
+def test_tasks_group_expanders_omitted_when_partial(tmp_path: Path) -> None:
+    png = _png(tmp_path, "iconbtn.png")
+    iclasses = {"DEFAULT_ICON_BUTTON": _iclass("DEFAULT_ICON_BUTTON", normal=png)}
+    arrows = _arrow_iclasses(tmp_path)
+    del arrows["ICONBOX_ARROW_LEFT"]
+    iclasses.update(arrows)
+    theme = _theme(tmp_path, iclasses)
+    svg = plasmastyle.build_tasks(theme)
+    assert svg is not None
+    assert not any(i.startswith("group-expander-") for i in _ids(svg))
+    assert any("group expanders" in n for n in theme.notes)
+
+
+def test_tasks_skipped_without_iconbox_button_art(tmp_path: Path) -> None:
+    theme = _theme(tmp_path, {})
+    assert plasmastyle.build_tasks(theme) is None
+
+
+def test_tasks_falls_back_to_dock_button(tmp_path: Path) -> None:
+    png = _png(tmp_path, "dock.png")
+    theme = _theme(tmp_path, {
+        "DEFAULT_DOCK_BUTTON": _iclass("DEFAULT_DOCK_BUTTON", normal=png),
+    })
+    svg = plasmastyle.build_tasks(theme)
+    assert svg is not None
+    assert any(
+        "task frames from iclass DEFAULT_DOCK_BUTTON" in n for n in theme.notes
+    )
 
 
 # ------------------------------------------------------------------ #
@@ -1030,16 +1343,13 @@ def test_write_layout_and_mirrors(tmp_path: Path) -> None:
     assert "saturation=1.5" in plasmarc
     assert "enabled=false" not in plasmarc
 
-    # Byte-identical mirrors for everything EXCEPT the panel, whose
-    # solid/opaque variants are re-rendered opaque.
+    # _rich_theme's dragbar art passes the panel guards, so the panel is
+    # opaque art and EVERY shipped file mirrors byte-identically (only a
+    # tint panel gets the opaque re-render — see test_write_panel_variants).
     for rel in style.shipped:
         original = (out / rel).read_bytes()
         for variant in ("solid", "opaque"):
-            mirrored = (out / variant / rel).read_bytes()
-            if rel == plasmastyle.PANEL_SVG:
-                assert mirrored != original
-            else:
-                assert mirrored == original
+            assert (out / variant / rel).read_bytes() == original
 
     colors = (out / "colors").read_text()
     assert "[Colors:Window]" in colors
@@ -1047,9 +1357,10 @@ def test_write_layout_and_mirrors(tmp_path: Path) -> None:
 
 
 def test_write_panel_variants(tmp_path: Path) -> None:
-    """Base panel is translucent; solid/ and opaque/ are genuinely opaque
-    (AdaptiveTransparency swaps to solid/ when a window touches the panel)."""
-    theme = _rich_theme(tmp_path)
+    """A TINT panel's base is translucent; solid/ and opaque/ are genuinely
+    opaque (AdaptiveTransparency swaps to solid/ when a window touches the
+    panel). Artless theme -> the scheme-tint panel exercises this path."""
+    theme = _theme(tmp_path, {})
     out = tmp_path / "out" / "themey_TestStyle"
     plasmastyle.write(theme, out)
     def center_style(path: Path) -> str:

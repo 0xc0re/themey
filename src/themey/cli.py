@@ -274,6 +274,17 @@ def render_cmd(
         Path | None,
         typer.Option("-o", "--out", dir_okay=False, help="Output PNG path"),
     ] = None,
+    target: Annotated[
+        str,
+        typer.Option(
+            "--target",
+            help=(
+                "'deco' (default: window decoration via a kdialog client) or "
+                "'style' (the Plasma Style's FrameSvg sets — panel/popup/"
+                "tooltip/tasks — via a plasmoidviewer probe applet)"
+            ),
+        ),
+    ] = "deco",
     plugin: Annotated[
         str,
         typer.Option(
@@ -323,15 +334,24 @@ def render_cmd(
 
     log.setup_logging(verbose=verbose, quiet=False)
     try:
-        png = render.render(
-            theme,
-            out=out,
-            plugin=plugin,
-            border_size=border_size,
-            maximized=maximized,
-            scale=scale,
-            upscale=upscale,
-        )
+        if target == "style":
+            png = render.render_style(
+                theme, out=out, scale=scale, upscale=upscale
+            )
+        elif target == "deco":
+            png = render.render(
+                theme,
+                out=out,
+                plugin=plugin,
+                border_size=border_size,
+                maximized=maximized,
+                scale=scale,
+                upscale=upscale,
+            )
+        else:
+            raise render.RenderError(
+                f"unknown --target {target!r}; expected 'deco' or 'style'"
+            )
     except render.RenderError as exc:
         logging.getLogger(__name__).error("render failed: %s", exc)
         raise typer.Exit(code=1) from exc

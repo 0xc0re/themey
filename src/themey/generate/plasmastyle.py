@@ -13,17 +13,24 @@ inside a ``Plasma/Theme`` KPackage under
 * Every shipped SVG is mirrored **byte-identically** into ``solid/`` and
   ``opaque/``: ``Panel.qml`` loads ``solid/widgets/panel-background`` for
   opaque panels, and a missing ``solid/`` copy would fall back to
-  *Breeze's* solid art next to our chrome. The ONE exception is the panel
-  background itself: the base rendition is a translucent flat tint
+  *Breeze's* solid art next to our chrome. The ONE exception is the TINT
+  rendition of the panel background: that base is a translucent flat tint
   (``PANEL_ALPHA``), so its ``solid/``/``opaque/`` mirrors are re-rendered
   at alpha 1 — AdaptiveTransparency swaps to ``solid/`` when a window
-  touches the panel, and that variant must be genuinely opaque.
-* The panel background is NOT sourced from E16 art: dragbar/iconbox art
-  carries baked-in wordmarks ("ENLIGHTENMENT", theme logos) exactly in the
-  cap regions, which stretched across a 40 px Plasma panel makes every
-  widget unreadable (verified live 2026-08-31). Instead the panel is a
-  flat translucent tint of the art's dominant color (scheme fallback),
-  letting the wallpaper show through — see :func:`build_panel_background`.
+  touches the panel, and that variant must be genuinely opaque. An art
+  panel is opaque E16 art and mirrors byte-identically like everything
+  else.
+* The panel background ships real dragbar/iconbox art when a candidate
+  passes two guards (:func:`_panel_art_guard`): not shaped, and cap sums ≤
+  ``PANEL_MAX_REF_CAPS`` per axis. The guards exist because E16 authors
+  baked wordmarks ("ENLIGHTENMENT", theme logos) into the CAP regions —
+  stretched across a 40 px Plasma panel they make every widget unreadable
+  (verified live 2026-08-31) — so wordmark-sized caps fall through to the
+  next candidate and ultimately to a flat translucent tint of the art's
+  dominant color (scheme fallback), letting the wallpaper show through.
+  The art panel's middle is TILED (``hint-tile-center``, this file ONLY —
+  Breeze's own panel-background ships the same hint); a vertical bar
+  iclass adds ``west-``/``east-`` sets for the left-edge furniture panels.
 * 9-part sets use FrameSvg's element names (``topleft`` … ``bottomright``,
   optionally ``<prefix>-``-prefixed); zero-extent slices are simply not
   emitted (FrameSvg then reports a 0 border, which is correct — the Aliens
@@ -32,7 +39,8 @@ inside a ``Plasma/Theme`` KPackage under
   ``<prefix>center`` and paints NOTHING for a center-less set, so caps
   that consume the whole image are shaved one px to keep a real center
   (:func:`_frame_group`).
-  ``hint-tile-center`` is NEVER emitted — E16 stretches middles, and that
+  ``hint-tile-center`` is emitted ONLY in the panel background (E16 tiles
+  bar troughs); everywhere else E16 stretches middles, and that
   hint would switch FrameSvg to tiling. The same E16 rule covers borders:
   FrameSvg tiles border elements by DEFAULT, so every file containing a
   sliced-art frame set carries one unprefixed ``hint-stretch-borders``
@@ -152,6 +160,7 @@ _PANEL_EDGE, _PANEL_CENTER = 4, 24
 #: Relative SVG paths (also the ``shipped`` vocabulary and the mirror set).
 PANEL_SVG = "widgets/panel-background.svg"
 PAGER_SVG = "widgets/pager.svg"
+TASKS_SVG = "widgets/tasks.svg"
 DIALOG_SVG = "dialogs/background.svg"
 TOOLTIP_SVG = "widgets/tooltip.svg"
 BUTTON_SVG = "widgets/button.svg"
@@ -265,10 +274,26 @@ def _iclass_with_art(theme: Theme, *names: str) -> IClassSpec | None:
     return None
 
 
+#: Candidate iclasses for the panel's art, horizontal/vertical, in order.
+_PANEL_ART_SOURCES: tuple[str, ...] = (
+    "DESKTOP_DRAGBUTTON_HORIZ", "ICONBOX_HORIZONTAL", "DEFAULT_DOCK_BUTTON",
+)
+_PANEL_VERT_SOURCES: tuple[str, ...] = (
+    "DESKTOP_DRAGBUTTON_VERT", "ICONBOX_VERTICAL",
+)
+
+#: Ref-px ceiling for the panel art's cap sum per axis. Caps become fixed
+#: FrameSvg borders, and themey's furniture panels are fit-content — a
+#: 133-px wordmark cap (Aliens' dragbar) would be a giant dead margin
+#: swallowing the whole iconbox. Census: Aliens dragbar 133+28 rejected →
+#: its ICONBOX_HORIZONTAL (4/4) accepted; e13 dragbar 60/60 (post-_fit_caps)
+#: rejected → iconbox trough (5/5); OPENSTEP DragBar 24+2 accepted (the
+#: NeXT cube stays pinned left, exactly its E16 look).
+PANEL_MAX_REF_CAPS = 32
+
+
 def _panel_source(theme: Theme) -> IClassSpec | None:
-    return _iclass_with_art(
-        theme, "DESKTOP_DRAGBUTTON_HORIZ", "ICONBOX_HORIZONTAL", "DEFAULT_DOCK_BUTTON"
-    )
+    return _iclass_with_art(theme, *_PANEL_ART_SOURCES)
 
 
 #: Fraction of sub-128-alpha pixels above which art counts as SHAPED —
@@ -314,6 +339,64 @@ def _dialog_source(theme: Theme) -> IClassSpec | None:
                 theme.notes.append(note)
             continue
         return spec
+    return None
+
+
+def _panel_art_guard(spec: IClassSpec) -> str | None:
+    """None when *spec*'s normal art may back the panel, else the reason.
+
+    Two guards (the ``_dialog_source`` idiom): shaped art
+    (``SHAPED_ART_MAX_TRANSPARENT`` — a 1-bit-masked bar over a rectangular
+    panel leaks wallpaper through its holes) and giant caps
+    (``PANEL_MAX_REF_CAPS`` — cap sums become fixed FrameSvg borders, i.e.
+    dead margins on fit-content panels; measured after ``_fit_caps`` so an
+    E16 overlapping-cap declaration is judged by what would render).
+    """
+    path = _state_image(spec, "normal")
+    if path is None:
+        return "no art"
+    try:
+        frac = _transparent_fraction(path)
+    except OSError:
+        return None  # unreadable art degrades later, in the builder
+    if frac > SHAPED_ART_MAX_TRANSPARENT:
+        return (
+            f"shaped ({frac:.0%} transparent — E16 cut the bar window to "
+            "its outline)"
+        )
+    w, h = _source_size(path)
+    edge = _fit_caps(spec.edge_scaling, w, h) or spec.edge_scaling
+    left, right, top, bottom = edge
+    if left + right > PANEL_MAX_REF_CAPS or top + bottom > PANEL_MAX_REF_CAPS:
+        return (
+            f"caps {left}+{right} h / {top}+{bottom} v ref px exceed "
+            f"{PANEL_MAX_REF_CAPS} (giant caps become dead FrameSvg margins "
+            "on fit-content panels)"
+        )
+    return None
+
+
+def _panel_art_source(
+    theme: Theme, names: tuple[str, ...] = _PANEL_ART_SOURCES
+) -> IClassSpec | None:
+    """First of *names* whose normal art passes :func:`_panel_art_guard`.
+
+    Every rejection appends one deduplicated ``plasmastyle:`` note (the
+    function is re-resolved by ``style_scheme`` and ``write``).
+    """
+    for name in names:
+        spec = theme.iclasses.get(name)
+        if spec is None or _state_image(spec, "normal") is None:
+            continue
+        reason = _panel_art_guard(spec)
+        if reason is None:
+            return spec
+        note = (
+            f"plasmastyle: {name} art rejected for the panel background: "
+            f"{reason}; trying the next source"
+        )
+        if note not in theme.notes:
+            theme.notes.append(note)
     return None
 
 
@@ -696,28 +779,258 @@ def _panel_svg(theme: Theme, alpha: float) -> ET.Element:
     return canvas.finish()
 
 
-def build_panel_background(theme: Theme) -> ET.Element:
-    """``widgets/panel-background.svg`` — a flat translucent tint.
+def _panel_margins(
+    canvas: _Canvas, prefix: str, spec: IClassSpec, scale: float
+) -> None:
+    """``__PADDING``-based margin hints, else the flat-panel default."""
+    if spec.padding != (0, 0, 0, 0):
+        _margin_hints(canvas, prefix, spec.padding, scale)
+    else:
+        m = PANEL_MARGIN_REF
+        _margin_hints(canvas, prefix, (m, m, m, m), scale)
 
-    Deliberately NOT the dragbar/iconbox art: E16 authors baked wordmarks
-    into exactly the cap regions ``_fit_caps`` preserves, and stretched
-    across a Plasma panel they bury every widget (module docstring). The
-    tint keeps the theme's color character while the wallpaper shows
-    through; never returns None — a colors-only theme still gets a
-    scheme-tinted panel.
+
+def _panel_art_svg(theme: Theme, src: IClassSpec) -> ET.Element:
+    """9-part panel set from real E16 bar art, middle TILED.
+
+    One unprefixed set serves every horizontal panel (``adjustPrefix``
+    falls back to unprefixed); a vertical bar iclass that passes the same
+    guards adds ``west-``/``east-`` sets so the left-edge pager/iconbox
+    furniture panels wear the vertical art (Panel.qml's ``[pre, ""]``
+    prefix list). ``hint-tile-center`` is emitted — E16 tiles bar troughs,
+    and the wordmark census shows logos live in the CAPS, which stay
+    pinned; ksvg's ``hasElement("hint-tile-center")`` applies the unprefixed
+    hint to every prefix in the file, verticals included.
     """
+    canvas = _Canvas()
+    _emit_set(theme, canvas, "", src, "normal")
+    _panel_margins(canvas, "", src, theme.scale)
+    vert = _panel_art_source(theme, _PANEL_VERT_SOURCES)
+    if vert is not None:
+        for prefix in ("west-", "east-"):
+            _emit_set(theme, canvas, prefix, vert, "normal")
+            _panel_margins(canvas, prefix, vert, theme.scale)
+    _emit_size_hint(canvas, "hint-tile-center", 1, 1)
+    theme.notes.append(
+        f"plasmastyle: panel background from iclass {src.name} art, middle "
+        "tiled (E16 tiles bar troughs; wordmark caps stay pinned)"
+        + (
+            f"; vertical panels from {vert.name}"
+            if vert is not None
+            else ""
+        )
+    )
+    return canvas.finish()
+
+
+def build_panel_background(theme: Theme) -> ET.Element:
+    """``widgets/panel-background.svg`` — real E16 bar art when it passes
+    the guards, else a flat translucent tint.
+
+    The art path (:func:`_panel_art_svg`) ships the dragbar/iconbox art
+    with a TILED middle; :func:`_panel_art_guard` rejects shaped art and
+    wordmark-sized caps (the failure mode that originally forced the flat
+    tint — a 133-px "ENLIGHTENMENT" cap stretched across a 40 px panel
+    buries every widget). The tint fallback keeps the theme's color
+    character while the wallpaper shows through; never returns None — a
+    colors-only theme still gets a scheme-tinted panel.
+    """
+    src = _panel_art_source(theme)
+    if src is not None:
+        try:
+            return _panel_art_svg(theme, src)
+        except (OSError, ValueError) as exc:
+            theme.notes.append(
+                f"plasmastyle: panel art from {src.name} unreadable "
+                f"({exc}); falling back to the flat tint"
+            )
     tint, source = _panel_tint(theme)
     svg = _panel_svg(theme, PANEL_ALPHA)
     theme.notes.append(
         f"plasmastyle: panel background is a translucent tint rgb{tint} "
-        f"(alpha {PANEL_ALPHA}) of {source} — E16 dragbar art carries "
-        "baked-in wordmarks that make panel widgets unreadable"
+        f"(alpha {PANEL_ALPHA}) of {source} — no E16 bar art passed the "
+        "shaped/cap guards"
     )
     return svg
 
 
+#: Menu frame piece iclasses: FrameSvg border element -> E16 iclass.
+_MENU_STRIP_NAMES: tuple[tuple[str, str], ...] = (
+    ("top", "MENU_T"),
+    ("bottom", "MENU_B"),
+    ("left", "MENU_L"),
+    ("right", "MENU_R"),
+)
+#: (corner element, iclass, adjacent horizontal strip, adjacent vertical
+#: strip). A corner paints at exactly (adjacent-left/right width x
+#: adjacent-top/bottom height) — FrameSvgHelpers::sectionRect (ksvg
+#: 6.24) sizes it from contentRect, never from the corner's own art.
+_MENU_CORNER_NAMES: tuple[tuple[str, str, str, str], ...] = (
+    ("topleft", "MENU_TL", "top", "left"),
+    ("topright", "MENU_TR", "top", "right"),
+    ("bottomleft", "MENU_BL", "bottom", "left"),
+    ("bottomright", "MENU_BR", "bottom", "right"),
+)
+
+#: Max per-dimension stretch factor between a corner piece and the strip
+#: thickness it will be painted at, before the piece is dropped. Aliens'
+#: MENU_TL is 23 px tall against a 6 px top strip — squashed 4x it is
+#: mush, worse than no corner.
+CORNER_DIM_TOLERANCE = 1.5
+
+
+def _emit_composite_frame(
+    theme: Theme, canvas: _Canvas, strips: dict[str, Path]
+) -> None:
+    """One unprefixed frame assembled from per-piece menu art.
+
+    *strips* maps ``top``/``bottom``/``left``/``right`` to their MENU_*
+    art; each is emitted WHOLE as that border element (FrameSvg has no
+    per-border 9-patch — the strip stretches along its axis, matching
+    E16's stretched middles; end caps a strip may carry stretch with it).
+    Corners ship only when both adjacent strips exist AND the corner's
+    dims are within ``CORNER_DIM_TOLERANCE`` of the strip thicknesses it
+    will be stretched to. The center is mandatory (a center-less set
+    paints NOTHING): the ``_dialog_source`` art when available, else a
+    flat rect in the top strip's dominant color.
+    """
+    sizes = {side: _source_size(p) for side, p in strips.items()}
+    top_h = sizes.get("top", (0, 0))[1]
+    bottom_h = sizes.get("bottom", (0, 0))[1]
+    left_w = sizes.get("left", (0, 0))[0]
+    right_w = sizes.get("right", (0, 0))[0]
+    scale = theme.scale
+    if scale > 1 and (
+        left_w + right_w > SURFACE_MAX_REF_CHROME
+        or top_h + bottom_h > SURFACE_MAX_REF_CHROME
+    ):
+        scale = 1.0
+        theme.notes.append(
+            "plasmastyle: menu frame strips dominate the surface; kept at "
+            "source scale (the SURFACE_MAX_REF_CHROME rule)"
+        )
+
+    loaded: dict[str, Image.Image] = {
+        side: _load_scaled(p, scale) for side, p in strips.items()
+    }
+    for corner, name, hstrip, vstrip in _MENU_CORNER_NAMES:
+        path = _state_image(theme.iclasses.get(name), "normal")
+        if path is None:
+            continue
+        if hstrip not in strips or vstrip not in strips:
+            theme.notes.append(
+                f"plasmastyle: {name} corner piece dropped (no adjacent "
+                f"{vstrip}/{hstrip} strip to size it against — FrameSvg "
+                "paints a corner at the adjacent border thicknesses)"
+            )
+            continue
+        cw, ch = _source_size(path)
+        want_w = sizes[vstrip][0]  # left/right strip width
+        want_h = sizes[hstrip][1]  # top/bottom strip height
+        if (
+            max(cw, want_w) > CORNER_DIM_TOLERANCE * min(cw, want_w)
+            or max(ch, want_h) > CORNER_DIM_TOLERANCE * min(ch, want_h)
+        ):
+            theme.notes.append(
+                f"plasmastyle: {name} corner piece dropped ({cw}x{ch} art "
+                f"would be stretched to the {want_w}x{want_h} border "
+                "thicknesses — FrameSvg ignores a corner's own size)"
+            )
+            continue
+        loaded[corner] = _load_scaled(path, scale)
+
+    center_src = _dialog_source(theme)
+    center_path = (
+        _state_image(center_src, "normal") if center_src is not None else None
+    )
+    center_img: Image.Image | None = None
+    if center_path is not None:
+        center_img = _load_scaled(center_path, scale)
+
+    for row in (
+        ("topleft", "top", "topright"),
+        ("left", "center", "right"),
+        ("bottomleft", "bottom", "bottomright"),
+    ):
+        items: list[tuple[str, Image.Image]] = []
+        for element in row:
+            if element == "center":
+                if center_img is not None:
+                    items.append(("center", center_img))
+                continue
+            img = loaded.get(element)
+            if img is not None:
+                items.append((element, img))
+        if items:
+            _emit_plain_row(canvas, items)
+    if center_img is None:
+        # Mandatory center: a flat rect in the top-most strip's dominant.
+        first = next(iter(strips.values()))
+        rgb = extract_dominant(first) or (128, 128, 128)
+        ET.SubElement(
+            canvas.root,
+            f"{{{SVG_NS}}}rect",
+            {
+                "id": "center",
+                "x": "0",
+                "y": str(canvas.y),
+                "width": "16",
+                "height": "16",
+                "style": f"fill:{_hex(rgb)}",
+            },
+        )
+        canvas.advance(16, 16)
+    canvas.stretch_borders = True
+
+
 def build_dialog_background(theme: Theme) -> ET.Element | None:
-    """``dialogs/background.svg`` (applet popups, Kickoff, calendar)."""
+    """``dialogs/background.svg`` (applet popups, Kickoff, calendar).
+
+    When the theme authors per-piece menu frame art (``MENU_T``/``B``/
+    ``L``/``R``, Aliens), the popup frame is composed from those pieces
+    around the ``_dialog_source`` center — richer than stretching one
+    background image. Otherwise the classic single 9-part set from
+    ``MENU_BG``→``DIALOG``. ``MENU_SUB`` (no Plasma submenu element) and
+    ``MENU_TITLE_BAR`` (dresses E16's ROOT menu title only) are recorded
+    as skips.
+    """
+    for name, why in (
+        ("MENU_SUB", "Plasma has no submenu background element"),
+        ("MENU_TITLE_BAR", "it dresses E16's ROOT menu title bar only"),
+    ):
+        spec = theme.iclasses.get(name)
+        if spec is not None and _state_image(spec, "normal") is not None:
+            theme.notes.append(
+                f"plasmastyle: {name} art has no Plasma target ({why}); "
+                "skipped"
+            )
+
+    strips: dict[str, Path] = {}
+    for side, name in _MENU_STRIP_NAMES:
+        path = _state_image(theme.iclasses.get(name), "normal")
+        if path is not None:
+            strips[side] = path
+    if strips:
+        canvas = _Canvas()
+        _emit_composite_frame(theme, canvas, strips)
+        piece_names = ", ".join(
+            name for _, name in _MENU_STRIP_NAMES
+            if _state_image(theme.iclasses.get(name), "normal") is not None
+        )
+        center_src = _dialog_source(theme)
+        theme.notes.append(
+            "plasmastyle: popup/dialog frame composed from menu frame "
+            f"pieces {piece_names}"
+            + (
+                f" around a {center_src.name} center"
+                if center_src is not None
+                else " around a flat center (no unshaped background art)"
+            )
+            + "; no shadow set is shipped, so popups render shadowless "
+            "(E16 drew none)"
+        )
+        return canvas.finish()
+
     src = _dialog_source(theme)
     if src is None:
         return None
@@ -941,6 +1254,72 @@ def build_pager(theme: Theme) -> ET.Element | None:
         + (f" (normal desks from {bg.name})" if bg is not None else "")
         + "; cells carry no desktop preview — Plasma's pager cannot show "
         "live desktops, and a baked wallpaper mini would go stale"
+    )
+    return canvas.finish()
+
+
+#: (element direction, ICONBOX arrow iclass) for the task-group expanders.
+_EXPANDER_SOURCES: tuple[tuple[str, str], ...] = (
+    ("left", "ICONBOX_ARROW_LEFT"),
+    ("right", "ICONBOX_ARROW_RIGHT"),
+    ("top", "ICONBOX_ARROW_UP"),
+    ("bottom", "ICONBOX_ARROW_DOWN"),
+)
+
+
+def build_tasks(theme: Theme) -> ET.Element | None:
+    """``widgets/tasks.svg`` — task-manager frames from the iconbox button.
+
+    themey's own apply creates the iconbox panel with an icons-only task
+    manager, so these frames land exactly where E16's iconbox buttons
+    lived. The taskmanager plasmoid (icontasks shares its Task.qml) reads
+    prefixes ``normal``/``minimized``/``hover``/``focus``/``attention``/
+    ``progress`` plus the unprefixed launcher set; ALL of them ship
+    (per-FILE fallback — a partial set paints nothing for missing
+    prefixes). ``focus-`` wears the CLICKED chain — E16's active iconbox
+    button is the depressed one; ``attention-``/``progress-`` approximate
+    with the hilited chain (E16 has no such states — noted).
+    ``group-expander-*`` come from the four ``ICONBOX_ARROW_*`` when all
+    exist (the ``build_arrows`` census), else they are omitted with a
+    note.
+    """
+    src = _iclass_with_art(theme, "DEFAULT_ICON_BUTTON", "DEFAULT_DOCK_BUTTON")
+    if src is None:
+        return None
+    canvas = _Canvas()
+    for prefix, state in (
+        ("normal-", "normal"),
+        ("minimized-", "normal"),
+        ("", "normal"),  # launcher frame
+        ("hover-", "hover"),
+        ("attention-", "hover"),
+        ("progress-", "hover"),
+        ("focus-", "pressed"),
+    ):
+        _emit_set(theme, canvas, prefix, src, state, hints=True)
+
+    expanders: list[tuple[str, Path]] = []
+    for direction, name in _EXPANDER_SOURCES:
+        path = _state_image(theme.iclasses.get(name), "normal")
+        if path is None:
+            expanders = []
+            break
+        expanders.append((f"group-expander-{direction}", path))
+    if expanders:
+        _emit_plain_row(
+            canvas,
+            [(el, _load_scaled(p, theme.scale)) for el, p in expanders],
+        )
+    else:
+        theme.notes.append(
+            "plasmastyle: not all four ICONBOX_ARROW_* have art; task "
+            "group expanders left to the Breeze fallback"
+        )
+    theme.notes.append(
+        f"plasmastyle: task frames from iclass {src.name} (E16 iconbox "
+        "button; focus wears the clicked art — the active task shows the "
+        "depressed button; attention/progress approximate with the "
+        "hilited art)"
     )
     return canvas.finish()
 
@@ -1252,6 +1631,7 @@ _BUILDERS: tuple[tuple[str, Callable[[Theme], ET.Element | None]], ...] = (
     (LINE_SVG, build_line),
     (FRAME_SVG, build_frame),
     (PAGER_SVG, build_pager),
+    (TASKS_SVG, build_tasks),
 )
 
 
@@ -1346,10 +1726,17 @@ def style_scheme(theme: Theme, *, shipped: frozenset[str]) -> ColorScheme:
     """
     scheme = theme.scheme if theme.scheme is not None else default_scheme()
 
-    # The panel is a flat tint, so the color actually painted IS the tint —
-    # not the raw art's dominant (they agree when art exists, but the tint
-    # falls back to the scheme for colors-only themes).
-    panel_bg: RGB | None = _panel_tint(theme)[0] if PANEL_SVG in shipped else None
+    # The color actually painted on the panel: the CHOSEN art's dominant
+    # when the panel ships real art (_panel_art_source — may differ from
+    # _panel_tint's unguarded first-with-art pick), else the flat tint.
+    panel_bg: RGB | None = None
+    if PANEL_SVG in shipped:
+        art = _panel_art_source(theme)
+        art_path = _state_image(art, "normal") if art is not None else None
+        if art_path is not None:
+            panel_bg = extract_dominant(art_path)
+        if panel_bg is None:
+            panel_bg = _panel_tint(theme)[0]
 
     # Colors:Window — panel + popup text share this group.
     dialog_src = _dialog_source(theme) if DIALOG_SVG in shipped else None
@@ -1509,6 +1896,7 @@ def write(theme: Theme, out_dir: Path) -> PlasmaStyle:
         write_desktop(out_dir / "plasmarc", _PACKAGE_PLASMARC)
 
         shipped: list[str] = []
+        panel_is_tint = False
         for rel, builder in _BUILDERS:
             try:
                 svg = builder(theme)
@@ -1517,6 +1905,12 @@ def write(theme: Theme, out_dir: Path) -> PlasmaStyle:
                 continue
             if svg is None:
                 continue
+            if rel == PANEL_SVG:
+                # The tint rendition carries no embedded art; only it needs
+                # the opaque re-render below (art panels are already opaque).
+                panel_is_tint = not any(
+                    el.tag.endswith("image") for el in svg.iter()
+                )
             out = out_dir / rel
             out.parent.mkdir(parents=True, exist_ok=True)
             ET.ElementTree(svg).write(out, xml_declaration=True, encoding="utf-8")
@@ -1525,15 +1919,16 @@ def write(theme: Theme, out_dir: Path) -> PlasmaStyle:
         # Byte-identical mirrors: Panel.qml loads solid/ for opaque panels
         # (and opaque/ exists as the same contract for other consumers); a
         # missing mirror would fall back to Breeze's art there. The ONE
-        # exception: the panel's base rendition is translucent, so its
+        # exception: a TINT panel's base rendition is translucent, so its
         # mirrors are re-rendered at alpha 1 — AdaptiveTransparency swaps
         # to solid/ when a window touches the panel, and that variant must
-        # be genuinely opaque.
+        # be genuinely opaque. An art panel is opaque already and mirrors
+        # byte-identically like everything else.
         for rel in shipped:
             for variant in ("solid", "opaque"):
                 dst = out_dir / variant / rel
                 dst.parent.mkdir(parents=True, exist_ok=True)
-                if rel == PANEL_SVG:
+                if rel == PANEL_SVG and panel_is_tint:
                     ET.ElementTree(_panel_svg(theme, 1.0)).write(
                         dst, xml_declaration=True, encoding="utf-8"
                     )

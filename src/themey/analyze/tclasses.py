@@ -13,8 +13,9 @@ as an inline value (one value).
 """
 from __future__ import annotations
 
+from themey.analyze.buttons import title_part
 from themey.etheme.ast import Block, KeyVal
-from themey.ir import TClassSpec
+from themey.ir import BorderSpec, TClassSpec
 
 
 def _to_int(v: object) -> int:
@@ -36,6 +37,26 @@ def _block_name(block: Block) -> str | None:
         if isinstance(child, KeyVal) and child.keyword == "__NAME" and child.values:
             return str(child.values[0])
     return None
+
+
+def title_tclass(
+    border: BorderSpec,
+    tclasses: dict[str, TClassSpec],
+) -> TClassSpec | None:
+    """The tclass that styles this border's title text.
+
+    The title part's declared ``__TCLASS`` wins when it names a known tclass
+    (OPENSTEP: ``__TCLASS TITLEBAR_TEXT``); the conventional ``TEXT1`` is the
+    fallback. Hardcoding ``TEXT1`` silently dropped OPENSTEP's title colors —
+    ``qmldeco/theme_js.py`` always resolved the declared name; this helper
+    gives the other consumers the same behavior.
+    """
+    tp = title_part(border.parts)
+    if tp is not None and tp.tclass_name:
+        spec = tclasses.get(tp.tclass_name)
+        if spec is not None:
+            return spec
+    return tclasses.get("TEXT1")
 
 
 FG_COLOR_KEYS: tuple[str, ...] = (

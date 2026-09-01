@@ -63,6 +63,30 @@ def test_render_aliens_headless(tmp_path):
     assert differing / len(px) > 0.05
 
 
+def _style_tools_available() -> bool:
+    import shutil
+
+    return all(shutil.which(t) for t in render.REQUIRED_STYLE_TOOLS)
+
+
+@pytest.mark.skipif(
+    not _style_tools_available(),
+    reason="style target needs kwin_wayland+spectacle+plasmoidviewer",
+)
+def test_render_style_aliens_headless(tmp_path):
+    out = tmp_path / "aliens-style.png"
+    png = render.render_style(str(FIXTURES / "Aliens.etheme"), out=out)
+    assert png == out and png.is_file()
+    assert png.stat().st_size > 5_000
+    with Image.open(png) as im:
+        assert im.size == (render.SCREEN_W, render.SCREEN_H)
+
+
+def test_resolve_style_dir_unknown(tmp_path, fake_home):
+    with pytest.raises(render.RenderError):
+        render.resolve_style_dir("definitely-not-installed", scale=2, work=tmp_path)
+
+
 def test_recommended_border_size_brackets():
     assert render.recommended_border_size(2, 2, 4) == "Tiny"
     assert render.recommended_border_size(6, 6, 5) == "Normal"

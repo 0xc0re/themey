@@ -30,6 +30,7 @@ ALIENS_EXPECTED_SVGS = {
     plasmastyle.SLIDER_SVG,
     plasmastyle.LINE_SVG,
     plasmastyle.FRAME_SVG,
+    plasmastyle.TASKS_SVG,  # DEFAULT_ICON_BUTTON / DEFAULT_DOCK_BUTTON art
 }
 
 
@@ -50,17 +51,17 @@ def test_output_dir_mode_writes_style_under_desktoptheme(fake_home, tmp_path):
         if p.relative_to(style_dir).parts[0] not in ("solid", "opaque")
     }
     assert shipped == ALIENS_EXPECTED_SVGS
-    # Mirrors: every shipped SVG is byte-identical under solid/ + opaque/
-    # EXCEPT the panel, whose variants are re-rendered opaque.
+    # Mirrors: every shipped SVG is byte-identical under solid/ + opaque/.
+    # Aliens' panel is real art (its ICONBOX_HORIZONTAL passes the guards
+    # after the wordmark-capped dragbar is rejected), so even the panel
+    # mirrors byte-identically; only a tint panel gets re-rendered opaque.
     for rel in shipped:
         original = (style_dir / rel).read_bytes()
         for variant in ("solid", "opaque"):
             mirrored = (style_dir / variant / rel).read_bytes()
             if rel == plasmastyle.PANEL_SVG:
-                assert b"opacity:0.85" in original
-                assert b"opacity:0.85" not in mirrored
-            else:
-                assert mirrored == original
+                assert b"<image" in original  # art, not tint
+            assert mirrored == original
 
 
 def test_output_dir_defaults_reference_the_style(fake_home, tmp_path):

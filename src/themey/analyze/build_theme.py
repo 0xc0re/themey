@@ -265,7 +265,9 @@ def build_theme(
     # (pipeline.py threads it back in); no separate note needed here.
     # ------------------------------------------------------------------
     wallpaper_specs = extract_wallpaper_specs(asset_root, notes)
-    wallpapers = tuple(spec.path for spec in wallpaper_specs)
+    wallpapers = tuple(
+        spec.path for spec in wallpaper_specs if spec.path is not None
+    )
 
     # ------------------------------------------------------------------
     # 6. Colors — sample the whole KDE scheme from the border art, then

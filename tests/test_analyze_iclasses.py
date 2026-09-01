@@ -36,6 +36,19 @@ def test_build_iclass_edge_scaling_lrtb(tmp_path: Path) -> None:
     assert typed["X"].edge_scaling == (1, 2, 3, 4)
 
 
+def test_build_iclass_normal_active_hilited_parsed(tmp_path: Path) -> None:
+    """__NORMAL_ACTIVE_HILITED lands on the typed spec AND in the raw map
+    (previously a silent drop — the keyword was not in ICLASS_STATE_KEYS)."""
+    block = _iclass_block(
+        "X",
+        _kv("__NORMAL", "n.png"),
+        _kv("__NORMAL_ACTIVE_HILITED", "nah.png"),
+    )
+    typed, raw = build_iclasses([block], tmp_path)
+    assert typed["X"].normal_active_hilited == (tmp_path / "nah.png").resolve()
+    assert raw["X"]["__NORMAL_ACTIVE_HILITED"] == (tmp_path / "nah.png").resolve()
+
+
 def test_build_iclass_edge_scaling_default_zero(tmp_path: Path) -> None:
     """Iclass without __EDGE_SCALING defaults to (0, 0, 0, 0)."""
     block = _iclass_block("X")

@@ -1,8 +1,9 @@
 """Unit tests for themey.analyze.tclasses — AST __TCLASS block extraction."""
 from __future__ import annotations
 
-from themey.analyze.tclasses import FG_COLOR_KEYS, build_tclasses
+from themey.analyze.tclasses import FG_COLOR_KEYS, build_tclasses, title_tclass
 from themey.etheme.ast import Block, KeyVal
+from themey.ir import BorderSpec, ButtonPart, TClassSpec
 
 # ---------------------------------------------------------------------------
 # Helpers: synthetic AST factories
@@ -207,3 +208,64 @@ def test_tclass_defaults_to_none_when_absent() -> None:
     assert tc.alignment is None
     assert tc.effect is None
     assert tc.effect_color is None
+
+
+# ---------------------------------------------------------------------------
+# title_tclass — the title part's declared __TCLASS wins over the TEXT1
+# convention (OPENSTEP declares __TCLASS TITLEBAR_TEXT and has no TEXT1)
+# ---------------------------------------------------------------------------
+
+
+def _title_border(tclass_name: str | None) -> BorderSpec:
+    part = ButtonPart(
+        iclass_name="TITLEBAR",
+        aclass=None,
+        tl_x_pct=0,
+        tl_x_abs=0,
+        tl_y_pct=0,
+        tl_y_abs=0,
+        br_x_pct=1024,
+        br_x_abs=0,
+        br_y_pct=0,
+        br_y_abs=18,
+        flags=("__FLAG_TITLE",),
+        tclass_name=tclass_name,
+    )
+    return BorderSpec(
+        name="DEFAULT",
+        border_size_left=4,
+        border_size_right=4,
+        border_size_top=18,
+        border_size_bottom=4,
+        parts=(part,),
+    )
+
+
+def _spec(name: str) -> TClassSpec:
+    return TClassSpec(name=name, fg_normal=(1, 1, 1), fg_active=(2, 2, 2))
+
+
+def test_title_tclass_declared_name_wins() -> None:
+
+    tclasses = {"TEXT1": _spec("TEXT1"), "TITLEBAR_TEXT": _spec("TITLEBAR_TEXT")}
+    result = title_tclass(_title_border("TITLEBAR_TEXT"), tclasses)
+    assert result is not None
+    assert result.name == "TITLEBAR_TEXT"
+
+
+def test_title_tclass_falls_back_to_text1() -> None:
+
+    tclasses = {"TEXT1": _spec("TEXT1")}
+    # No declared __TCLASS on the title part
+    result = title_tclass(_title_border(None), tclasses)
+    assert result is not None
+    assert result.name == "TEXT1"
+    # Declared name not present in tclasses -> TEXT1 fallback too
+    result = title_tclass(_title_border("MISSING"), tclasses)
+    assert result is not None
+    assert result.name == "TEXT1"
+
+
+def test_title_tclass_none_when_nothing_matches() -> None:
+
+    assert title_tclass(_title_border("MISSING"), {}) is None

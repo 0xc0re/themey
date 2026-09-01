@@ -33,6 +33,7 @@ from typing import cast
 from PIL import Image
 
 from themey.analyze.buttons import title_part
+from themey.analyze.tclasses import title_tclass
 from themey.generate.composite import (
     BUTTON_CODE_TO_RC_SUFFIX,
     REFERENCE_H,
@@ -356,11 +357,12 @@ def write_aurorae_rc(theme: Theme, out_dir: Path) -> Path:
         if note not in theme.notes:
             theme.notes.append(note)
 
-    # Map TEXT1's __JUSTIFICATION / __DRAWING_EFFECT into Aurorae values
-    # where the theme expresses an opinion. The text-shadow keys are read
-    # by the v1 plugin (org.kde.kwin.aurorae, themeconfig.cpp) and ignored
-    # by v2 — harmless there, faithful on v1.
-    text1 = theme.tclasses.get("TEXT1")
+    # Map the title tclass's __JUSTIFICATION / __DRAWING_EFFECT into Aurorae
+    # values where the theme expresses an opinion (the title part's declared
+    # __TCLASS, TEXT1 as fallback). The text-shadow keys are read by the v1
+    # plugin (org.kde.kwin.aurorae, themeconfig.cpp) and ignored by v2 —
+    # harmless there, faithful on v1.
+    text1 = title_tclass(theme.border, theme.tclasses)
     title_alignment = "Center"
     use_text_shadow = "true"
     active_shadow_color = "0,0,0,255"

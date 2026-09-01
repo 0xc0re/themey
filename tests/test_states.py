@@ -23,7 +23,13 @@ def test_decoration_inactive_chain() -> None:
 
 
 def test_button_hover_chain() -> None:
-    assert BUTTON_STATE_MAP["button-hover"] == ["__HILITED_ACTIVE", "__HILITED"]
+    """__NORMAL_ACTIVE_HILITED (E16 hover-of-active alias) sits between the
+    canonical hover states — e13 declares it 22x alongside __HILITED_ACTIVE."""
+    assert BUTTON_STATE_MAP["button-hover"] == [
+        "__HILITED_ACTIVE",
+        "__NORMAL_ACTIVE_HILITED",
+        "__HILITED",
+    ]
 
 
 def test_button_pressed_chain() -> None:
@@ -94,3 +100,53 @@ def test_collapse_inactive_does_not_use_active() -> None:
     notes: list[str] = []
     result = collapse_image_states(state_dict, "decoration-inactive", notes, "X")
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# __NORMAL_ACTIVE_HILITED — hover-of-active alias (e13 uses it 22x)
+# ---------------------------------------------------------------------------
+
+
+def test_collapse_hover_uses_normal_active_hilited_when_hilited_active_absent() -> None:
+    state_dict = {
+        "__NORMAL": Path("n.png"),
+        "__NORMAL_ACTIVE_HILITED": Path("nah.png"),
+    }
+    notes: list[str] = []
+    result = collapse_image_states(state_dict, "button-hover", notes, "X")
+    assert result == Path("nah.png")
+
+
+def test_collapse_hover_hilited_active_still_wins() -> None:
+    """When both are declared, __HILITED_ACTIVE stays first in the chain."""
+    state_dict = {
+        "__HILITED_ACTIVE": Path("ha.png"),
+        "__NORMAL_ACTIVE_HILITED": Path("nah.png"),
+    }
+    notes: list[str] = []
+    result = collapse_image_states(state_dict, "button-hover", notes, "X")
+    assert result == Path("ha.png")
+
+
+def test_shadowed_normal_active_hilited_different_art_noted() -> None:
+    """Both declared with DIFFERENT art -> one shadowed-state note."""
+    state_dict = {
+        "__HILITED_ACTIVE": Path("ha.png"),
+        "__NORMAL_ACTIVE_HILITED": Path("nah.png"),
+    }
+    notes: list[str] = []
+    collapse_image_states(state_dict, "button-hover", notes, "BTN")
+    combined = " ".join(notes)
+    assert "__NORMAL_ACTIVE_HILITED" in combined
+    assert "BTN" in combined
+
+
+def test_shadowed_normal_active_hilited_identical_art_silent() -> None:
+    """e13's pattern: identical art in both states -> no false-alarm note."""
+    state_dict = {
+        "__HILITED_ACTIVE": Path("same.png"),
+        "__NORMAL_ACTIVE_HILITED": Path("same.png"),
+    }
+    notes: list[str] = []
+    collapse_image_states(state_dict, "button-hover", notes, "BTN")
+    assert notes == []

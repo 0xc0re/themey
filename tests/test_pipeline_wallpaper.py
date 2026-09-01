@@ -36,9 +36,20 @@ def test_pipeline_wallpaper_metadata_has_fill_mode_and_id(fake_home):
 
 
 def test_pipeline_theme_with_no_wallpapers_installs_none(fake_home):
-    result = convert(FIXTURES / "OPENSTEP.etheme", scale=2, backend="svg")
+    # tiny.etheme has no desktops.cfg backgrounds at all. (OPENSTEP now
+    # yields a solid-only wallpaper from its SET_SOLID.)
+    result = convert(FIXTURES / "tiny.etheme", scale=2, backend="svg")
     assert result.wallpaper_dirs == ()
     assert not (fake_home / ".local/share/wallpapers").exists()
+
+
+def test_pipeline_openstep_solid_wallpaper_installed(fake_home):
+    """OPENSTEP's SET_SOLID("200 200 200") becomes its one (default)
+    wallpaper package instead of zero-wallpaper output."""
+    result = convert(FIXTURES / "OPENSTEP.etheme", scale=2, backend="svg")
+    assert len(result.wallpaper_dirs) == 1
+    meta = json.loads((result.wallpaper_dirs[0] / "metadata.json").read_text())
+    assert meta["X-Themey-FillMode"] == "scaled"
 
 
 def test_pipeline_output_dir_mode_writes_wallpaper_packages(tmp_path, fake_home):
@@ -59,7 +70,7 @@ def test_pipeline_report_mentions_wallpaper_packages(fake_home):
 
 
 def test_pipeline_report_no_wallpapers_case(fake_home):
-    result = convert(FIXTURES / "OPENSTEP.etheme", scale=2, backend="svg")
+    result = convert(FIXTURES / "tiny.etheme", scale=2, backend="svg")
     text = result.report_path.read_text()
     assert "no background images found" in text
 
