@@ -655,6 +655,250 @@ def test_stretch_borders_hint_absent_without_art_frames(tmp_path: Path) -> None:
 
 
 # ------------------------------------------------------------------ #
+# Dialog widgets — checkmarks / radiobutton / slider / line / frame
+# ------------------------------------------------------------------ #
+
+
+def test_checkmarks_checked_uses_normal_active_art(tmp_path: Path) -> None:
+    """__NORMAL_ACTIVE means CHECKED in E16 dialog widgets — the checkbox
+    mark must come from the _active art, and a theme with only unchecked
+    art gets NO checkmarks file (never an unchecked-art mark)."""
+    unchecked = _png(tmp_path, "w0.png", size=(10, 10), color=(20, 20, 20, 255))
+    checked = _png(tmp_path, "w1.png", size=(10, 10), color=(220, 220, 40, 255))
+    theme = _theme(tmp_path, {
+        "DIALOG_WIDGET_CHECK_BUTTON": _iclass(
+            "DIALOG_WIDGET_CHECK_BUTTON", normal=unchecked, normal_active=checked
+        ),
+    })
+    svg = plasmastyle.build_checkmarks(theme)
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    checked_href = next(iter(by_id["checkbox"])).get(XLINK)
+
+    # Build a normal-art-only variant: the hrefs must differ, and the
+    # builder must return None instead of falling back to unchecked art.
+    theme_unchecked_only = _theme(tmp_path, {
+        "DIALOG_WIDGET_CHECK_BUTTON": _iclass(
+            "DIALOG_WIDGET_CHECK_BUTTON", normal=unchecked
+        ),
+    })
+    assert plasmastyle.build_checkmarks(theme_unchecked_only) is None
+    assert any("no checked" in n for n in theme_unchecked_only.notes)
+
+    theme_checked_as_normal = _theme(tmp_path, {
+        "DIALOG_WIDGET_CHECK_BUTTON": _iclass(
+            "DIALOG_WIDGET_CHECK_BUTTON", normal=unchecked, normal_active=unchecked
+        ),
+    })
+    svg2 = plasmastyle.build_checkmarks(theme_checked_as_normal)
+    assert svg2 is not None
+    by_id2 = {e.get("id"): e for e in svg2.iter() if e.get("id")}
+    assert checked_href != next(iter(by_id2["checkbox"])).get(XLINK)
+
+
+def test_checkmarks_radiobutton_falls_back_to_check_art(tmp_path: Path) -> None:
+    checked = _png(tmp_path, "w1.png", size=(10, 10))
+    theme = _theme(tmp_path, {
+        "DIALOG_WIDGET_CHECK_BUTTON": _iclass(
+            "DIALOG_WIDGET_CHECK_BUTTON", normal_active=checked
+        ),
+    })
+    svg = plasmastyle.build_checkmarks(theme)
+    assert svg is not None
+    assert {"checkbox", "radiobutton"} <= _ids(svg)
+    assert any("radio mark reuses the check art" in n for n in theme.notes)
+
+
+def test_radiobutton_elements_hint_size_and_omissions(tmp_path: Path) -> None:
+    unchecked = _png(tmp_path, "w0.png", size=(10, 10))
+    checked = _png(tmp_path, "r1.png", size=(10, 10))
+    theme = _theme(tmp_path, {
+        "DIALOG_WIDGET_RADIO_BUTTON": _iclass(
+            "DIALOG_WIDGET_RADIO_BUTTON", normal=unchecked, normal_active=checked
+        ),
+    }, scale=2)
+    svg = plasmastyle.build_radiobutton(theme)
+    assert svg is not None
+    assert _ids(svg) == {"normal", "checked", "hint-size"}  # no hover w/o hilited
+    hint = next(e for e in svg.iter() if e.get("id") == "hint-size")
+    assert hint.get("width") == str(scale_px(10, 2))
+    assert hint.get("height") == str(scale_px(10, 2))
+
+    hover = _png(tmp_path, "w0h.png", size=(10, 10))
+    theme2 = _theme(tmp_path, {
+        "DIALOG_WIDGET_RADIO_BUTTON": _iclass(
+            "DIALOG_WIDGET_RADIO_BUTTON",
+            normal=unchecked, normal_active=checked, hilited=hover,
+        ),
+    }, scale=2)
+    svg2 = plasmastyle.build_radiobutton(theme2)
+    assert svg2 is not None
+    assert _ids(svg2) == {"normal", "checked", "hover", "hint-size"}
+
+
+def test_radiobutton_requires_both_states(tmp_path: Path) -> None:
+    unchecked = _png(tmp_path, "w0.png", size=(10, 10))
+    theme = _theme(tmp_path, {
+        "DIALOG_WIDGET_RADIO_BUTTON": _iclass(
+            "DIALOG_WIDGET_RADIO_BUTTON", normal=unchecked
+        ),
+    })
+    assert plasmastyle.build_radiobutton(theme) is None
+    assert any("widgets/radiobutton left to the Breeze" in n for n in theme.notes)
+    # Whole iclass absent → silent skip, no note.
+    theme2 = _theme(tmp_path, {})
+    assert plasmastyle.build_radiobutton(theme2) is None
+    assert not theme2.notes
+
+
+def test_slider_requires_base_and_knob(tmp_path: Path) -> None:
+    base = _png(tmp_path, "slh.png", size=(140, 10))
+    knob = _png(tmp_path, "sl1.png", size=(16, 16))
+    theme_base_only = _theme(tmp_path, {
+        "DIALOG_WIDGET_SLIDER_BASE_HORIZONTAL": _iclass(
+            "DIALOG_WIDGET_SLIDER_BASE_HORIZONTAL", edge=(4, 4, 1, 1), normal=base
+        ),
+    })
+    assert plasmastyle.build_slider(theme_base_only) is None
+    assert any("no knob art" in n for n in theme_base_only.notes)
+
+    theme_knob_only = _theme(tmp_path, {
+        "DIALOG_WIDGET_SLIDER_KNOB_HORIZONTAL": _iclass(
+            "DIALOG_WIDGET_SLIDER_KNOB_HORIZONTAL", normal=knob
+        ),
+    })
+    assert plasmastyle.build_slider(theme_knob_only) is None
+    assert any("no base art" in n for n in theme_knob_only.notes)
+
+
+def test_groove_caps_full_cross_section() -> None:
+    """Along-axis caps stay declared; cross-axis caps split the full
+    cross-section so the authored tube renders whole (Slider.qml sizes
+    the groove to exactly the fixed margins)."""
+    assert plasmastyle._groove_caps(
+        (4, 4, 1, 1), 140, 10, horizontal=True
+    ) == (4, 4, 5, 5)
+    assert plasmastyle._groove_caps(
+        (1, 1, 4, 4), 10, 140, horizontal=False
+    ) == (5, 5, 4, 4)
+    # Odd cross-section still sums exactly.
+    assert plasmastyle._groove_caps(
+        (4, 4, 1, 1), 140, 9, horizontal=True
+    ) == (4, 4, 4, 5)
+
+
+def test_slider_ids_hint_and_orientation_reuse(tmp_path: Path) -> None:
+    base = _png(tmp_path, "slh.png", size=(140, 10))
+    knob = _png(tmp_path, "sl1.png", size=(16, 16))
+    theme = _theme(tmp_path, {
+        "DIALOG_WIDGET_SLIDER_BASE_HORIZONTAL": _iclass(
+            "DIALOG_WIDGET_SLIDER_BASE_HORIZONTAL", edge=(4, 4, 1, 1), normal=base
+        ),
+        "DIALOG_WIDGET_SLIDER_KNOB_HORIZONTAL": _iclass(
+            "DIALOG_WIDGET_SLIDER_KNOB_HORIZONTAL", normal=knob
+        ),
+    }, scale=2)
+    svg = plasmastyle.build_slider(theme)
+    assert svg is not None
+    ids = _ids(svg)
+    # Both handles from the one knob; highlight set always ships. The
+    # full-cross-section caps leave no middle row (5+5 == the 10-px tube),
+    # so the groove is its top+bottom cap rows — the exact-fit-caps shape.
+    assert {"horizontal-slider-handle", "vertical-slider-handle",
+            "groove-top", "groove-bottom", "groove-highlight-top",
+            "groove-highlight-bottom", "hint-handle-size"} <= ids
+    assert "groove-center" not in ids
+    assert not any("tile-center" in i for i in ids)
+    assert not any("hover" in i for i in ids)  # no hilited art anywhere
+    hint = next(e for e in svg.iter() if e.get("id") == "hint-handle-size")
+    assert hint.get("width") == str(scale_px(16, 2))
+    assert any("one knob serves both orientations" in n for n in theme.notes)
+    assert any("fill-highlight" in n for n in theme.notes)
+
+
+def test_slider_groove_full_cross_section_ships(tmp_path: Path) -> None:
+    """The Aliens groove (140x10, edge 4 4 1 1) must ship top/bottom caps
+    of 5+5 — the full tube — not the declared 1-px hairlines."""
+    base = _png(tmp_path, "slh.png", size=(140, 10))
+    knob = _png(tmp_path, "sl1.png", size=(16, 16))
+    theme = _theme(tmp_path, {
+        "DIALOG_WIDGET_SLIDER_BASE_HORIZONTAL": _iclass(
+            "DIALOG_WIDGET_SLIDER_BASE_HORIZONTAL", edge=(4, 4, 1, 1), normal=base
+        ),
+        "DIALOG_WIDGET_SLIDER_KNOB_HORIZONTAL": _iclass(
+            "DIALOG_WIDGET_SLIDER_KNOB_HORIZONTAL", normal=knob
+        ),
+    })
+    svg = plasmastyle.build_slider(theme)
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    # Full cross-section split: no groove middle row survives (10 = 5+5).
+    assert "groove-left" not in by_id  # h//2+h-h//2 == h → no middle row
+    assert next(iter(by_id["groove-topleft"])).get("height") == "5"
+    assert next(iter(by_id["groove-bottomleft"])).get("height") == "5"
+
+
+def test_line_thickness_clamped_and_vertical_rotated(tmp_path: Path) -> None:
+    """Aliens/e13 point the separator at a ~64 px bevel box E16 squeezed
+    into a thin rule — clamp to LINE_MAX_REF_THICKNESS, never render the
+    box at its own height."""
+    art = _png(tmp_path, "bt2.png", size=(64, 64))
+    theme = _theme(tmp_path, {
+        "DIALOG_WIDGET_SEPARATOR": _iclass("DIALOG_WIDGET_SEPARATOR", normal=art),
+    }, scale=2)
+    svg = plasmastyle.build_line(theme)
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    h_img = next(iter(by_id["horizontal-line"]))
+    v_img = next(iter(by_id["vertical-line"]))
+    assert h_img.get("height") == str(scale_px(4, 2))
+    assert h_img.get("width") == str(scale_px(64, 2))
+    # Vertical = same art rotated: dimensions swap.
+    assert v_img.get("width") == h_img.get("height")
+    assert v_img.get("height") == h_img.get("width")
+    assert any("squeezed" in n for n in theme.notes)
+
+    # Authored-thin art (LiteGnome's 120x4 hline) is not squeezed further.
+    thin = _png(tmp_path, "hline.png", size=(120, 4))
+    theme2 = _theme(tmp_path, {
+        "DIALOG_WIDGET_SEPARATOR": _iclass("DIALOG_WIDGET_SEPARATOR", normal=thin),
+    }, scale=2)
+    svg2 = plasmastyle.build_line(theme2)
+    assert svg2 is not None
+    assert not any("squeezed" in n for n in theme2.notes)
+
+
+def test_frame_unprefixed_set_with_margins(tmp_path: Path) -> None:
+    art = _png(tmp_path, "indent.png", size=(72, 72))
+    theme = _theme(tmp_path, {
+        "DIALOG_WIDGET_AREA": _iclass(
+            "DIALOG_WIDGET_AREA", edge=(4, 4, 4, 4), padding=(4, 4, 4, 4),
+            normal=art,
+        ),
+    })
+    svg = plasmastyle.build_frame(theme)
+    assert svg is not None
+    ids = _ids(svg)
+    assert {"topleft", "top", "topright", "left", "center", "right",
+            "bottomleft", "bottom", "bottomright"} <= ids
+    assert {"hint-left-margin", "hint-right-margin", "hint-top-margin",
+            "hint-bottom-margin", "hint-stretch-borders"} <= ids
+    # Unprefixed only — no plain-/raised-/sunken- variants.
+    assert not any(i.startswith(("plain-", "raised-", "sunken-")) for i in ids)
+
+
+def test_frame_falls_back_to_table_iclass(tmp_path: Path) -> None:
+    art = _png(tmp_path, "table.png", size=(32, 32))
+    theme = _theme(tmp_path, {
+        "DIALOG_WIDGET_TABLE": _iclass("DIALOG_WIDGET_TABLE", normal=art),
+    })
+    svg = plasmastyle.build_frame(theme)
+    assert svg is not None
+    assert any("DIALOG_WIDGET_TABLE" in n for n in theme.notes)
+    assert plasmastyle.build_frame(_theme(tmp_path, {})) is None
+
+
+# ------------------------------------------------------------------ #
 # write()
 # ------------------------------------------------------------------ #
 
