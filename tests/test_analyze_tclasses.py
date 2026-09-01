@@ -1,6 +1,8 @@
 """Unit tests for themey.analyze.tclasses — AST __TCLASS block extraction."""
 from __future__ import annotations
 
+import pytest
+
 from themey.analyze.tclasses import FG_COLOR_KEYS, build_tclasses, title_tclass
 from themey.etheme.ast import Block, KeyVal
 from themey.ir import BorderSpec, ButtonPart, TClassSpec
@@ -191,23 +193,75 @@ def test_tclass_drawing_effect_shadow_captured() -> None:
     assert build_tclasses([block])["T"].effect == "__EFFECT_SHADOW"
 
 
-def test_tclass_effect_color_captured() -> None:
+def test_tclass_background_color_per_state_is_the_effect_color() -> None:
+    """E16 paints shadow/outline in the state's ``bg_col`` (text.c
+    TsTextDraw), set by ``__BACKGROUND_COLOR`` after the state keyword
+    (tclass.c TEXT_BG_COL). ``__EFFECT_COLOR`` does not exist in E16."""
     block = _tclass_block(
         "T",
-        _kv("__EFFECT_COLOR", 30, 30, 30),
+        _kv("__NORMAL"),
+        _kv("__FORGROUND_COLOR", 1, 2, 3),
+        _kv("__BACKGROUND_COLOR", 30, 31, 32),
+        _kv("__NORMAL_ACTIVE"),
+        _kv("__FORGROUND_COLOR", 4, 5, 6),
+        _kv("__BACKGROUND_COLOR", 40, 41, 42),
     )
-    assert build_tclasses([block])["T"].effect_color == (30, 30, 30)
+    tc = build_tclasses([block])["T"]
+    assert tc.bg_normal == (30, 31, 32)
+    assert tc.bg_active == (40, 41, 42)
+    assert tc.effect_color == (30, 31, 32)
+
+
+def test_tclass_background_color_first_wins_and_needs_a_state() -> None:
+    block = _tclass_block(
+        "T",
+        _kv("__BACKGROUND_COLOR", 9, 9, 9),  # no state yet — ignored like fg
+        _kv("__NORMAL_ACTIVE"),
+        _kv("__BACKGROUND_COLOR", 40, 41, 42),
+        _kv("__BACKGROUND_COLOR", 1, 1, 1),
+    )
+    tc = build_tclasses([block])["T"]
+    assert tc.bg_normal is None
+    assert tc.bg_active == (40, 41, 42)
+    assert tc.effect_color == (40, 41, 42)  # falls through to the active color
+
+
+def test_tclass_legacy_effect_color_keyword_is_ignored() -> None:
+    block = _tclass_block("T", _kv("__NORMAL"), _kv("__EFFECT_COLOR", 30, 30, 30))
+    tc = build_tclasses([block])["T"]
+    assert tc.effect_color is None
 
 
 def test_tclass_defaults_to_none_when_absent() -> None:
-    """A tclass with no __JUSTIFICATION / __DRAWING_EFFECT / __EFFECT_COLOR
-    leaves all three fields as None so the writer can fall back to its
-    defaults."""
+    """A tclass with no __JUSTIFICATION / __DRAWING_EFFECT /
+    __BACKGROUND_COLOR leaves the fields as None so the writers can fall
+    back to their defaults (E16's calloc'ed ``bg_col`` is black)."""
     block = _tclass_block("T", _kv("__NORMAL"), _kv("__FORGROUND_COLOR", 1, 2, 3))
     tc = build_tclasses([block])["T"]
     assert tc.alignment is None
     assert tc.effect is None
     assert tc.effect_color is None
+    assert tc.effect_kind == "none"
+
+
+@pytest.mark.parametrize(
+    "token, kind",
+    [
+        ("__EFFECT_SHADOW", "shadow"),
+        ("__EFFECT_OUTLINE", "outline"),
+        ("__EFFECT_NONE", "none"),
+        ("__EFFECT_NORMAL", "none"),
+        ("__NONE", "none"),
+        ("__EFFECT_NICE", "none"),  # undefined in E16 → atoi() = 0
+        (1, "shadow"),  # config/definitions: __EFFECT_SHADOW 1
+        (2, "outline"),  # __EFFECT_OUTLINE 2
+        (0, "none"),
+        ("2", "outline"),
+    ],
+)
+def test_tclass_effect_kind(token: object, kind: str) -> None:
+    block = _tclass_block("T", _kv("__NORMAL"), _kv("__DRAWING_EFFECT", token))
+    assert build_tclasses([block])["T"].effect_kind == kind
 
 
 # ---------------------------------------------------------------------------

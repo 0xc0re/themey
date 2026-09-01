@@ -6,12 +6,23 @@ runtime JSON/XHR, which Qt6 gates behind QML_XHR_ALLOW_FILE_READ).
 Geometry fields (anchors, min/max, pads) stay in UNSCALED E16 reference
 pixels — the resolver computes in ref space and multiplies by scale at
 the end (see resolver.py: output-space math shifts max-clamped parts).
-Display-only fields ARE pre-scaled: ``borders``, ``insets`` (BorderImage
-insets on the upscaled PNGs) and ``text.pixelSize``. Image state
-fallbacks are resolved HERE so the runtime only ever binds concrete
-filenames; origin topology is validated HERE (an origin must reference an
-earlier-declared part — violations degrade to window-relative with a
-``qmldeco:`` note).
+Display-only fields ARE pre-scaled: ``borders``, ``insets`` /
+``slotInsets`` (BorderImage insets on the upscaled PNGs — PER IMAGE SLOT,
+because E16's ``__EDGE_SCALING`` is per image state: ``slotInsets[slot]``
+is the edge of the state that slot resolved to, ``insets`` the normal
+slot's for old readers) and ``text.pixelSize``. Image state fallbacks are
+resolved HERE so the runtime only ever binds concrete filenames; origin
+topology is validated HERE (an origin must reference an earlier-declared
+part — violations degrade to window-relative with a ``qmldeco:`` note).
+
+Caption text: ``text.effect`` is ``"none" | "shadow" | "outline"``
+(E16 ``__DRAWING_EFFECT``; ``text.c`` TsTextDraw draws the shadow at
++1,+1 and the outline at the four neighbours) painted in
+``text.effectColorNormal`` / ``effectColorActive`` — the tclass state's
+``__BACKGROUND_COLOR`` (E16 ``bg_col``, black when undeclared). The
+part's ``justification`` (Q10) positions the caption INSIDE the part
+exactly like E16 (``xx = x + ((limit - textw) * justh) >> 10``): 512
+centers, 1024 right-aligns, whatever the part's width.
 
 The part model keys are the shared vocabulary with runtime/resolver.js and
 resolver.py — change all three together and bump RUNTIME_VERSION.
@@ -117,6 +128,31 @@ def _existing_states(ic: IClassSpec) -> dict[str, Path]:
     return out
 
 
+def _resolve_slots(
+    ic: IClassSpec | None, slots: tuple[str, ...]
+) -> dict[str, str] | None:
+    """Resolve slot → the E16 state attribute whose art backs it.
+
+    Returns None when the iclass has no usable image at all.
+    """
+    if ic is None:
+        return None
+    states = _existing_states(ic)
+    if not states:
+        return None
+    resolved: dict[str, str] = {}
+    for slot in slots:
+        for state in _SLOT_CHAINS[slot]:
+            if state in states:
+                resolved[slot] = state
+                break
+        else:
+            # No chain member exists; fall back to any existing state so the
+            # slot is never absent (the runtime binds unconditionally).
+            resolved[slot] = next(iter(states))
+    return resolved
+
+
 def _resolve_images(
     ic: IClassSpec | None,
     slots: tuple[str, ...],
@@ -126,27 +162,16 @@ def _resolve_images(
 
     Returns None when the iclass has no usable image at all.
     """
-    if ic is None:
+    slot_states = _resolve_slots(ic, slots)
+    if ic is None or slot_states is None:
         return None
     states = _existing_states(ic)
-    if not states:
-        return None
     stem = safe_name(ic.name)
     resolved: dict[str, str] = {}
-    for slot in slots:
-        for state in _SLOT_CHAINS[slot]:
-            if state in states:
-                relname = f"{stem}_{state}.png"
-                manifest[relname] = states[state]
-                resolved[slot] = f"../images/{relname}"
-                break
-        else:
-            # No chain member exists; fall back to any existing state so the
-            # slot is never absent (the runtime binds unconditionally).
-            state, path = next(iter(states.items()))
-            relname = f"{stem}_{state}.png"
-            manifest[relname] = path
-            resolved[slot] = f"../images/{relname}"
+    for slot, state in slot_states.items():
+        relname = f"{stem}_{state}.png"
+        manifest[relname] = states[state]
+        resolved[slot] = f"../images/{relname}"
     return resolved
 
 
@@ -158,17 +183,22 @@ def _rgb(color: tuple[int, int, int] | None, fallback: str) -> str:
 
 
 def _clamped_insets(
-    ic: IClassSpec | None, scale: float
+    ic: IClassSpec | None, scale: float, state: str | None = None
 ) -> dict[str, int]:
     """BorderImage insets = scale_px(__EDGE_SCALING), clamped to the source
     image so left+right ≤ width and top+bottom ≤ height (Qt renders a
     zero-width middle fine; negative middles it does not). scale_px keeps
     the insets aligned with the shipped art dimensions (upscale_part
-    targets the same rounding)."""
+    targets the same rounding). *state* (an image state attribute) picks
+    that state's own edge and image — E16 slices per state; None keeps
+    the iclass-wide last-wins edge against the first available art."""
     if ic is None:
         return {"left": 0, "right": 0, "top": 0, "bottom": 0}
-    left, right, top, bottom = (scale_px(v, scale) for v in ic.edge_scaling)
-    img = ic.normal or ic.normal_active or ic.hilited or ic.clicked
+    edge = ic.edge_for(state) if state is not None else ic.edge_scaling
+    left, right, top, bottom = (scale_px(v, scale) for v in edge)
+    img: Path | None = getattr(ic, state, None) if state is not None else None
+    if img is None:
+        img = ic.normal or ic.normal_active or ic.hilited or ic.clicked
     if img is not None and img.is_file():
         try:
             from PIL import Image
@@ -263,6 +293,7 @@ def build_theme_data(
             # "none": kind stays "shade" — today's behavior, unchanged.
 
         ic = theme.iclasses.get(part.iclass_name)
+        slot_states: dict[str, str] | None = None
         if hidden_shade:
             # Invisible chrome: no art resolved/exported for a button
             # nobody can click. The part index — and its origin chain —
@@ -271,6 +302,7 @@ def build_theme_data(
         else:
             slots = _BUTTON_SLOTS if kind is not None else _CHROME_SLOTS
             images = _resolve_images(ic, slots, manifest)
+            slot_states = _resolve_slots(ic, slots)
             if images is None:
                 theme.notes.append(
                     f"qmldeco: part '{part.iclass_name}' has no usable image "
@@ -327,11 +359,8 @@ def build_theme_data(
             font_index, pixel_size = _font_index(
                 theme, part, fonts_model, font_sources
             )
-            shadow = bool(
-                tclass is not None
-                and tclass.effect is not None
-                and "SHADOW" in tclass.effect.upper()
-            )
+            bg_normal = tclass.bg_normal if tclass else None
+            bg_active = (tclass.bg_active or tclass.bg_normal) if tclass else None
             text = {
                 "colorNormal": _rgb(
                     tclass.fg_normal if tclass else None, "#c0c0c0"
@@ -340,10 +369,10 @@ def build_theme_data(
                     (tclass.fg_active or tclass.fg_normal) if tclass else None,
                     "#ffffff",
                 ),
-                "shadow": shadow,
-                "shadowColor": _rgb(
-                    tclass.effect_color if tclass else None, "#000000"
-                ),
+                "effect": tclass.effect_kind if tclass else "none",
+                # E16 bg_col defaults to calloc'ed black.
+                "effectColorNormal": _rgb(bg_normal, "#000000"),
+                "effectColorActive": _rgb(bg_active, "#000000"),
                 "fontIndex": font_index,
                 "pixelSize": pixel_size,
             }
@@ -375,7 +404,13 @@ def build_theme_data(
                 "keepWhenShaded": part.keep_when_shaded,
                 "hideWhenMaximized": False,  # filled below
                 "button": kind,
-                "insets": _clamped_insets(ic, scale),
+                "insets": _clamped_insets(
+                    ic, scale, slot_states.get("normal") if slot_states else None
+                ),
+                "slotInsets": {
+                    slot: _clamped_insets(ic, scale, state)
+                    for slot, state in (slot_states or {}).items()
+                },
                 "images": images,
                 "text": text,
             }

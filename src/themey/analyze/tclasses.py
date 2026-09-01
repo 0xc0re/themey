@@ -10,6 +10,12 @@ TCLASS uses a "state context" pattern:
 - Subsequent KeyVals like ``__FORGROUND_COLOR R G B`` attach to that state.
 This is different from ICLASS where ``__NORMAL "path.png"`` carries the path
 as an inline value (one value).
+
+``__BACKGROUND_COLOR R G B`` is the SAME state-context keyword for the
+effect color: E16's ``TsTextDraw`` (text.c) draws the ``__EFFECT_SHADOW``
+offset copy and the four ``__EFFECT_OUTLINE`` copies in the state's
+``bg_col``. ``__EFFECT_COLOR`` is not an E16 keyword (grep
+``config/definitions``: absent) and is ignored.
 """
 from __future__ import annotations
 
@@ -143,7 +149,7 @@ def build_tclasses(tclass_blocks: list[Block]) -> dict[str, TClassSpec]:
         alignment: str | None = None
         justification_q10: int | None = None  # E16 last-wins across the block
         effect: str | None = None
-        effect_color: tuple[int, int, int] | None = None
+        bg_colors: dict[str, tuple[int, int, int]] = {}
 
         for kv in block.children:
             if not isinstance(kv, KeyVal):
@@ -177,19 +183,18 @@ def build_tclasses(tclass_blocks: list[Block]) -> dict[str, TClassSpec]:
                     justification_q10 = raw
             elif kv.keyword == "__DRAWING_EFFECT" and kv.values and effect is None:
                 effect = str(kv.values[0])
-            elif (
-                kv.keyword == "__EFFECT_COLOR"
-                and len(kv.values) >= 3
-                and effect_color is None
-            ):
-                try:
-                    effect_color = (
-                        _to_int(kv.values[0]),
-                        _to_int(kv.values[1]),
-                        _to_int(kv.values[2]),
-                    )
-                except (ValueError, TypeError):
-                    pass
+            # Effect (shadow/outline) color: E16's per-state bg_col. Same
+            # state-context + first-wins rule as the foreground.
+            elif kv.keyword == "__BACKGROUND_COLOR" and len(kv.values) >= 3:
+                if current_state is not None and current_state not in bg_colors:
+                    try:
+                        bg_colors[current_state] = (
+                            _to_int(kv.values[0]),
+                            _to_int(kv.values[1]),
+                            _to_int(kv.values[2]),
+                        )
+                    except (ValueError, TypeError):
+                        continue
 
         font_normal = fonts.get("__NORMAL")
         font_active = fonts.get("__NORMAL_ACTIVE")
@@ -205,7 +210,8 @@ def build_tclasses(tclass_blocks: list[Block]) -> dict[str, TClassSpec]:
             fg_active=colors.get("__NORMAL_ACTIVE"),
             alignment=alignment,
             effect=effect,
-            effect_color=effect_color,
+            bg_normal=bg_colors.get("__NORMAL"),
+            bg_active=bg_colors.get("__NORMAL_ACTIVE"),
             justification_q10=justification_q10,
             font_normal=font_normal,
             font_active=font_active,

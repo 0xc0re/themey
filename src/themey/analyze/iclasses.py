@@ -4,6 +4,15 @@ EDGE_SCALING order is L R T B (verified in E16's iclass.c sscanf order).
 The four values in __EDGE_SCALING map to indices 0..3 as (left, right,
 top, bottom).
 
+__EDGE_SCALING is PER IMAGE STATE in E16 (iclass.c ``ICLASS_LRTB`` writes
+``is->border`` on the most recently opened state, and is an error before
+any state). ``IClassSpec.edge_by_state`` records each state's own edge
+(keyed by attribute name — ``"normal"``, ``"hilited_active"`` …), and
+``edge_scaling`` keeps the last-wins iclass-wide value that states without
+an edge of their own fall back to through ``IClassSpec.edge_for`` (E16
+would draw those unsliced; the corpus declares one edge after the first
+state and means it for all, so the lenient reading stays).
+
 Storage policy:
     iclasses.py stores the resolved Path unconditionally — never None for
     missing files. build_theme.py is responsible for appending a missing-asset
@@ -86,6 +95,8 @@ def build_iclasses(
         if name is None:
             continue
         edge = (0, 0, 0, 0)  # left, right, top, bottom — LRTB order per E16 iclass.c
+        edge_by_state: dict[str, tuple[int, int, int, int]] = {}
+        current_state: str | None = None  # attribute-name form
         padding = (0, 0, 0, 0)
         states: dict[str, Path | None] = {}
 
@@ -99,6 +110,8 @@ def build_iclasses(
                     _to_int(kv.values[2]),
                     _to_int(kv.values[3]),
                 )
+                if current_state is not None:
+                    edge_by_state[current_state] = edge
             elif kv.keyword == "__PADDING" and len(kv.values) >= 4:
                 padding = (
                     _to_int(kv.values[0]),
@@ -107,6 +120,7 @@ def build_iclasses(
                     _to_int(kv.values[3]),
                 )
             elif kv.keyword in ICLASS_STATE_KEYS and kv.values:
+                current_state = kv.keyword[2:].lower()
                 p = str(kv.values[0])
                 full = (asset_root / p).resolve()
                 # T-05-01: reject paths that escape asset_root
@@ -134,6 +148,7 @@ def build_iclasses(
             normal_active_sticky=states.get("__NORMAL_ACTIVE_STICKY"),
             normal_active_hilited=states.get("__NORMAL_ACTIVE_HILITED"),
             padding=padding,
+            edge_by_state=edge_by_state,
         )
 
     return typed, raw

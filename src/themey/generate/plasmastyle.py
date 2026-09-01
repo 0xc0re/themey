@@ -261,15 +261,23 @@ class PlasmaStyle:
 # --------------------------------------------------------------------- #
 
 
-def _state_image(spec: IClassSpec | None, state: str) -> Path | None:
-    """First existing image for *state* on *spec* along its fallback chain."""
+def _state_attr(spec: IClassSpec | None, state: str) -> tuple[str, Path] | None:
+    """``(state attribute, image)`` — the first existing image for *state*
+    on *spec* along its fallback chain. The attribute is what
+    ``IClassSpec.edge_for`` needs: E16's ``__EDGE_SCALING`` is per state."""
     if spec is None:
         return None
     for field in _STATE_CHAINS[state]:
         p = getattr(spec, field)
         if p is not None and p.is_file():
-            return p
+            return field, p
     return None
+
+
+def _state_image(spec: IClassSpec | None, state: str) -> Path | None:
+    """First existing image for *state* on *spec* along its fallback chain."""
+    found = _state_attr(spec, state)
+    return found[1] if found is not None else None
 
 
 def _iclass_with_art(theme: Theme, *names: str) -> IClassSpec | None:
@@ -359,9 +367,10 @@ def _panel_art_guard(spec: IClassSpec) -> str | None:
     dead margins on fit-content panels; measured after ``_fit_caps`` so an
     E16 overlapping-cap declaration is judged by what would render).
     """
-    path = _state_image(spec, "normal")
-    if path is None:
+    found = _state_attr(spec, "normal")
+    if found is None:
         return "no art"
+    state_attr, path = found
     try:
         frac = _transparent_fraction(path)
     except OSError:
@@ -372,7 +381,8 @@ def _panel_art_guard(spec: IClassSpec) -> str | None:
             "its outline)"
         )
     w, h = _source_size(path)
-    edge = _fit_caps(spec.edge_scaling, w, h) or spec.edge_scaling
+    declared = spec.edge_for(state_attr)
+    edge = _fit_caps(declared, w, h) or declared
     left, right, top, bottom = edge
     if left + right > PANEL_MAX_REF_CAPS or top + bottom > PANEL_MAX_REF_CAPS:
         return (
@@ -671,12 +681,13 @@ def _emit_set(
     values — to the edge actually used; the viewitem builder pins
     synthetic caps with it.
     """
-    path = _state_image(spec, state)
-    if path is None:
+    found = _state_attr(spec, state)
+    if found is None:
         return None
+    state_attr, path = found
     with Image.open(path) as im:
         src = im.convert("RGBA")
-    src, edge, trims = _opaque_trim(src, spec.edge_scaling)
+    src, edge, trims = _opaque_trim(src, spec.edge_for(state_attr))
     if trims is not None:
         note = (
             f"plasmastyle: {spec.name} {path.name} trimmed by "

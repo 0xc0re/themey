@@ -22,7 +22,7 @@
 // stay seamless. Identical to v*scale at integer scales.
 .pragma library
 
-var RUNTIME_VERSION = 2;
+var RUNTIME_VERSION = 3;
 var MAX_ORIGIN_DEPTH = 8;
 
 // Keep in lockstep with resolver.py scale_px.
