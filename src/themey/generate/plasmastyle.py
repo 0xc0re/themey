@@ -1010,7 +1010,9 @@ def _emit_set(
     state: str,
     *,
     hints: bool = False,
-    edge_override: Callable[[tuple[int, int, int, int], int, int], tuple[int, int, int, int]]
+    edge_override: Callable[
+        [tuple[int, int, int, int], int, int, Image.Image], tuple[int, int, int, int]
+    ]
     | None = None,
     close_open_edges: bool = False,
     tile_center: bool | None = None,
@@ -1025,8 +1027,9 @@ def _emit_set(
     to its opaque box (:func:`_opaque_trim` — shape-mask padding must not
     become invisible border slices); oversized caps degrade to a
     center-only set with a ``plasmastyle:`` note rather than failing (per
-    the mapping contract). ``edge_override`` maps ``(edge, src_w, src_h)``
-    — post-trim values — to the edge actually used; the viewitem builder
+    the mapping contract). ``edge_override`` maps ``(edge, src_w, src_h,
+    img)`` — post-trim values and the trimmed RGBA art — to the edge
+    actually used; the viewitem builder
     pins synthetic caps with it. ``close_open_edges`` (viewitem only)
     runs :func:`_close_open_edges` on the overridden caps. ``tile_center``
     overrides the ``__FILLRULE``-derived choice (the popup builder tiles
@@ -1059,7 +1062,7 @@ def _emit_set(
             theme.notes.append(note)
     src_w, src_h = src.size
     if edge_override is not None:
-        edge = edge_override(edge, src_w, src_h)
+        edge = edge_override(edge, src_w, src_h, src)
     if close_open_edges:
         src, edge, closed = _close_open_edges(src, edge, trims)
         for side in closed:
@@ -1626,11 +1629,64 @@ def build_button(theme: Theme) -> ET.Element | None:
     return canvas.finish()
 
 
+def _is_rounded(img: Image.Image) -> bool:
+    """True when any corner of the (post-trim) art is cut by E16's shape
+    mask (alpha < 128) — a rounded pill rather than a rectangular strip."""
+    w, h = img.size
+    alpha = img.convert("RGBA").getchannel("A")
+    return any(
+        int(alpha.getpixel((x, y)) or 0) < 128  # type: ignore[arg-type]
+        for x, y in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1))
+    )
+
+
+#: Luminance std (0-255) a strip's middle band must show WITHIN its rows
+#: to count as textured, the factor by which that grain must exceed the
+#: band's row-to-row drift, and the absolute drift ceiling (a vertical
+#: gradient drifts, grain does not; repeating a gradient shows bands even
+#: under heavy grain — Aliens' bone-textured glow, drift 13.5, banded in
+#: the tall selected cell, live render 2026-09-01). OldE's rust strip:
+#: grain 14.6, drift 4.0; Aliens' hover glow: grain 22.8, drift 13.5;
+#: Aliens' normal art: grain 7.6, drift 0.5; flat fills: 0/0.
+_TEXTURE_MIN_GRAIN = 8.0
+_TEXTURE_GRAIN_OVER_DRIFT = 1.5
+_TEXTURE_MAX_DRIFT = 8.0
+
+
+def _middle_is_textured(img: Image.Image, caps: tuple[int, int, int, int]) -> bool:
+    """True when the band between the top/bottom caps is grain (per-row
+    pixel variance) rather than a gradient (row-mean drift) or a flat
+    fill — the case where repeating the middle keeps the art's look and
+    stretching it smears it."""
+    import statistics
+
+    left, right, top, bottom = caps
+    lum = img.convert("L")
+    w, h = lum.size
+    bw, bh = w - left - right, h - top - bottom
+    if bw < 2 or bh < 2:
+        return False
+    data = lum.crop((left, top, w - right, h - bottom)).tobytes()
+    row_means: list[float] = []
+    grains: list[float] = []
+    for y in range(bh):
+        vals = list(data[y * bw:(y + 1) * bw])
+        row_means.append(statistics.fmean(vals))
+        grains.append(statistics.pstdev(vals))
+    grain = statistics.fmean(grains)
+    drift = statistics.pstdev(row_means)
+    return (
+        grain >= _TEXTURE_MIN_GRAIN
+        and drift <= _TEXTURE_MAX_DRIFT
+        and grain > _TEXTURE_GRAIN_OVER_DRIFT * drift
+    )
+
+
 def _viewitem_caps(
-    edge: tuple[int, int, int, int], w: int, h: int
+    edge: tuple[int, int, int, int], w: int, h: int, *, rounded: bool = True
 ) -> tuple[tuple[int, int, int, int], str]:
     """Synthetic caps for highlight art, in source ref px, plus the branch
-    taken (``"pill"`` / ``"declared"``) for the fidelity note.
+    taken (``"pill"`` / ``"bevel"`` / ``"declared"``) for the fidelity note.
 
     E16 only ever stretched menu-item art HORIZONTALLY — an item's height
     equals the art's height — but Plasma paints ``widgets/viewitem`` over
@@ -1644,7 +1700,15 @@ def _viewitem_caps(
     * PILL (``min(w, h) <= VIEWITEM_PILL_MAX_REF``): caps are pinned at
       the cross-section radius (declared caps larger than it survive) so
       the rounded ends and vertical shading stay crisp; only the
-      near-uniform middle band stretches.
+      near-uniform middle band stretches. Applies to ROUNDED art (a corner
+      cut by the shape mask, ``_is_rounded``) and to any axis whose
+      declared caps are zero (E16 stretched the whole strip there).
+    * BEVEL (pill-sized but rectangular — OldE's opaque 213x16 bevel strip
+      with ``__EDGE_SCALING 3 3 3 3``): the declared caps are honored on
+      every axis that declares them. The radius pin left a 2-row middle
+      that Kickoff stretched ten times taller into a flat band (chris,
+      2026-09-01); E16 kept exactly those 3 px bevels crisp and stretched
+      the textured middle.
     * DECLARED (larger art — a whole menu background): the declared edge
       is honored. E16 squished such art into the item, and the declared
       caps are exactly what it kept crisp; the radius heuristic turned a
@@ -1657,8 +1721,13 @@ def _viewitem_caps(
     left, right, top, bottom = edge
     if min(w, h) <= VIEWITEM_PILL_MAX_REF:
         radius = max(1, (min(w, h) - 2) // 2)
-        left, right, top, bottom = (max(v, radius) for v in edge)
-        branch = "pill"
+        pin_x = rounded or (left == 0 and right == 0)
+        pin_y = rounded or (top == 0 and bottom == 0)
+        if pin_x:
+            left, right = max(left, radius), max(right, radius)
+        if pin_y:
+            top, bottom = max(top, radius), max(bottom, radius)
+        branch = "pill" if (pin_x and pin_y) else "bevel"
     else:
         branch = "declared"
     max_x = min(VIEWITEM_MAX_REF_CAP, (w - 1) // 2)
@@ -1683,14 +1752,37 @@ def build_viewitem(theme: Theme) -> ET.Element | None:
     if _state_image(src, "hover") is None or src is None:
         return None
     canvas = _Canvas()
-    decisions: dict[tuple[str, tuple[int, int, int, int]], None] = {}
+    decisions: dict[tuple[str, tuple[int, int, int, int], bool], None] = {}
 
     def caps_override(
-        edge: tuple[int, int, int, int], w: int, h: int
+        edge: tuple[int, int, int, int], w: int, h: int, img: Image.Image
     ) -> tuple[int, int, int, int]:
-        caps, branch = _viewitem_caps(edge, w, h)
-        decisions[(branch, caps)] = None
+        caps, branch = _viewitem_caps(edge, w, h, rounded=_is_rounded(img))
+        tiled = branch == "bevel" and _middle_is_textured(img, caps)
+        decisions[(branch, caps, tiled)] = None
         return caps
+
+    def repeats_middle(state: str) -> bool | None:
+        """Decide the tile hint up front (``_emit_set`` needs it before the
+        override runs): a rectangular strip whose middle is grain repeats
+        — E16 rows were the art's own height, so the grain was never
+        stretched, while a Kickoff row is about twice as tall (OldE's rust
+        strip smeared, chris 2026-09-01). Gradient middles (Aliens' glow)
+        keep stretching: tiling a gradient shows seams."""
+        found = _state_attr(src, state)
+        if found is None:
+            return None
+        state_attr, path = found
+        try:
+            with Image.open(path) as im:
+                trimmed = _opaque_trim(im.convert("RGBA"), src.edge_for(state_attr))
+        except (OSError, ValueError):
+            return None
+        if trimmed is None:
+            return None
+        img, edge, _ = trimmed
+        caps, branch = _viewitem_caps(edge, img.width, img.height, rounded=_is_rounded(img))
+        return True if branch == "bevel" and _middle_is_textured(img, caps) else None
 
     has_normal_art = (src.normal is not None and src.normal.is_file()) or (
         src.normal_active is not None and src.normal_active.is_file()
@@ -1704,21 +1796,37 @@ def build_viewitem(theme: Theme) -> ET.Element | None:
         _emit_set(
             theme, canvas, prefix, src, state,
             edge_override=caps_override, close_open_edges=True,
+            tile_center=repeats_middle(state),
         )
     if canvas.is_empty:
         return None
-    for branch, caps in decisions:
-        why = (
-            "pinned at the art's cross-section radius (pill art; E16 never "
-            "stretched item height)"
-            if branch == "pill"
-            else "the declared __EDGE_SCALING (menu-background art E16 "
-            "squished into the item)"
-        )
+    for branch, caps, tiled in decisions:
+        if branch == "pill":
+            why = (
+                "pinned at the art's cross-section radius (pill art; E16 never "
+                "stretched item height)"
+            )
+        elif branch == "bevel":
+            why = (
+                "the declared __EDGE_SCALING (rectangular strip; E16 kept "
+                "those bevels crisp and stretched the middle)"
+            )
+        else:
+            why = (
+                "the declared __EDGE_SCALING (menu-background art E16 "
+                "squished into the item)"
+            )
         theme.notes.append(
             f"plasmastyle: menu/list selection from iclass {src.name}; caps "
             f"{why}, clamped to {VIEWITEM_MAX_REF_CAP} ref px → "
             f"{caps[0]}/{caps[1]}/{caps[2]}/{caps[3]} (L/R/T/B)"
+            + (
+                "; middle repeated (textured strip — E16 rows were the art's "
+                "own height, Plasma rows are taller, and repeating keeps the "
+                "grain instead of smearing it)"
+                if tiled
+                else ""
+            )
         )
     return canvas.finish()
 
@@ -2087,7 +2195,7 @@ def build_slider(theme: Theme) -> ET.Element | None:
     horizontal = base.name.endswith("HORIZONTAL")
 
     def groove_caps(
-        edge: tuple[int, int, int, int], w: int, h: int
+        edge: tuple[int, int, int, int], w: int, h: int, _img: Image.Image
     ) -> tuple[int, int, int, int]:
         return _groove_caps(edge, w, h, horizontal=horizontal)
 
