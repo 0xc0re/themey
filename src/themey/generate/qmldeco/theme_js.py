@@ -381,6 +381,17 @@ def build_theme_data(
             )
             bg_normal = tclass.bg_normal if tclass else None
             bg_active = (tclass.bg_active or tclass.bg_normal) if tclass else None
+
+            def _st(attr: str, method: str, default, tc=tclass):
+                if tc is None:
+                    return default
+                value = getattr(tc, method)(attr)
+                return value if value is not None else default
+
+            # The four E16 text-state groups (borders.c:164 picks by active
+            # + EoIsSticky); colors/effects resolve through
+            # TextclassPopulate's chain — sticky_active.normal falls back to
+            # norm.normal, not active.normal.
             text = {
                 "colorNormal": _rgb(
                     tclass.fg_normal if tclass else None, "#c0c0c0"
@@ -389,10 +400,23 @@ def build_theme_data(
                     (tclass.fg_active or tclass.fg_normal) if tclass else None,
                     "#ffffff",
                 ),
+                "colorSticky": _rgb(_st("normal_sticky", "fg_for", None), "#c0c0c0"),
+                "colorStickyActive": _rgb(
+                    _st("normal_active_sticky", "fg_for", None), "#c0c0c0"
+                ),
                 "effect": tclass.effect_kind if tclass else "none",
+                "effectNormal": _st("normal", "effect_for", "none"),
+                "effectActive": _st("normal_active", "effect_for", "none"),
+                "effectSticky": _st("normal_sticky", "effect_for", "none"),
+                "effectStickyActive": _st("normal_active_sticky", "effect_for", "none"),
                 # E16 bg_col defaults to calloc'ed black.
                 "effectColorNormal": _rgb(bg_normal, "#000000"),
                 "effectColorActive": _rgb(bg_active, "#000000"),
+                "effectColorSticky": _rgb(_st("normal_sticky", "bg_for", None), "#000000"),
+                "effectColorStickyActive": _rgb(
+                    _st("normal_active_sticky", "bg_for", None), "#000000"
+                ),
+                "orientation": tclass.orientation if tclass else 0,
                 "fontIndex": font_index,
                 "pixelSize": pixel_size,
             }

@@ -206,6 +206,64 @@ class TClassSpec:
     # Alias name (without '*') from font_active or font_normal, when either
     # is an alias reference. Key into Theme.fonts.
     font_alias: str | None = None
+    # E16 keeps FOUR TextState groups (norm/active/sticky/sticky_active ×
+    # normal/hilited/clicked — tclass.c TextclassGetTextState) and picks one
+    # per WINDOW (borders.c:164: active + EoIsSticky). These dicts are the
+    # raw per-state values keyed by the state attribute name ("normal",
+    # "normal_active", "normal_sticky", "normal_active_sticky", "hilited",
+    # ...); ``fg_for``/``bg_for``/``effect_for``/``font_for`` resolve them
+    # through TextclassPopulate's chain (tclass.c:187-204): hilited/clicked →
+    # that group's normal; active.normal, sticky.normal AND
+    # sticky_active.normal → norm.normal. The scalar fields above stay the
+    # legacy first-wins view the SVG backend reads.
+    fg_by_state: dict[str, tuple[int, int, int]] = field(default_factory=dict)
+    bg_by_state: dict[str, tuple[int, int, int]] = field(default_factory=dict)
+    effect_by_state: dict[str, str] = field(default_factory=dict)
+    font_by_state: dict[str, str] = field(default_factory=dict)
+    # __ORIENTATION (tclass.c:324, per block last-wins): config/definitions
+    # FONT_TO_RIGHT 0, DOWN 1 (reads top-to-bottom), UP 2 (bottom-to-top),
+    # LEFT 3; undefined tokens (``__UP``) are atoi 0.
+    orientation: int = 0
+
+    @staticmethod
+    def state_chain(state: str) -> tuple[str, ...]:
+        """TextclassPopulate's fallback order for *state* (attribute name)."""
+        key = state[2:].lower() if state.startswith("__") else state
+        group_normal = {
+            "normal": "normal", "hilited": "normal", "clicked": "normal",
+            "normal_active": "normal_active", "hilited_active": "normal_active",
+            "clicked_active": "normal_active",
+            "normal_sticky": "normal_sticky", "hilited_sticky": "normal_sticky",
+            "clicked_sticky": "normal_sticky",
+            "normal_active_sticky": "normal_active_sticky",
+            "hilited_active_sticky": "normal_active_sticky",
+            "clicked_active_sticky": "normal_active_sticky",
+        }.get(key, "normal")
+        chain = [key]
+        if group_normal != key:
+            chain.append(group_normal)
+        if group_normal != "normal":
+            chain.append("normal")
+        return tuple(chain)
+
+    def _resolve(self, table: dict, state: str):
+        for key in self.state_chain(state):
+            if key in table:
+                return table[key]
+        return None
+
+    def fg_for(self, state: str) -> tuple[int, int, int] | None:
+        return self._resolve(self.fg_by_state, state)
+
+    def bg_for(self, state: str) -> tuple[int, int, int] | None:
+        return self._resolve(self.bg_by_state, state)
+
+    def font_for(self, state: str) -> str | None:
+        return self._resolve(self.font_by_state, state)
+
+    def effect_for(self, state: str) -> str:
+        """``"none"`` | ``"shadow"`` | ``"outline"`` for *state* (chain)."""
+        return _effect_kind(self._resolve(self.effect_by_state, state))
 
     @property
     def effect_color(self) -> tuple[int, int, int] | None:
@@ -222,15 +280,18 @@ class TClassSpec:
         other token (``__EFFECT_NICE``, ``__NONE``) is what E16's ``atoi``
         makes of an undefined macro: 0, no effect.
         """
-        raw = self.effect
-        if raw is None:
-            return "none"
-        token = str(raw).strip().upper()
-        if token in ("__EFFECT_SHADOW", "1"):
-            return "shadow"
-        if token in ("__EFFECT_OUTLINE", "2"):
-            return "outline"
+        return _effect_kind(self.effect)
+
+
+def _effect_kind(raw: object) -> str:
+    if raw is None:
         return "none"
+    token = str(raw).strip().upper()
+    if token in ("__EFFECT_SHADOW", "1"):
+        return "shadow"
+    if token in ("__EFFECT_OUTLINE", "2"):
+        return "outline"
+    return "none"
 
 
 @dataclass(frozen=True)

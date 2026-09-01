@@ -20,6 +20,9 @@ from pathlib import Path
 
 import pytest
 
+RUNTIME = (
+    Path(__file__).resolve().parents[1] / "src" / "themey" / "generate" / "qmldeco" / "runtime"
+)
 FIXTURES = Path(__file__).parent / "fixtures"
 FIXTURE_NAMES = ("Aliens", "e13", "LiteGnome", "Mac3D", "OPENSTEP")
 
@@ -499,3 +502,56 @@ def test_theme_js_keep_on_top_and_slot_tile(tmp_path):
     assert tiles["normal"] == "both"
     assert tiles["hover"] == "h"
     assert data["parts"][1]["slotTile"]["normal"] is None
+
+
+def test_theme_js_text_state_groups_and_orientation(tmp_path):
+    """theme.js carries the four E16 text-state groups (borders.c:164 picks
+    the tclass state with active + EoIsSticky) and __ORIENTATION; the
+    QML picks colorSticky*/effect* by clientActive/clientOnAllDesktops.
+    sticky_active.normal falls back to norm.normal (tclass.c:200)."""
+    from themey.analyze.build_theme import build_theme
+    from themey.etheme.archive import extract
+    from themey.etheme.parse import parse_tree
+    from themey.generate.qmldeco.theme_js import build_theme_data
+    from themey.ir import TClassSpec
+
+    with extract(FIXTURES / "e13.etheme") as raw:
+        theme = build_theme(
+            raw.asset_root, parse_tree(raw.asset_root), name="e13",
+            display_name="e13", scale=2,
+        )
+        title = next(p for p in theme.border.parts if "__FLAG_TITLE" in p.flags)
+        name = title.tclass_name or "TEXT1"
+        old = theme.tclasses[name]
+        theme.tclasses[name] = TClassSpec(
+            name=old.name, fg_normal=(1, 2, 3), fg_active=(4, 5, 6),
+            effect="__EFFECT_NONE", bg_normal=None, bg_active=(9, 9, 9),
+            font_normal=old.font_normal, font_active=old.font_active,
+            font_alias=old.font_alias,
+            fg_by_state={"normal": (1, 2, 3), "normal_active": (4, 5, 6),
+                         "normal_sticky": (7, 8, 9)},
+            bg_by_state={"normal_active": (9, 9, 9)},
+            effect_by_state={"normal": "__EFFECT_NONE", "normal_active": "__EFFECT_SHADOW"},
+            orientation=2,
+        )
+        data, _manifest, _fonts = build_theme_data(theme)
+    text = next(p for p in data["parts"] if p["isTitle"])["text"]
+    assert text["effectNormal"] == "none"
+    assert text["effectActive"] == "shadow"
+    assert text["effectSticky"] == "none"
+    assert text["effectStickyActive"] == "none"  # ← norm.normal
+    assert text["colorSticky"] == "#070809"
+    assert text["colorStickyActive"] == "#010203"
+    assert text["effectColorActive"] == "#090909"
+    assert text["effectColorStickyActive"] == "#000000"
+    assert text["orientation"] == 2
+
+
+def test_runtime_caption_elides_middle_and_rotates_by_orientation():
+    """E16 TextstateTextFit1 keeps head and tail ("..." in the middle);
+    FONT_TO_UP reads bottom-to-top (EImageOrientate 3 = -90°), FONT_TO_DOWN
+    top-to-bottom (+90°)."""
+    qml = (RUNTIME / "ThemeyPart.qml").read_text()
+    assert "Text.ElideMiddle" in qml
+    assert "Text.ElideRight" not in qml
+    assert "orientation" in qml and "-90" in qml
