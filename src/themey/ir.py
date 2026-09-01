@@ -84,6 +84,9 @@ class IClassSpec:
     clicked_active: Path | None
     normal_sticky: Path | None
     normal_active_sticky: Path | None
+    # __NORMAL_ACTIVE_HILITED: E16's hover-of-active alias. e13 declares it
+    # alongside __HILITED_ACTIVE (identical art); themes may ship it alone.
+    normal_active_hilited: Path | None = None
     # __PADDING l r t b: inner-content padding for this image class. Distinct
     # from __EDGE_SCALING, which is the 9-patch slice configuration. No
     # consumer yet — captured for a future fidelity pass.

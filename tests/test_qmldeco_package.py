@@ -262,6 +262,44 @@ def test_toggled_falls_back_to_clicked_without_sticky_art(tmp_path):
     assert images["toggledActive"] == "../images/btn_clicked.png"
 
 
+def test_hover_active_falls_back_to_normal_active_hilited(tmp_path):
+    """hoverActive resolves __NORMAL_ACTIVE_HILITED when __HILITED_ACTIVE is
+    absent (and __HILITED_ACTIVE still wins when both exist — e13's case)."""
+    from PIL import Image
+
+    from themey.generate.qmldeco.theme_js import _BUTTON_SLOTS, _resolve_images
+    from themey.ir import IClassSpec
+
+    normal = tmp_path / "normal.png"
+    nah = tmp_path / "nah.png"
+    ha = tmp_path / "ha.png"
+    for p in (normal, nah, ha):
+        Image.new("RGBA", (4, 4)).save(p)
+
+    def spec(hilited_active):
+        return IClassSpec(
+            name="BTN",
+            edge_scaling=(0, 0, 0, 0),
+            normal=normal,
+            normal_active=None,
+            hilited=None,
+            hilited_active=hilited_active,
+            clicked=None,
+            clicked_active=None,
+            normal_sticky=None,
+            normal_active_sticky=None,
+            normal_active_hilited=nah,
+        )
+
+    images = _resolve_images(spec(None), _BUTTON_SLOTS, {})
+    assert images is not None
+    assert images["hoverActive"] == "../images/btn_normal_active_hilited.png"
+
+    images = _resolve_images(spec(ha), _BUTTON_SLOTS, {})
+    assert images is not None
+    assert images["hoverActive"] == "../images/btn_hilited_active.png"
+
+
 @pytest.mark.parametrize("name", FIXTURE_NAMES)
 def test_theme_js_snapshot(name, tmp_path, snapshot):
     if not (FIXTURES / f"{name}.etheme").exists():

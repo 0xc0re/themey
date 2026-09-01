@@ -47,6 +47,7 @@ _STATE_ATTRS: tuple[tuple[str, str], ...] = (
     ("normal_active", "normal_active"),
     ("hilited", "hilited"),
     ("hilited_active", "hilited_active"),
+    ("normal_active_hilited", "normal_active_hilited"),
     ("clicked", "clicked"),
     ("clicked_active", "clicked_active"),
     ("normal_sticky", "normal_sticky"),
@@ -58,7 +59,15 @@ _SLOT_CHAINS: dict[str, tuple[str, ...]] = {
     "normal": ("normal",),
     "normalActive": ("normal_active", "normal"),
     "hover": ("hilited", "normal"),
-    "hoverActive": ("hilited_active", "hilited", "normal_active", "normal"),
+    # normal_active_hilited is E16's hover-of-active alias; when a theme
+    # declares both, hilited_active wins (e13 ships identical art in both).
+    "hoverActive": (
+        "hilited_active",
+        "normal_active_hilited",
+        "hilited",
+        "normal_active",
+        "normal",
+    ),
     "pressed": ("clicked", "normal"),
     "pressedActive": ("clicked_active", "clicked", "normal_active", "normal"),
     # Toggle buttons (stick/shade): sticky art first, then clicked so themes

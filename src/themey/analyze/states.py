@@ -20,7 +20,10 @@ DECORATION_STATE_MAP: dict[str, list[str]] = {
 # Per-button state (in button SVG; not decoration.svg)
 BUTTON_STATE_MAP: dict[str, list[str]] = {
     "button-default": ["__NORMAL_ACTIVE", "__NORMAL"],
-    "button-hover": ["__HILITED_ACTIVE", "__HILITED"],
+    # __NORMAL_ACTIVE_HILITED is E16's hover-of-active alias; e13 declares it
+    # 22x alongside __HILITED_ACTIVE with identical art, so it slots BETWEEN
+    # the canonical states rather than being dropped.
+    "button-hover": ["__HILITED_ACTIVE", "__NORMAL_ACTIVE_HILITED", "__HILITED"],
     "button-pressed": ["__CLICKED_ACTIVE", "__CLICKED"],
 }
 
@@ -75,5 +78,19 @@ def collapse_image_states(
             notes.append(
                 f"{context_label}: {src_state} dropped "
                 f"(no Aurorae target for sticky/disabled/clicked-active variants)"
+            )
+
+    # Shadowed hover-of-active alias: when both __HILITED_ACTIVE and
+    # __NORMAL_ACTIVE_HILITED are declared with DIFFERENT art, the alias is
+    # unreachable through the chain. Identical art (e13's pattern) stays
+    # silent — a note there would be a false alarm 22x per theme.
+    if target == "button-hover":
+        ha = state_dict.get("__HILITED_ACTIVE")
+        nah = state_dict.get("__NORMAL_ACTIVE_HILITED")
+        if ha is not None and nah is not None and ha != nah:
+            notes.append(
+                f"{context_label}: __NORMAL_ACTIVE_HILITED shadowed by "
+                f"__HILITED_ACTIVE (different art; hover-of-active uses "
+                f"__HILITED_ACTIVE)"
             )
     return result

@@ -60,6 +60,7 @@ ICLASS_STATE_KEYS: frozenset[str] = frozenset({
     "__HILITED_STICKY",
     "__HILITED_ACTIVE_STICKY",
     "__NORMAL_ACTIVE_CLICKED",
+    "__NORMAL_ACTIVE_HILITED",
     "__DISABLED",
 })
 
@@ -131,6 +132,7 @@ def build_iclasses(
             clicked_active=states.get("__CLICKED_ACTIVE"),
             normal_sticky=states.get("__NORMAL_STICKY"),
             normal_active_sticky=states.get("__NORMAL_ACTIVE_STICKY"),
+            normal_active_hilited=states.get("__NORMAL_ACTIVE_HILITED"),
             padding=padding,
         )
 
