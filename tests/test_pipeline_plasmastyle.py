@@ -148,9 +148,12 @@ def test_output_dir_mode_leaves_style_cache_alone(fake_home, monkeypatch, tmp_pa
 
 
 def test_aliens_viewitem_caps_clamped(fake_home, tmp_path):
-    """Aliens' MENU_SEL is a 202x31 pill with a 2 px declared edge; the
-    cross-section radius (14) is pinned but clamped to VIEWITEM_MAX_REF_CAP
-    so a Kickoff row keeps a real stretching middle."""
+    """Aliens' MENU_SEL hover art (n_menu_h.png) is an opaque 203x31
+    rectangle — a vertical glow gradient — declaring __EDGE_SCALING
+    2 2 2 2. It is a rectangular strip, not a rounded pill, so the
+    declared 2 px caps are honored (E16 kept exactly those crisp and
+    stretched the glow to the row) rather than the cross-section radius
+    pin; every cap stays under VIEWITEM_MAX_REF_CAP."""
     import xml.etree.ElementTree as ET
 
     from themey.generate.qmldeco.resolver import scale_px
@@ -168,5 +171,6 @@ def test_aliens_viewitem_caps_clamped(fake_home, tmp_path):
         if (img := g.find(f"{ns}image")) is not None
     }
     limit = scale_px(plasmastyle.VIEWITEM_MAX_REF_CAP, 2)
-    assert dims["hover-left"][0] == dims["hover-right"][0] == limit
-    assert dims["hover-top"][1] <= limit and dims["hover-bottom"][1] <= limit
+    declared = scale_px(2, 2)
+    assert dims["hover-left"][0] == dims["hover-right"][0] == declared <= limit
+    assert dims["hover-top"][1] == dims["hover-bottom"][1] == declared <= limit

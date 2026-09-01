@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Highlight strips no longer smear** — `widgets/viewitem` caps for a
+  rectangular (opaque-cornered) MENU_SEL strip follow the declared
+  `__EDGE_SCALING` instead of the pill radius pin (OldE's 3 px bevels were
+  pinned at 7/7, leaving a 2-row middle that Kickoff stretched ten times
+  taller), and a grain-textured middle repeats (`hint-tile-center`) rather
+  than stretching across Plasma's taller rows; gradient middles such as
+  Aliens' glow still stretch, because repeating them bands. 138 corpus
+  themes move to declared caps, 35 repeat their middle.
 - **Style re-apply reload** — `themey apply` bounces the Plasma Style
   through Breeze's `default` when the themey style is already current:
   `plasma-apply-desktoptheme` with the current name is a no-op, so a

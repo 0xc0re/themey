@@ -2074,3 +2074,116 @@ def test_style_scheme_window_color_follows_menu_style_bg(tmp_path: Path) -> None
     colors = (style.dir / "colors").read_text()
     window = colors.split("[Colors:Window]")[1].split("[")[0]
     assert "BackgroundNormal=10,200,10" in window
+
+
+# ------------------------------------------------------------------ #
+# Viewitem: rectangular bevel strips honor their declared caps
+# ------------------------------------------------------------------ #
+
+
+def test_viewitem_caps_rectangular_strip_honors_declared_edge() -> None:
+    """OldE's MENU_SEL is an opaque 213x16 bevel strip declaring
+    __EDGE_SCALING 3 3 3 3. The radius pin (7/7) left a 2-row middle
+    that Kickoff stretched ten times taller into a flat band (chris,
+    2026-09-01); E16 kept exactly the 3 px bevels crisp and stretched the
+    10-row texture. A zero-declared axis still gets the radius pin (E16
+    would have stretched the whole strip)."""
+    caps, branch = plasmastyle._viewitem_caps((3, 3, 3, 3), 213, 16, rounded=False)
+    assert caps == (3, 3, 3, 3) and branch == "bevel"
+    caps, branch = plasmastyle._viewitem_caps((0, 0, 0, 0), 164, 20, rounded=False)
+    assert caps == (9, 9, 9, 9) and branch == "pill"
+    # A rounded pill keeps the radius pin whatever it declares.
+    caps, branch = plasmastyle._viewitem_caps((2, 2, 2, 2), 202, 31, rounded=True)
+    assert caps == (12, 12, 12, 12) and branch == "pill"
+
+
+def test_viewitem_rectangular_art_note_and_rounded_art_pin(tmp_path: Path) -> None:
+    rect = _png(tmp_path, "rect.png", size=(64, 16), color=(120, 70, 40, 255))
+    theme = _theme(tmp_path, {
+        "MENU_SEL": _iclass("MENU_SEL", edge=(3, 3, 3, 3), hilited=rect),
+    })
+    svg = plasmastyle.build_viewitem(theme)
+    assert svg is not None
+    assert any("3/3/3/3 (L/R/T/B)" in n and "rectangular" in n for n in theme.notes)
+
+    pill = Image.new("RGBA", (64, 16), (120, 70, 40, 255))
+    for x, y in ((0, 0), (63, 0), (0, 15), (63, 15)):
+        pill.putpixel((x, y), (0, 0, 0, 0))
+    p = tmp_path / "pill.png"
+    pill.save(p)
+    theme2 = _theme(tmp_path, {
+        "MENU_SEL": _iclass("MENU_SEL", edge=(3, 3, 3, 3), hilited=p),
+    })
+    svg2 = plasmastyle.build_viewitem(theme2)
+    assert svg2 is not None
+    assert any("pinned at the art's cross-section radius" in n for n in theme2.notes)
+
+
+def _noise_png(tmp_path: Path, name: str, size=(64, 16)) -> Path:
+    import random
+
+    rnd = random.Random(7)
+    im = Image.new("RGBA", size)
+    for y in range(size[1]):
+        for x in range(size[0]):
+            v = rnd.randint(40, 200)
+            im.putpixel((x, y), (v, v // 2, v // 3, 255))
+    p = tmp_path / name
+    im.save(p)
+    return p
+
+
+def _gradient_png(tmp_path: Path, name: str, size=(64, 16)) -> Path:
+    im = Image.new("RGBA", size)
+    for y in range(size[1]):
+        v = 20 + y * 12
+        for x in range(size[0]):
+            im.putpixel((x, y), (v, v, v, 255))
+    p = tmp_path / name
+    im.save(p)
+    return p
+
+
+def test_middle_is_textured_grain_vs_gradient(tmp_path: Path) -> None:
+    noise = Image.open(_noise_png(tmp_path, "n.png")).convert("RGBA")
+    grad = Image.open(_gradient_png(tmp_path, "g.png")).convert("RGBA")
+    flat = Image.new("RGBA", (64, 16), (90, 60, 40, 255))
+    assert plasmastyle._middle_is_textured(noise, (3, 3, 3, 3)) is True
+    assert plasmastyle._middle_is_textured(grad, (3, 3, 3, 3)) is False
+    assert plasmastyle._middle_is_textured(flat, (3, 3, 3, 3)) is False
+    # Aliens' glow: heavy grain OVER a strong vertical gradient — repeating
+    # it bands, so the absolute drift ceiling keeps it stretching.
+    import random
+
+    rnd = random.Random(3)
+    glow = Image.new("RGBA", (64, 32))
+    for y in range(32):
+        base = 20 + (y if y < 16 else 31 - y) * 6
+        for x in range(64):
+            v = max(0, min(255, base + rnd.randint(-40, 40)))
+            glow.putpixel((x, y), (v, v, v, 255))
+    assert plasmastyle._middle_is_textured(glow, (2, 2, 2, 2)) is False
+
+
+def test_viewitem_textured_strip_repeats_middle(tmp_path: Path) -> None:
+    """OldE's MENU_SEL hover art is a 16 px grain strip. E16 rows were the
+    art's own height, so the grain was never stretched; a Kickoff row is
+    twice as tall and stretching smeared it (chris, 2026-09-01). A
+    textured rectangular strip repeats its middle; a gradient one (Aliens'
+    glow) still stretches — tiling a gradient shows seams."""
+    noise = _noise_png(tmp_path, "n.png")
+    theme = _theme(tmp_path, {
+        "MENU_SEL": _iclass("MENU_SEL", edge=(3, 3, 3, 3), hilited=noise),
+    })
+    svg = plasmastyle.build_viewitem(theme)
+    assert svg is not None
+    assert "hover-hint-tile-center" in _ids(svg)
+    assert any("repeated" in n for n in theme.notes)
+
+    grad = _gradient_png(tmp_path, "g.png")
+    theme2 = _theme(tmp_path, {
+        "MENU_SEL": _iclass("MENU_SEL", edge=(3, 3, 3, 3), hilited=grad),
+    })
+    svg2 = plasmastyle.build_viewitem(theme2)
+    assert svg2 is not None
+    assert "hover-hint-tile-center" not in _ids(svg2)
