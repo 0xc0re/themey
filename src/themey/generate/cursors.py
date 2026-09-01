@@ -16,14 +16,32 @@ still supplies Breeze art for everything E16 never defined.
 
 Three contracts govern this module:
 
-1. **Polarity.** Each cursor is an X11 bitmap pair, per
-   ``XCreatePixmapCursor``: mask bit SET = the pixel is drawn, CLEAR =
-   transparent; within a drawn pixel the image bit picks foreground
-   (set) or background (clear). E16 ships the mask as a sibling
-   ``<file>.xbm.mask`` — ``CursorSpec`` has no field for it, so it is
-   derived here. With no mask file the image is foreground over
-   transparent. Inverting either polarity ruins every cursor in every
-   theme; ``tests/test_cursors_xbm.py`` is the guard.
+1. **Polarity is E16's, not X11's.** Each cursor is an X11 bitmap pair:
+   mask bit SET = the pixel is drawn, CLEAR = transparent. Within a drawn
+   pixel plain ``XCreatePixmapCursor`` would paint a SET image bit in the
+   foreground, but E16 deliberately swaps the two colors for every theme
+   cursor — "the pmap (not mask) bits in all theme cursors are inverted.
+   Fix by swapping fg and bg colors" (e16-1.0.31 ``src/eimage.c:770-791``,
+   ``EImageCursorCreateFromBitmapData``, the XRender path every real
+   build takes; ``src/cursors.c:71-74`` does the same for the non-XRender
+   one). The exact rule, ``eimage.c:783-789``::
+
+       mask bit CLEAR  -> transparent (image bit irrelevant)
+       image bit SET   -> __BG_COLOR   ("fg/bg swapped")
+       image bit CLEAR -> __FG_COLOR
+
+   In the theme art the SET bits are the pointer's outline and the
+   clear-but-masked bits its body, so the swap puts the BODY in
+   ``__FG_COLOR`` — e13's white arrow with a dark outline, Yellow's
+   yellow one — which is what the authors meant. E16 ships the mask as a
+   sibling ``<file>.xbm.mask``; ``CursorSpec`` has no field for it, so
+   it is derived here. With no mask file (8 of the corpus's 1625 XBMs)
+   E16's XRender path paints nothing at all (``bits_m`` is 0 for every
+   pixel) and the non-XRender path a solid rectangle, so there is no
+   fidelity target; themey keeps the swap consistent and draws the set
+   bits in ``__BG_COLOR`` over transparent. Inverting either polarity
+   ruins every cursor in every theme; ``tests/test_cursors_xbm.py`` is
+   the guard.
 
 2. **We parse XBM ourselves, not with Pillow.** CLAUDE.md's stack table
    nominates ``PIL.XbmImagePlugin``, and it cannot read these files.
@@ -164,9 +182,10 @@ def rasterize(
 ) -> Image.Image:
     """Colorize *image* through *mask* into an RGBA Image.
 
-    Polarity per ``XCreatePixmapCursor`` — see contract 1 in the module
-    docstring. With ``mask=None`` set bits are *fg* and clear bits are
-    transparent (the background would otherwise paint a solid rectangle
+    Polarity per E16's ``eimage.c:783-789`` — fg/bg SWAPPED relative to
+    ``XCreatePixmapCursor``; see contract 1 in the module docstring. With
+    ``mask=None`` set bits are *bg* (the same swap) and clear bits are
+    transparent (the foreground would otherwise paint a solid rectangle
     around the pointer).
     """
     if mask is not None and (mask.width, mask.height) != (image.width, image.height):
@@ -187,9 +206,10 @@ def rasterize(
             on = image.bit(x, y)
             if mask is None:
                 if on:
-                    pixels[x, y] = fg_px
+                    pixels[x, y] = bg_px
             else:
-                pixels[x, y] = fg_px if on else bg_px
+                # eimage.c:785-788: set image bit -> bg, clear -> fg.
+                pixels[x, y] = bg_px if on else fg_px
     return out
 
 
@@ -296,8 +316,8 @@ def _build_one(
     mask_path = _mask_path(spec.xbm_path)
     mask = read_xbm(mask_path) if mask_path.is_file() else None
     if mask is None:
-        log.debug("cursor %s: no %s; drawing fg over transparent",
-                  spec.name, mask_path.name)
+        log.debug("cursor %s: no %s; drawing set bits (bg, E16 swap) over "
+                  "transparent", spec.name, mask_path.name)
     base = rasterize(image, mask, spec.fg_rgb, spec.bg_rgb)
     hot_x, hot_y = hotspot_for(spec, image)
 
