@@ -108,6 +108,39 @@ def test_panel_background_from_art_middle_tiled(tmp_path: Path) -> None:
     )
 
 
+def test_capless_panel_art_stretches_instead_of_tiling(tmp_path: Path) -> None:
+    """HandOfGod's shape: ICONBOX_HORIZONTAL is a capless cloud photo
+    (edge 0 0 0 0 → center-only set). No hint-tile-center: E16's no-slice
+    semantics stretches the whole image, and tiling a capless photo
+    repeats it every 128 px across the bar (chris's top-bar screenshot,
+    2026-09-01). The hint is file-global, so ANY capless set — the
+    vertical one included — suppresses it."""
+    h = _png(tmp_path, "h.png", size=(128, 64))
+    theme = _theme(tmp_path, {
+        "ICONBOX_HORIZONTAL": _iclass(
+            "ICONBOX_HORIZONTAL", edge=(0, 0, 0, 0), normal=h
+        ),
+    })
+    svg = plasmastyle.build_panel_background(theme)
+    assert "hint-tile-center" not in _ids(svg)
+    assert any(
+        "middle stretched" in n and "capless" in n for n in theme.notes
+    )
+    # Capped horizontal + capless vertical: the file-global hint would tile
+    # the capless vertical center too — still suppressed.
+    v = _png(tmp_path, "v.png", size=(64, 128), color=(60, 60, 200, 255))
+    theme2 = _theme(tmp_path, {
+        "ICONBOX_HORIZONTAL": _iclass(
+            "ICONBOX_HORIZONTAL", edge=(2, 2, 2, 2), normal=h
+        ),
+        "ICONBOX_VERTICAL": _iclass(
+            "ICONBOX_VERTICAL", edge=(0, 0, 0, 0), normal=v
+        ),
+    })
+    svg2 = plasmastyle.build_panel_background(theme2)
+    assert "hint-tile-center" not in _ids(svg2)
+
+
 def test_panel_margin_hints_hug_the_caps(tmp_path: Path) -> None:
     """The e13 shape: __EDGE_SCALING 5 at scale 2 → 10 px painted caps →
     6 px margin hints (cap − Kirigami smallSpacing), landing Plasma's

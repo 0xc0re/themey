@@ -824,23 +824,40 @@ def _panel_art_svg(theme: Theme, src: IClassSpec) -> ET.Element:
     falls back to unprefixed); a vertical bar iclass that passes the same
     guards adds ``west-``/``east-`` sets so the left-edge pager/iconbox
     furniture panels wear the vertical art (Panel.qml's ``[pre, ""]``
-    prefix list). ``hint-tile-center`` is emitted — E16 tiles bar troughs,
-    and the wordmark census shows logos live in the CAPS, which stay
-    pinned; ksvg's ``hasElement("hint-tile-center")`` applies the unprefixed
-    hint to every prefix in the file, verticals included.
+    prefix list). ``hint-tile-center`` is emitted only when every set has
+    caps — E16 tiles bar troughs, and the wordmark census shows logos live
+    in the CAPS, which stay pinned; ksvg's ``hasElement("hint-tile-center")``
+    applies the unprefixed hint to every prefix in the file, verticals
+    included, so one capless (center-only) set means no tiling anywhere:
+    its whole image must stretch, E16's no-slice semantics.
     """
     canvas = _Canvas()
     caps = _emit_set(theme, canvas, "", src, "normal") or (0, 0, 0, 0)
     _panel_margins(canvas, "", caps, theme.scale)
+    all_caps = [caps]
     vert = _panel_art_source(theme, _PANEL_VERT_SOURCES)
     if vert is not None:
         for prefix in ("west-", "east-"):
             vcaps = _emit_set(theme, canvas, prefix, vert, "normal") or (0, 0, 0, 0)
             _panel_margins(canvas, prefix, vcaps, theme.scale)
-    _emit_size_hint(canvas, "hint-tile-center", 1, 1)
+            all_caps.append(vcaps)
+    # Tile the middle only when EVERY set has caps: the hint is file-global
+    # (ksvg applies the unprefixed hint to every prefix), and a capless set
+    # is a center-only whole image — E16's no-slice semantics STRETCHES it,
+    # while tiling repeats it visibly across the bar (HandOfGod's 128 px
+    # cloud photo, verified live 2026-09-01).
+    tiled = all(any(c > 0 for c in cs) for cs in all_caps)
+    if tiled:
+        _emit_size_hint(canvas, "hint-tile-center", 1, 1)
     theme.notes.append(
-        f"plasmastyle: panel background from iclass {src.name} art, middle "
-        "tiled (E16 tiles bar troughs; wordmark caps stay pinned)"
+        f"plasmastyle: panel background from iclass {src.name} art, "
+        + (
+            "middle tiled (E16 tiles bar troughs; wordmark caps stay pinned)"
+            if tiled
+            else "middle stretched (a capless set is a no-slice whole image "
+            "— E16 stretches it, and the file-global tile hint would repeat "
+            "it across the bar)"
+        )
         + (
             f"; vertical panels from {vert.name}"
             if vert is not None
