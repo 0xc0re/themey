@@ -27,7 +27,11 @@ inside a ``Plasma/Theme`` KPackage under
 * 9-part sets use FrameSvg's element names (``topleft`` … ``bottomright``,
   optionally ``<prefix>-``-prefixed); zero-extent slices are simply not
   emitted (FrameSvg then reports a 0 border, which is correct — the Aliens
-  dragbar's ``133 28 0 0`` edge yields a left/center/right-only set).
+  dragbar's ``133 28 0 0`` edge yields a left/center/right-only set) —
+  EXCEPT the center: FrameSvg's ``hasElementPrefix`` checks exactly
+  ``<prefix>center`` and paints NOTHING for a center-less set, so caps
+  that consume the whole image are shaved one px to keep a real center
+  (:func:`_frame_group`).
   ``hint-tile-center`` is NEVER emitted — E16 stretches middles, and that
   hint would switch FrameSvg to tiling. The same E16 rule covers borders:
   FrameSvg tiles border elements by DEFAULT, so every file containing a
@@ -267,8 +271,50 @@ def _panel_source(theme: Theme) -> IClassSpec | None:
     )
 
 
+#: Fraction of sub-128-alpha pixels above which art counts as SHAPED —
+#: E16's 1-bit shape mask cut the WINDOW to the art's outline, so heavily
+#: transparent art was never a rectangular texture. Stretched over a
+#: rectangular Plasma popup its transparent regions become see-through
+#: holes (wallpaper blurring through) while the opaque art smears huge
+#: (Aliens' bone-rod MENU_BG over the Brightness popup, verified live
+#: 2026-08-31). 10% cleanly splits the fixture census: Aliens MENU_BG is
+#: 34% transparent, every other MENU_BG/DIALOG ≤ 2% (rounded ends).
+SHAPED_ART_MAX_TRANSPARENT = 0.10
+
+
+def _transparent_fraction(path: Path) -> float:
+    """Fraction of pixels with alpha < 128 (DR16's shape-mask cutoff)."""
+    with Image.open(path) as im:
+        alpha = im.convert("RGBA").getchannel("A").tobytes()
+    return sum(1 for a in alpha if a < 128) / len(alpha)
+
+
 def _dialog_source(theme: Theme) -> IClassSpec | None:
-    return _iclass_with_art(theme, "MENU_BG", "DIALOG")
+    """MENU_BG, else DIALOG — skipping SHAPED art (see
+    ``SHAPED_ART_MAX_TRANSPARENT``): E16 shaped the menu window to such
+    art's outline, but a Plasma popup is a rectangle. The note is
+    deduplicated because ``style_scheme`` resolves the source again.
+    """
+    for name in ("MENU_BG", "DIALOG"):
+        spec = theme.iclasses.get(name)
+        path = _state_image(spec, "normal")
+        if spec is None or path is None:
+            continue
+        try:
+            frac = _transparent_fraction(path)
+        except OSError:
+            return spec  # unreadable art fails later with a skip note
+        if frac > SHAPED_ART_MAX_TRANSPARENT:
+            note = (
+                f"plasmastyle: {name} art is shaped ({frac:.0%} transparent"
+                " — E16 cut the menu window to its outline); unfit for a "
+                "rectangular popup background, trying the next source"
+            )
+            if note not in theme.notes:
+                theme.notes.append(note)
+            continue
+        return spec
+    return None
 
 
 # --------------------------------------------------------------------- #
@@ -364,6 +410,25 @@ def _embed_image(
     )
 
 
+def _shave_for_center(a: int, b: int, span: int) -> tuple[int, int]:
+    """Reduce the (a, b) cap pair so ≥1 px of center survives on this axis.
+
+    See :func:`_frame_group` — caps that consume the whole span would emit
+    a center-less set, which FrameSvg treats as ABSENT. The shave comes
+    off the larger cap first (it is the cap's own innermost row/column, so
+    the art is visually unchanged); an axis with no caps is left alone
+    (the center spans it already).
+    """
+    if a + b < span or (a == 0 and b == 0):
+        return a, b
+    excess = a + b - (span - 1)
+    first, second = (a, b) if a >= b else (b, a)
+    take = min(excess, first)
+    first -= take
+    second -= min(excess - take, second)
+    return (first, second) if a >= b else (second, first)
+
+
 def _frame_group(
     canvas: _Canvas,
     prefix: str,
@@ -378,10 +443,23 @@ def _frame_group(
     (E16 no-slice semantics — the whole image stretches). Slices sit at
     source-grid coordinates so bounding boxes never overlap.
 
+    A ``<prefix>center`` element is ALWAYS emitted when the set has caps:
+    FrameSvg's ``hasElementPrefix`` checks exactly ``<prefix>center``
+    (ksvg 6.24 framesvg.cpp) and a center-less set paints NOTHING —
+    FrameSvgItem::updatePaintNode returns null (verified live 2026-08-31:
+    Aliens' full-cross-section slider groove rendered invisible). Caps
+    that consume the whole image on an axis are shaved by
+    :func:`_shave_for_center` so a ≥1 px center survives; authored
+    cap-only ("exact fit") art keeps its look — the shaved px is the
+    cap's own innermost row, now stretching as the center.
+
     Raises ValueError when the caps exceed the image (``slice_9patch``'s
     guard) — the caller degrades to center-only with a note.
     """
     left, right, top, bottom = caps
+    left, right = _shave_for_center(left, right, img.width)
+    top, bottom = _shave_for_center(top, bottom, img.height)
+    caps = (left, right, top, bottom)
     if caps != (0, 0, 0, 0):  # center-only sets have no borders to stretch
         canvas.stretch_borders = True
     regions = slice_9patch(img, left, right, top, bottom)
