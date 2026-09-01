@@ -79,11 +79,15 @@ def _ids(svg: ET.Element) -> set[str]:
 # ------------------------------------------------------------------ #
 
 
-def test_panel_background_from_art_middle_tiled(tmp_path: Path) -> None:
+def test_panel_background_from_art_middle_stretches(tmp_path: Path) -> None:
     """Small-cap opaque bar art becomes a real 9-part panel set with a
-    TILED middle (hint-tile-center — Breeze's own panel ships it) and
-    cap-hugging margin hints (2 px caps − 4 px smallSpacing floors at the
-    1 px minimum that keeps the rect emitted)."""
+    STRETCHED middle — no hint-tile-center anywhere: E16 renders every
+    iclass middle by Imlib2 border-scale (caps pinned, middle stretched),
+    and tiling repeated HandOfGod's capless cloud photo and
+    NorthernLights' 58 px aurora trough across the bar (chris's top-bar
+    screenshots, 2026-09-01). Cap-hugging margin hints: 2 px caps −
+    4 px smallSpacing floors at the 1 px minimum that keeps the rect
+    emitted."""
     png = _png(tmp_path, "dragbar.png")  # solid, 16x16, caps 2/2/2/2
     theme = _theme(tmp_path, {
         "DESKTOP_DRAGBUTTON_HORIZ": _iclass(
@@ -94,7 +98,7 @@ def test_panel_background_from_art_middle_tiled(tmp_path: Path) -> None:
     ids = _ids(svg)
     assert {"topleft", "top", "topright", "left", "center", "right",
             "bottomleft", "bottom", "bottomright"} <= ids
-    assert "hint-tile-center" in ids
+    assert "hint-tile-center" not in ids
     assert "hint-stretch-borders" in ids
     by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
     for side in ("left", "right", "top", "bottom"):
@@ -103,38 +107,13 @@ def test_panel_background_from_art_middle_tiled(tmp_path: Path) -> None:
     assert any(e.tag.endswith("image") for e in svg.iter())
     assert any(
         "panel background from iclass DESKTOP_DRAGBUTTON_HORIZ" in n
-        and "tiled" in n
         for n in theme.notes
     )
-
-
-def test_capless_panel_art_stretches_instead_of_tiling(tmp_path: Path) -> None:
-    """HandOfGod's shape: ICONBOX_HORIZONTAL is a capless cloud photo
-    (edge 0 0 0 0 → center-only set). No hint-tile-center: E16's no-slice
-    semantics stretches the whole image, and tiling a capless photo
-    repeats it every 128 px across the bar (chris's top-bar screenshot,
-    2026-09-01). The hint is file-global, so ANY capless set — the
-    vertical one included — suppresses it."""
-    h = _png(tmp_path, "h.png", size=(128, 64))
-    theme = _theme(tmp_path, {
-        "ICONBOX_HORIZONTAL": _iclass(
-            "ICONBOX_HORIZONTAL", edge=(0, 0, 0, 0), normal=h
-        ),
-    })
-    svg = plasmastyle.build_panel_background(theme)
-    assert "hint-tile-center" not in _ids(svg)
-    assert any(
-        "middle stretched" in n and "capless" in n for n in theme.notes
-    )
-    # Capped horizontal + capless vertical: the file-global hint would tile
-    # the capless vertical center too — still suppressed.
-    v = _png(tmp_path, "v.png", size=(64, 128), color=(60, 60, 200, 255))
+    # A capless (center-only) set stretches too, same rule.
+    capless = _png(tmp_path, "cloud.png", size=(128, 64))
     theme2 = _theme(tmp_path, {
         "ICONBOX_HORIZONTAL": _iclass(
-            "ICONBOX_HORIZONTAL", edge=(2, 2, 2, 2), normal=h
-        ),
-        "ICONBOX_VERTICAL": _iclass(
-            "ICONBOX_VERTICAL", edge=(0, 0, 0, 0), normal=v
+            "ICONBOX_HORIZONTAL", edge=(0, 0, 0, 0), normal=capless
         ),
     })
     svg2 = plasmastyle.build_panel_background(theme2)
@@ -352,10 +331,12 @@ def test_shave_for_center() -> None:
     assert plasmastyle._shave_for_center(2, 0, 2) == (1, 0)
 
 
-def test_tile_center_hint_only_in_panel_background(tmp_path: Path) -> None:
-    """E16 stretches middles everywhere EXCEPT bar troughs — the tile hint
-    is allowed only in widgets/panel-background.svg. Build every file from
-    a maximal synthetic theme and check the census."""
+def test_no_file_ships_tile_center_hint(tmp_path: Path) -> None:
+    """E16 stretches iclass middles everywhere (Imlib2 border-scale) — NO
+    shipped file may carry hint-tile-center. The panel used to be the one
+    exception ("E16 tiles bar troughs") until it repeated HandOfGod's and
+    NorthernLights' photographic troughs across the bar (live 2026-09-01).
+    Build every file from a maximal synthetic theme and check the census."""
     art = _png(tmp_path, "art.png")
     art2 = _png(tmp_path, "art2.png", color=(40, 40, 200, 255))
     iclasses = {
@@ -377,10 +358,7 @@ def test_tile_center_hint_only_in_panel_background(tmp_path: Path) -> None:
         if svg is None:
             continue
         has_tile = any("tile-center" in i for i in _ids(svg))
-        if rel == plasmastyle.PANEL_SVG:
-            assert has_tile, "art panel must tile its middle"
-        else:
-            assert not has_tile, f"{rel} must not tile its middle"
+        assert not has_tile, f"{rel} must not tile its middle"
 
 
 # ------------------------------------------------------------------ #

@@ -28,8 +28,9 @@ inside a ``Plasma/Theme`` KPackage under
   (verified live 2026-08-31) — so wordmark-sized caps fall through to the
   next candidate and ultimately to a flat translucent tint of the art's
   dominant color (scheme fallback), letting the wallpaper show through.
-  The art panel's middle is TILED (``hint-tile-center``, this file ONLY —
-  Breeze's own panel-background ships the same hint); a vertical bar
+  The art panel's middle STRETCHES like every E16 iclass middle (no
+  ``hint-tile-center``; tiling repeated photographic troughs across the
+  bar — HandOfGod, NorthernLights, live 2026-09-01); a vertical bar
   iclass adds ``west-``/``east-`` sets for the left-edge furniture panels.
 * 9-part sets use FrameSvg's element names (``topleft`` … ``bottomright``,
   optionally ``<prefix>-``-prefixed); zero-extent slices are simply not
@@ -39,9 +40,9 @@ inside a ``Plasma/Theme`` KPackage under
   ``<prefix>center`` and paints NOTHING for a center-less set, so caps
   that consume the whole image are shaved one px to keep a real center
   (:func:`_frame_group`).
-  ``hint-tile-center`` is emitted ONLY in the panel background (E16 tiles
-  bar troughs); everywhere else E16 stretches middles, and that
-  hint would switch FrameSvg to tiling. The same E16 rule covers borders:
+  ``hint-tile-center`` is never emitted — E16 stretches middles
+  everywhere, and FrameSvg's center default already is stretch. The same
+  E16 rule covers borders:
   FrameSvg tiles border elements by DEFAULT, so every file containing a
   sliced-art frame set carries one unprefixed ``hint-stretch-borders``
   (gradient edge art visibly repeats when tiled — live HandOfGod pager,
@@ -818,46 +819,31 @@ def _panel_margins(
 
 
 def _panel_art_svg(theme: Theme, src: IClassSpec) -> ET.Element:
-    """9-part panel set from real E16 bar art, middle TILED.
+    """9-part panel set from real E16 bar art, middle STRETCHED.
 
     One unprefixed set serves every horizontal panel (``adjustPrefix``
     falls back to unprefixed); a vertical bar iclass that passes the same
     guards adds ``west-``/``east-`` sets so the left-edge pager/iconbox
     furniture panels wear the vertical art (Panel.qml's ``[pre, ""]``
-    prefix list). ``hint-tile-center`` is emitted only when every set has
-    caps — E16 tiles bar troughs, and the wordmark census shows logos live
-    in the CAPS, which stay pinned; ksvg's ``hasElement("hint-tile-center")``
-    applies the unprefixed hint to every prefix in the file, verticals
-    included, so one capless (center-only) set means no tiling anywhere:
-    its whole image must stretch, E16's no-slice semantics.
+    prefix list). NO ``hint-tile-center``: E16 renders every iclass middle
+    by Imlib2 border-scale — caps pinned, middle STRETCHED — and tiling
+    repeated photographic troughs (HandOfGod's capless cloud, then
+    NorthernLights' 58 px aurora even WITH caps) across the whole bar
+    (both verified live 2026-09-01). FrameSvg stretches the center by
+    default, so no hint is needed; ``hint-stretch-borders`` still covers
+    the border elements (those FrameSvg tiles by default).
     """
     canvas = _Canvas()
     caps = _emit_set(theme, canvas, "", src, "normal") or (0, 0, 0, 0)
     _panel_margins(canvas, "", caps, theme.scale)
-    all_caps = [caps]
     vert = _panel_art_source(theme, _PANEL_VERT_SOURCES)
     if vert is not None:
         for prefix in ("west-", "east-"):
             vcaps = _emit_set(theme, canvas, prefix, vert, "normal") or (0, 0, 0, 0)
             _panel_margins(canvas, prefix, vcaps, theme.scale)
-            all_caps.append(vcaps)
-    # Tile the middle only when EVERY set has caps: the hint is file-global
-    # (ksvg applies the unprefixed hint to every prefix), and a capless set
-    # is a center-only whole image — E16's no-slice semantics STRETCHES it,
-    # while tiling repeats it visibly across the bar (HandOfGod's 128 px
-    # cloud photo, verified live 2026-09-01).
-    tiled = all(any(c > 0 for c in cs) for cs in all_caps)
-    if tiled:
-        _emit_size_hint(canvas, "hint-tile-center", 1, 1)
     theme.notes.append(
-        f"plasmastyle: panel background from iclass {src.name} art, "
-        + (
-            "middle tiled (E16 tiles bar troughs; wordmark caps stay pinned)"
-            if tiled
-            else "middle stretched (a capless set is a no-slice whole image "
-            "— E16 stretches it, and the file-global tile hint would repeat "
-            "it across the bar)"
-        )
+        f"plasmastyle: panel background from iclass {src.name} art, middle "
+        "stretched like every E16 iclass middle (caps stay pinned)"
         + (
             f"; vertical panels from {vert.name}"
             if vert is not None
@@ -877,7 +863,7 @@ def build_panel_background(theme: Theme) -> ET.Element:
     the guards, else a flat translucent tint.
 
     The art path (:func:`_panel_art_svg`) ships the dragbar/iconbox art
-    with a TILED middle; :func:`_panel_art_guard` rejects shaped art and
+    with a stretched middle; :func:`_panel_art_guard` rejects shaped art and
     wordmark-sized caps (the failure mode that originally forced the flat
     tint — a 133-px "ENLIGHTENMENT" cap stretched across a 40 px panel
     buries every widget). The tint fallback keeps the theme's color
