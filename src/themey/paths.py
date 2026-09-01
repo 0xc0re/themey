@@ -16,9 +16,13 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 
+def _is_snap_sandbox(v: str | None) -> bool:
+    return bool(v) and "/snap/" in str(v)
+
+
 def _xdg_data_home() -> Path:
     v = os.environ.get("XDG_DATA_HOME")
-    if v and "/snap/" in v:
+    if _is_snap_sandbox(v):
         log.warning(
             "XDG_DATA_HOME=%s is a snap sandbox KWin never reads; using ~/.local/share", v
         )
@@ -26,6 +30,25 @@ def _xdg_data_home() -> Path:
     if v:
         return Path(v)
     return Path(os.environ.get("HOME", "/")).joinpath(".local", "share")
+
+
+def subprocess_env() -> dict[str, str]:
+    """Environment for the external Plasma tools (``plasma-apply-*``,
+    ``kwriteconfig6``, ``qdbus6``): the current one minus a snap-sandbox
+    ``XDG_DATA_HOME``.
+
+    Those tools search KPackages through KDE's own XDG lookup, so an
+    inherited ``XDG_DATA_HOME=~/snap/code/NNN/.local/share`` (the VS Code
+    snap's terminal) makes ``plasma-apply-lookandfeel -a themey_<slug>``
+    report "Unable to find the theme" even though :func:`_xdg_data_home`
+    installed it under ``~/.local/share`` — seen live 2026-09-01. Dropping
+    the variable makes the tools fall back to the same default themey
+    already uses.
+    """
+    env = dict(os.environ)
+    if _is_snap_sandbox(env.get("XDG_DATA_HOME")):
+        env.pop("XDG_DATA_HOME", None)
+    return env
 
 
 def aurorae_themes() -> Path:

@@ -86,3 +86,25 @@ def test_global_theme_dirs_xdg_override(monkeypatch):
     assert str(paths.cursor_themes()).endswith("/.icons")
     assert str(paths.desktop_themes()) == "/tmp/xdg/plasma/desktoptheme"
     assert str(paths.look_and_feel()) == "/tmp/xdg/plasma/look-and-feel"
+
+
+def test_subprocess_env_drops_snap_xdg_data_home(monkeypatch) -> None:
+    """The Plasma tools search KPackages through KDE's XDG lookup, so a
+    snap-sandbox XDG_DATA_HOME (VS Code's terminal) must not reach them —
+    live 2026-09-01: `plasma-apply-lookandfeel -a themey_Yellow` said
+    "Unable to find the theme" while themey had installed it under
+    ~/.local/share (the same fallback `_xdg_data_home` applies)."""
+    from themey import paths
+
+    monkeypatch.setenv("XDG_DATA_HOME", "/home/u/snap/code/259/.local/share")
+    monkeypatch.setenv("THEMEY_TEST_MARKER", "1")
+    env = paths.subprocess_env()
+    assert "XDG_DATA_HOME" not in env
+    assert env["THEMEY_TEST_MARKER"] == "1"
+
+
+def test_subprocess_env_keeps_real_xdg_data_home(monkeypatch, tmp_path) -> None:
+    from themey import paths
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    assert paths.subprocess_env()["XDG_DATA_HOME"] == str(tmp_path)
