@@ -252,9 +252,26 @@ _STYLE_PROBE_CELLS: tuple[tuple[str, str], ...] = (
     ("widgets/tasks", "minimized"),
     ("widgets/button", "normal"),
     ("widgets/viewitem", "hover"),
+    ("widgets/viewitem", "selected"),
     ("widgets/slider", "groove"),
     ("widgets/frame", "raised"),
 )
+
+_STYLE_PROBE_COLUMNS = 5
+_STYLE_PROBE_W = SCREEN_W - 200
+_STYLE_PROBE_H = SCREEN_H - 160
+_STYLE_CELL_W = _STYLE_PROBE_W // _STYLE_PROBE_COLUMNS - 10
+_STYLE_CELL_H = _STYLE_PROBE_H // 3 - 30
+
+#: Per-cell (width, height) overrides; cells absent here get the uniform
+#: grid cell. The viewitem pair is deliberately stretched WIDE (hover) and
+#: TALL (selected): an open pill end or an oversized cap only shows once
+#: the middle has to stretch far past the art's own size (Yellow's
+#: MENU_SEL, 2026-09-01).
+_STYLE_PROBE_CELL_SIZES: dict[tuple[str, str], tuple[int, int]] = {
+    ("widgets/viewitem", "hover"): (_STYLE_CELL_W, 30),
+    ("widgets/viewitem", "selected"): (30, _STYLE_CELL_H),
+}
 
 _STYLE_PROBE_ID = "org.themey.styleprobe"
 
@@ -286,7 +303,7 @@ PlasmoidItem {{
         Grid {{
             anchors.fill: parent
             anchors.margins: 6
-            columns: 4
+            columns: {columns}
             columnSpacing: 6
             rowSpacing: 4
             Repeater {{
@@ -300,8 +317,8 @@ PlasmoidItem {{
                         font.pixelSize: 10
                     }}
                     KSvg.FrameSvgItem {{
-                        width: {cell_w}
-                        height: {cell_h}
+                        width: modelData.w
+                        height: modelData.h
                         imagePath: modelData.path
                         prefix: modelData.prefix
                     }}
@@ -320,12 +337,14 @@ def _write_style_probe(data: Path) -> None:
     pkg = data / "plasma" / "plasmoids" / _STYLE_PROBE_ID
     (pkg / "contents" / "ui").mkdir(parents=True, exist_ok=True)
     (pkg / "metadata.json").write_text(_STYLE_PROBE_METADATA, encoding="utf-8")
-    model = [{"path": p, "prefix": pre} for p, pre in _STYLE_PROBE_CELLS]
+    model = []
+    for p, pre in _STYLE_PROBE_CELLS:
+        w, h = _STYLE_PROBE_CELL_SIZES.get((p, pre), (_STYLE_CELL_W, _STYLE_CELL_H))
+        model.append({"path": p, "prefix": pre, "w": w, "h": h})
     qml = _STYLE_PROBE_QML_TEMPLATE.format(
-        w=SCREEN_W - 200,
-        h=SCREEN_H - 160,
-        cell_w=(SCREEN_W - 200) // 4 - 10,
-        cell_h=(SCREEN_H - 160) // 3 - 30,
+        w=_STYLE_PROBE_W,
+        h=_STYLE_PROBE_H,
+        columns=_STYLE_PROBE_COLUMNS,
         model_json=_json.dumps(model),
     )
     (pkg / "contents" / "ui" / "main.qml").write_text(qml, encoding="utf-8")
