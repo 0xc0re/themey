@@ -172,18 +172,33 @@ def test_oversized_caps_shrink_to_fit_with_note(tmp_path: Path) -> None:
     assert any("caps shrunk" in n for n in theme.notes)
 
 
-def test_exact_fit_caps_stay_cap_only(tmp_path: Path) -> None:
+def test_exact_fit_caps_keep_art_but_gain_center(tmp_path: Path) -> None:
     """Caps summing to exactly the image size are authored cap-only art —
-    no middle is emitted and no shrink note fires."""
+    no shrink note fires, but ONE px is shaved off the larger cap so a
+    real center survives: FrameSvg's hasElementPrefix checks exactly
+    <prefix>center, and a center-less set paints NOTHING (the invisible
+    Aliens slider groove, live 2026-08-31)."""
     png = _png(tmp_path, "base.png", size=(8, 8))
     theme = _theme(tmp_path, {
         "TT_MAIN": _iclass("TT_MAIN", edge=(4, 4, 0, 0), normal=png),
     })
     svg = plasmastyle.build_tooltip(theme)
     assert svg is not None
-    assert "center" not in _ids(svg)
-    assert {"left", "right"} <= _ids(svg)
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    assert {"left", "center", "right"} <= by_id.keys()
+    assert next(iter(by_id["left"])).get("width") == "3"  # 4 shaved to 3
+    assert next(iter(by_id["center"])).get("width") == "1"
+    assert next(iter(by_id["right"])).get("width") == "4"
     assert not any("caps shrunk" in n for n in theme.notes)
+
+
+def test_shave_for_center() -> None:
+    assert plasmastyle._shave_for_center(4, 4, 8) == (3, 4)  # larger-first tie
+    assert plasmastyle._shave_for_center(5, 5, 10) == (4, 5)
+    assert plasmastyle._shave_for_center(4, 4, 16) == (4, 4)  # fits, untouched
+    assert plasmastyle._shave_for_center(0, 0, 8) == (0, 0)  # center-only
+    assert plasmastyle._shave_for_center(1, 0, 1) == (0, 0)  # degenerate 1px
+    assert plasmastyle._shave_for_center(2, 0, 2) == (1, 0)
 
 
 def test_never_emits_tile_center_hint(tmp_path: Path) -> None:
@@ -654,6 +669,76 @@ def test_stretch_borders_hint_absent_without_art_frames(tmp_path: Path) -> None:
     assert "hint-stretch-borders" not in _ids(svg)
 
 
+def _shaped_png(tmp_path: Path, name: str, size=(48, 16)) -> Path:
+    """Bone-rod-style art: an opaque band on a mostly transparent canvas
+    (the Aliens MENU_BG shape, ~34%+ transparent)."""
+    img = Image.new("RGBA", size, (0, 0, 0, 0))
+    band = Image.new("RGBA", (size[0], size[1] // 3), (80, 40, 90, 255))
+    img.paste(band, (0, size[1] // 3))
+    p = tmp_path / name
+    img.save(p, format="PNG")
+    return p
+
+
+def test_dialog_background_skips_shaped_menu_bg(tmp_path: Path) -> None:
+    """Aliens' bone-rod MENU_BG (34% transparent) stretched over a
+    rectangular popup smears huge with wallpaper blurring through the
+    holes (live Brightness popup, 2026-08-31) — shaped art falls through
+    to the DIALOG iclass."""
+    bone = _shaped_png(tmp_path, "bone.png")
+    dialog = _png(tmp_path, "dialog_bg.png", size=(32, 32))
+    theme = _theme(tmp_path, {
+        "MENU_BG": _iclass("MENU_BG", normal=bone),
+        "DIALOG": _iclass("DIALOG", edge=(0, 0, 0, 0), normal=dialog),
+    })
+    svg = plasmastyle.build_dialog_background(theme)
+    assert svg is not None
+    assert any("MENU_BG art is shaped" in n for n in theme.notes)
+    assert any("DIALOG" in n and "popup/dialog background" in n for n in theme.notes)
+    # The shipped art is the opaque dialog texture, not the bone.
+    image = next(e for e in svg.iter() if e.tag.endswith("image"))
+    from themey.images.embed import image_to_b64_uri
+    with Image.open(dialog) as im:
+        assert image.get(XLINK) == image_to_b64_uri(im.convert("RGBA"))
+
+
+def test_dialog_background_skipped_when_all_sources_shaped(tmp_path: Path) -> None:
+    bone = _shaped_png(tmp_path, "bone.png")
+    theme = _theme(tmp_path, {"MENU_BG": _iclass("MENU_BG", normal=bone)})
+    assert plasmastyle.build_dialog_background(theme) is None
+
+
+def test_dialog_source_keeps_rounded_end_art(tmp_path: Path) -> None:
+    """e13's dock1.png is 1.6% transparent (rounded ends) — well under the
+    shaped threshold, kept as the popup background."""
+    img = Image.new("RGBA", (50, 10), (60, 60, 70, 255))
+    for x, y in ((0, 0), (49, 0), (0, 9), (49, 9)):  # 4 corner px = 0.8%
+        img.putpixel((x, y), (0, 0, 0, 0))
+    p = tmp_path / "dock.png"
+    img.save(p, format="PNG")
+    theme = _theme(tmp_path, {"MENU_BG": _iclass("MENU_BG", normal=p)})
+    svg = plasmastyle.build_dialog_background(theme)
+    assert svg is not None
+    assert not any("is shaped" in n for n in theme.notes)
+
+
+def test_style_scheme_window_follows_shaped_fallthrough(tmp_path: Path) -> None:
+    """Colors:Window must sample the art actually shipped — the DIALOG
+    texture, not the rejected bone — and its note dedupes with the
+    builder's."""
+    bone = _shaped_png(tmp_path, "bone.png")
+    dialog = _png(tmp_path, "dialog_bg.png", size=(32, 32), color=(240, 240, 240, 255))
+    theme = _theme(tmp_path, {
+        "MENU_BG": _iclass("MENU_BG", normal=bone),
+        "DIALOG": _iclass("DIALOG", normal=dialog),
+    })
+    scheme = plasmastyle.style_scheme(
+        theme, shipped=frozenset({plasmastyle.DIALOG_SVG})
+    )
+    assert scheme.window.background_normal == (240, 240, 240)
+    assert sum("MENU_BG art is shaped" in n for n in theme.notes) == 1
+
+
 # ------------------------------------------------------------------ #
 # Dialog widgets — checkmarks / radiobutton / slider / line / frame
 # ------------------------------------------------------------------ #
@@ -801,13 +886,13 @@ def test_slider_ids_hint_and_orientation_reuse(tmp_path: Path) -> None:
     svg = plasmastyle.build_slider(theme)
     assert svg is not None
     ids = _ids(svg)
-    # Both handles from the one knob; highlight set always ships. The
-    # full-cross-section caps leave no middle row (5+5 == the 10-px tube),
-    # so the groove is its top+bottom cap rows — the exact-fit-caps shape.
+    # Both handles from the one knob; highlight set always ships; the
+    # full-cross-section caps get one px shaved into a real center
+    # (FrameSvg needs <prefix>center or it paints nothing).
     assert {"horizontal-slider-handle", "vertical-slider-handle",
-            "groove-top", "groove-bottom", "groove-highlight-top",
+            "groove-top", "groove-center", "groove-bottom",
+            "groove-highlight-top", "groove-highlight-center",
             "groove-highlight-bottom", "hint-handle-size"} <= ids
-    assert "groove-center" not in ids
     assert not any("tile-center" in i for i in ids)
     assert not any("hover" in i for i in ids)  # no hilited art anywhere
     hint = next(e for e in svg.iter() if e.get("id") == "hint-handle-size")
@@ -832,9 +917,10 @@ def test_slider_groove_full_cross_section_ships(tmp_path: Path) -> None:
     svg = plasmastyle.build_slider(theme)
     assert svg is not None
     by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
-    # Full cross-section split: no groove middle row survives (10 = 5+5).
-    assert "groove-left" not in by_id  # h//2+h-h//2 == h → no middle row
-    assert next(iter(by_id["groove-topleft"])).get("height") == "5"
+    # Full cross-section split (5+5 on the 10-px tube), then the center
+    # shave: the first-of-tie top cap yields one px to the center.
+    assert next(iter(by_id["groove-topleft"])).get("height") == "4"
+    assert next(iter(by_id["groove-center"])).get("height") == "1"
     assert next(iter(by_id["groove-bottomleft"])).get("height") == "5"
 
 
