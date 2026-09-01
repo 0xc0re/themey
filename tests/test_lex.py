@@ -157,17 +157,23 @@ def test_bare_word_with_trailing_punctuation_keeps_it() -> None:
     ]
 
 
-def test_bare_word_stops_at_semicolon_and_quote() -> None:
+def test_bare_word_stops_at_semicolon_but_glues_to_a_touching_quote() -> None:
+    """';' is a statement separator (GetLine config.c:107-110); a quote that
+    touches a bare piece is part of the same word (config.c:122-131)."""
     tokens = tokenize('__ICLASS foo;__NAME bar"x"')
     assert [(t.kind, t.value) for t in tokens] == [
         (TokenKind.IDENT, "__ICLASS"),
         (TokenKind.IDENT, "foo"),
         (TokenKind.NEWLINE, None),
         (TokenKind.IDENT, "__NAME"),
-        (TokenKind.IDENT, "bar"),
-        (TokenKind.STRING, "x"),
+        (TokenKind.STRING, "barx"),
         (TokenKind.EOF, None),
     ]
+
+
+def test_unterminated_string_skips_to_end_of_line_only() -> None:
+    tokens = _content(tokenize('__NAME "oops\n__NEXT 1'))
+    assert [t.value for t in tokens] == ["__NAME", "__NEXT", 1]
 
 
 def test_numbers_still_lex_as_numbers_inside_bare_words() -> None:
@@ -193,3 +199,41 @@ def test_double_slash_is_a_line_comment() -> None:
 def test_double_slash_inside_quotes_is_not_a_comment() -> None:
     tokens = _content(tokenize('__EXEC "http://heagy.com/etheme/"'))
     assert tokens[1].value == "http://heagy.com/etheme/"
+
+
+# ---------------------------------------------------------------------------
+# Quotes are delimiters, not token boundaries: E16's GetLine (config.c:122-131)
+# toggles a quote state on '"' and never copies the character, so adjacent
+# quoted and bare pieces glue into ONE word. Base's BUTTON_IMAGE macro relies
+# on it: ``__NAME "BUTTON_"name`` -> BUTTON_ICONIFY.
+# ---------------------------------------------------------------------------
+
+
+def test_adjacent_quoted_and_bare_pieces_glue_into_one_word() -> None:
+    tokens = _content(tokenize('__NAME "BUTTON_"ICONIFY'))
+    assert [(t.kind, t.value) for t in tokens] == [
+        (TokenKind.IDENT, "__NAME"),
+        (TokenKind.STRING, "BUTTON_ICONIFY"),
+    ]
+
+
+def test_quoted_pieces_around_a_bare_macro_argument_glue() -> None:
+    tokens = _content(tokenize('__NORMAL "artwork/button_"iconify"_1.png"'))
+    assert [(t.kind, t.value) for t in tokens] == [
+        (TokenKind.IDENT, "__NORMAL"),
+        (TokenKind.STRING, "artwork/button_iconify_1.png"),
+    ]
+
+
+def test_quoted_string_with_spaces_stays_one_token() -> None:
+    tokens = _content(tokenize('__NAME "Aliens Theme" 3'))
+    assert [(t.kind, t.value) for t in tokens] == [
+        (TokenKind.IDENT, "__NAME"),
+        (TokenKind.STRING, "Aliens Theme"),
+        (TokenKind.NUMBER, 3),
+    ]
+
+
+def test_separate_quoted_strings_stay_separate() -> None:
+    tokens = _content(tokenize('__EXEC "a" "b"'))
+    assert [t.value for t in tokens] == ["__EXEC", "a", "b"]

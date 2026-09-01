@@ -292,3 +292,26 @@ def test_definitions_include_still_skipped(tmp_path: Path) -> None:
     kvs = [n for n in nodes if isinstance(n, KeyVal)]
     assert len(kvs) == 1
     assert kvs[0].keyword == "__E_CFG_VERSION"
+
+
+def test_macro_body_with_adjacent_quoted_pieces_yields_one_name(tmp_path: Path) -> None:
+    """Base's BUTTON_IMAGE(name,graphic) macro spells the iclass name as
+    ``"BUTTON_"name`` and the art as ``"artwork/button_"graphic"_1.png"``.
+    E16's GetLine drops quote characters (config.c:122-131), so both are
+    single words; before this the name lexed as ("BUTTON_", "ICONIFY") and
+    six themes of that family lost every button image."""
+    (tmp_path / "imageclasses.cfg").write_text(
+        "#define BUTTON_IMAGE(name,graphic) \\\n"
+        "__ICLASS __BGN; \\\n"
+        '  __NAME "BUTTON_"name;\\\n'
+        '  __NORMAL "artwork/button_"graphic"_1.png";\\\n'
+        "  __EDGE_SCALING 2 2 2 2;\\\n"
+        "__END\n"
+        "BUTTON_IMAGE(ICONIFY,iconify);\n"
+    )
+    nodes = parse_tree(tmp_path, ["imageclasses.cfg"])
+    iclass = _blocks(nodes, "__ICLASS")[0]
+    name = _kv(iclass, "__NAME")
+    normal = _kv(iclass, "__NORMAL")
+    assert name is not None and name.values == ("BUTTON_ICONIFY",)
+    assert normal is not None and normal.values == ("artwork/button_iconify_1.png",)

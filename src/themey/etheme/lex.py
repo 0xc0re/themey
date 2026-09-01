@@ -12,6 +12,13 @@ Recognized tokens:
                 ALSO any bare word that is neither an IDENT nor a NUMBER —
                 an unquoted path (``artwork/borders/left_u.png``, Tubular),
                 a name with punctuation (``pager_titelleiste-``, WashedBlue).
+                Quotes are delimiters, not token boundaries: E16's GetLine
+                (config.c:122-131) toggles a quote state on '"' and never
+                copies the character, so quoted and bare pieces that touch
+                glue into ONE word — Base's ``__NAME "BUTTON_"name`` macro
+                body is the word BUTTON_ICONIFY, and
+                ``"artwork/button_"graphic"_1.png"`` one path. A word that
+                had any quoted piece is a STRING whatever it spells.
   INCLUDE     — '#include' keyword token (not a comment — lexer checks literal
                 'include' before entering the # comment path)
   ANGLE_PATH  — <path> immediately after INCLUDE (e.g. <definitions>)
@@ -211,36 +218,47 @@ def tokenize(text: str) -> list[Token]:
             continue
 
         # ------------------------------------------------------------------ #
-        # Quoted string (only in non-include context)
+        # One word (E16 GetLine + sscanf "%s"): a run of touching pieces,
+        # each either a "quoted segment" or a bare run, ended by whitespace,
+        # ';', '#' or a comment opener. Classified after the fact:
+        #   STRING  if any piece was quoted   ("BUTTON_"name -> BUTTON_name)
+        #   IDENT   [A-Za-z_][A-Za-z0-9_]*    (keywords and plain names)
+        #   NUMBER  -?[0-9]+                  (signed integers)
+        #   STRING  anything else             (unquoted paths, odd names)
         # ------------------------------------------------------------------ #
-        if ch == '"':
-            m = _RE_STRING.match(text, pos)
-            if m:
-                _append(TokenKind.STRING, m.group(1), line)
+        pieces: list[str] = []
+        quoted = False
+        start = pos
+        while pos < n:
+            if text[pos] == '"':
+                m = _RE_STRING.match(text, pos)
+                if m is None:
+                    # Unterminated string — skip to EOL, as before
+                    while pos < n and text[pos] != "\n":
+                        pos += 1
+                    break
+                pieces.append(m.group(1))
+                quoted = True
                 pos = m.end()
-            else:
-                # Unterminated string — skip to EOL
-                while pos < n and text[pos] != "\n":
-                    pos += 1
-            continue
-
-        # ------------------------------------------------------------------ #
-        # Bare word (E16 sscanf "%s"), classified after the fact:
-        #   IDENT   [A-Za-z_][A-Za-z0-9_]*      (keywords and plain names)
-        #   NUMBER  -?[0-9]+                    (signed integers)
-        #   STRING  anything else               (unquoted paths, odd names)
-        # ------------------------------------------------------------------ #
-        m = _RE_BARE_WORD.match(text, pos)
-        if m:
-            word = m.group(0)
-            if _RE_IDENT.fullmatch(word):
+                continue
+            m = _RE_BARE_WORD.match(text, pos)
+            if m is None:
+                break
+            pieces.append(m.group(0))
+            pos = m.end()
+        if pieces:
+            word = "".join(pieces)
+            if quoted:
+                _append(TokenKind.STRING, word, line)
+            elif _RE_IDENT.fullmatch(word):
                 _append(TokenKind.IDENT, word, line)
             elif _RE_NUMBER.fullmatch(word):
                 _append(TokenKind.NUMBER, int(word), line)
             else:
                 _append(TokenKind.STRING, word, line)
-            pos = m.end()
             continue
+        if pos > start:
+            continue  # an unterminated string was skipped to EOL above
 
         # ------------------------------------------------------------------ #
         # Unrecognized character (a lone '/' before '*' cannot happen — the
