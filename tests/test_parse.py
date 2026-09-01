@@ -295,3 +295,44 @@ def test_parse_tree_aliens_imageclasses(aliens_extracted: Path) -> None:
     required = {"TITLE_BAR_HORIZONTAL", "BUTTON_KILL", "BUTTON_ICONIFY", "BUTTON_MAXIMIZE"}
     missing = required - names  # type: ignore[arg-type]
     assert not missing, f"Missing __ICLASS blocks: {missing}"
+
+
+# ---------------------------------------------------------------------------
+# Lowercase / bare-word values (E16 sscanf("%s") semantics, config.c:185)
+# ---------------------------------------------------------------------------
+
+
+def test_lowercase_iclass_reference_is_kept_as_value() -> None:
+    """WashedBlue's ``__ICLASS titelleiste``: the lowercase name is a plain
+    value of the __ICLASS KeyVal, not a keyword and not dropped."""
+    nodes = _parse_str(
+        "__BORDER\n__BGN\n__NAME DEFAULT\n__BORDER_PART\n__BGN\n"
+        "__ICLASS titelleiste\n__END\n__END\n"
+    )
+    kvs = [n for n in _walk(nodes) if isinstance(n, KeyVal) and n.keyword == "__ICLASS"]
+    assert [kv.values for kv in kvs] == [("titelleiste",)]
+
+
+def test_lowercase_iclass_declaration_head_is_kept() -> None:
+    """``__ICLASS titelleiste`` + ``__BGN`` opens a block named in lowercase."""
+    nodes = _parse_str("__ICLASS titelleiste\n__BGN\n__NORMAL artwork/t.png\n__END\n")
+    assert len(nodes) == 1
+    blk = nodes[0]
+    assert isinstance(blk, Block)
+    assert blk.keyword == "__ICLASS"
+    assert blk.head_values == ("titelleiste",)
+    kv = blk.children[0]
+    assert isinstance(kv, KeyVal)
+    assert kv.values == ("artwork/t.png",)
+
+
+def test_lowercase_word_at_line_start_does_not_swallow_the_next_line() -> None:
+    """A stray lowercase word (fonts.theme.cfg-style ``font-default``) is a
+    harmless top-level KeyVal, not a value glued onto the previous line."""
+    nodes = _parse_str('__ICLASS FOO\n__BGN\n__NORMAL a.png\n__END\nfont-default "x/9"\n')
+    blk = nodes[0]
+    assert isinstance(blk, Block)
+    assert blk.head_values == ("FOO",)
+    kv = blk.children[0]
+    assert isinstance(kv, KeyVal)
+    assert kv.values == ("a.png",)

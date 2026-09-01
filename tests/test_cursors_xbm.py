@@ -10,12 +10,13 @@ The color polarity is NOT plain ``XCreatePixmapCursor``: E16 deliberately
 swaps ``__FG_COLOR``/``__BG_COLOR`` for every theme cursor because "the
 pmap (not mask) bits in all theme cursors are inverted" (e16-1.0.31
 ``src/eimage.c:770-791``, the XRender path every real build takes, and
-``src/cursors.c:71-74`` for the non-XRender one). In the theme art the
-SET image bits are the pointer's outline and the CLEAR-but-masked bits
-are its body, so after the swap the body lands in ``__FG_COLOR`` — e13's
-white arrow with a dark outline, Yellow's yellow one — which is what the
-theme authors meant. So this file pins the cases against synthetic
-bitmaps it writes itself (no fixture dependency), per ``eimage.c:783-789``:
+``src/cursors.c:71-74`` for the non-XRender one). The rule is
+mechanical: for Aliens-style art (SET bits = body, the corpus majority)
+the body renders in ``__BG_COLOR``, the classic black arrow with a white
+outline; for e13/Yellow-style art (SET bits = outline) the body takes
+``__FG_COLOR``. Either way it is what E16 showed. So this file pins the
+cases against synthetic bitmaps it writes itself (no fixture
+dependency), per ``eimage.c:783-789``:
 
     mask bit SET      -> pixel is visible
     mask bit CLEAR    -> pixel is transparent (image bit irrelevant)

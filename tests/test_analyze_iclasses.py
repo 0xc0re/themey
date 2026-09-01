@@ -250,3 +250,11 @@ def test_iclass_padding_defaults_to_zero(tmp_path: Path) -> None:
     block = Block(keyword="__ICLASS", head_values=("BAR",), children=(), line=0)
     typed, _raw = build_iclasses([block], tmp_path)
     assert typed["BAR"].padding == (0, 0, 0, 0)
+
+
+def test_edge_scaling_uses_atoi_semantics(tmp_path: Path) -> None:
+    """E16 reads ``__EDGE_SCALING`` with sscanf("%i") (iclass.c:446); a
+    whole-word token like ``4P`` must coerce to 4, not raise."""
+    block = _iclass_block("X", _kv("__EDGE_SCALING", "4P", 5, "--", 0))
+    typed, _raw = build_iclasses([block], tmp_path)
+    assert typed["X"].edge_scaling == (4, 5, 0, 0)

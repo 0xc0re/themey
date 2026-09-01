@@ -19,13 +19,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from themey.etheme.ast import Block, KeyVal
+from themey.etheme.ast import Block, KeyVal, atoi
 from themey.ir import IClassSpec
 
 
 def _to_int(v: object) -> int:
-    """Coerce an AST value (int | str) to int for pyright basic compatibility."""
-    return int(v)  # type: ignore[arg-type]
+    """Coerce an AST value (int | str) to int with E16's atoi semantics."""
+    return atoi(v)
 
 
 def _block_name(block: Block) -> str | None:

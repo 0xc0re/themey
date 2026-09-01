@@ -30,12 +30,16 @@ Three contracts govern this module:
        image bit SET   -> __BG_COLOR   ("fg/bg swapped")
        image bit CLEAR -> __FG_COLOR
 
-   In the theme art the SET bits are the pointer's outline and the
-   clear-but-masked bits its body, so the swap puts the BODY in
-   ``__FG_COLOR`` — e13's white arrow with a dark outline, Yellow's
-   yellow one — which is what the authors meant. E16 ships the mask as a
-   sibling ``<file>.xbm.mask``; ``CursorSpec`` has no field for it, so
-   it is derived here. With no mask file (8 of the corpus's 1625 XBMs)
+   The rule is mechanical; which visual element gets which color depends
+   on how the theme drew its XBM. In most of the corpus (Aliens and 61
+   other DEFAULT pointers, censused 2026-09-01) the SET bits are the
+   arrow's body, so E16 paints the body in ``__BG_COLOR`` and the outline
+   in ``__FG_COLOR`` — Aliens' ``FG 255 255 255 / BG 0 0 0`` is the classic
+   black arrow with a white outline. In the e13/Yellow minority the SET
+   bits are the outline, so the body takes ``__FG_COLOR`` (Yellow's is
+   yellow). Plain X11 polarity inverted every one of them. E16 ships the
+   mask as a sibling ``<file>.xbm.mask``; ``CursorSpec`` has no field for
+   it, so it is derived here. With no mask file (8 of the corpus's 1625 XBMs)
    E16's XRender path paints nothing at all (``bits_m`` is 0 for every
    pixel) and the non-XRender path a solid rectangle, so there is no
    fidelity target; themey keeps the swap consistent and draws the set

@@ -299,3 +299,26 @@ def test_borderpart_extras_default_to_unspecified() -> None:
     assert p.keep_on_top is False
     assert p.min_w == 0 and p.max_w == 0
     assert p.min_h == 0 and p.max_h == 0
+
+
+# ---------------------------------------------------------------------------
+# Numeric fields use atoi semantics (E16 borders.c:1220 ``i2 = atoi(s2)``)
+# ---------------------------------------------------------------------------
+
+
+def test_numeric_field_with_trailing_junk_takes_the_integer_prefix() -> None:
+    """AluminE's ``__TOPLEFT_Y_ABSOLUTE 19P`` — one sscanf word, atoi -> 19."""
+    blk = _border_block(
+        name="DEFAULT", parts=[_part_block(ICLASS="X", TOPLEFT_Y_ABSOLUTE="19P")]
+    )
+    (part,) = extract_button_parts(blk)
+    assert part.tl_y_abs == 19
+
+
+def test_numeric_field_with_no_digits_is_zero() -> None:
+    """AeonFlux's ``__BOTTOMRIGHT_X_ABSOLUTE --`` — atoi("--") is 0."""
+    blk = _border_block(
+        name="DEFAULT", parts=[_part_block(ICLASS="X", BOTTOMRIGHT_X_ABSOLUTE="--")]
+    )
+    (part,) = extract_button_parts(blk)
+    assert part.br_x_abs == 0
