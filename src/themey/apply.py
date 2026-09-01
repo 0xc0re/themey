@@ -245,6 +245,7 @@ _PREV_DECO_KEY = "ThemeyPrevDeco"
 _PREV_COLORS_KEY = "PrevColorScheme"
 _PREV_PLASMA_KEY = "PrevPlasmaTheme"
 _PREV_PANELS_KEY = "PrevPanelLengthModes"
+_PREV_FLOATING_KEY = "PrevPanelFloating"
 
 # The iconbox marker is NOT a Prev* baseline: it records a themey-CREATED
 # artifact (the dedicated iconbox panel's containment id), so it is
@@ -366,13 +367,39 @@ def _read_panel_length_modes() -> dict[str, str]:
     return modes
 
 
-def _set_panels_fit(kw: str, kr: str) -> None:
-    """Set every panel's length mode to ``fit`` (content-sized), the E16
-    iconbox/dragbar feel, snapshotting the previous modes once.
+def _read_panel_floating() -> dict[str, str]:
+    """``{panel_id: 'true'|'false'}`` for every plasmashell panel.
 
-    The marker mirrors the other ``[Themey]`` baselines: written only on
-    the first themey apply (``id=mode`` pairs joined by ``|``), restored
-    and cleared by :func:`revert`. No panels (plasmashell not running is
+    ``p.floating`` is read inside try/catch like the creation script sets
+    it: a plasmashell without the property must not kill the whole read.
+    """
+    out = _evaluate_plasma_script(
+        "var out = [];"
+        "for (const p of panels()) {"
+        " var f = false; try { f = p.floating; } catch (e) {}"
+        " out.push(p.id + '=' + f); }"
+        "print(out.join('|'));",
+        "plasmashell panel floating read script",
+    )
+    floating: dict[str, str] = {}
+    for pair in out.split("|"):
+        if "=" in pair:
+            pid, value = pair.split("=", 1)
+            if pid.strip().isdigit() and value.strip() in ("true", "false"):
+                floating[pid.strip()] = value.strip()
+    return floating
+
+
+def _set_panels_fit(kw: str, kr: str) -> None:
+    """Set every panel's length mode to ``fit`` (content-sized) and
+    ``floating`` off (docked), the E16 iconbox/dragbar feel, snapshotting
+    the previous modes once.
+
+    E16 bars are docked strips — a floating panel adds an 8 px transparent
+    halo that rounds the E16 look away. The markers mirror the other
+    ``[Themey]`` baselines: written only on the first themey apply
+    (``id=mode`` / ``id=true|false`` pairs joined by ``|``), restored and
+    cleared by :func:`revert`. No panels (plasmashell not running is
     caught earlier by the read script) means nothing to do.
     """
     modes = _read_panel_length_modes()
@@ -381,8 +408,18 @@ def _set_panels_fit(kw: str, kr: str) -> None:
     if _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PANELS_KEY) is None:
         marker = "|".join(f"{pid}={mode}" for pid, mode in sorted(modes.items()))
         _cfg_write(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PANELS_KEY, marker)
+    if _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_FLOATING_KEY) is None:
+        floating = _read_panel_floating()
+        if floating:
+            marker = "|".join(
+                f"{pid}={value}" for pid, value in sorted(floating.items())
+            )
+            _cfg_write(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_FLOATING_KEY, marker)
     _evaluate_plasma_script(
-        "for (const p of panels()) { p.lengthMode = 'fit'; }",
+        "for (const p of panels()) {"
+        " p.lengthMode = 'fit';"
+        " try { p.floating = false; } catch (e) {}"
+        " }",
         "plasmashell panel fit-content script",
     )
 
@@ -406,6 +443,28 @@ def _restore_panel_length_modes(kw: str, marker: str) -> None:
     _evaluate_plasma_script(
         f"for (const p of panels()) {{ {assignments} }}",
         "plasmashell panel length-mode restore script",
+    )
+
+
+def _restore_panel_floating(kw: str, marker: str) -> None:
+    """Put the recorded per-panel floating states back (revert path)."""
+    entries = [
+        pair.split("=", 1) for pair in marker.split("|") if "=" in pair
+    ]
+    valid = {
+        pid: value
+        for pid, value in entries
+        if pid.isdigit() and value in ("true", "false")
+    }
+    if not valid:
+        return
+    assignments = "".join(
+        f"if (p.id == {pid}) {{ try {{ p.floating = {value}; }} catch (e) {{}} }}"
+        for pid, value in sorted(valid.items())
+    )
+    _evaluate_plasma_script(
+        f"for (const p of panels()) {{ {assignments} }}",
+        "plasmashell panel floating restore script",
     )
 
 
@@ -845,10 +904,11 @@ def apply_full(
     Image wallpaper plugin does not itself read fill-mode from the
     wallpaper package, and the apply tool has no tile token — see
     :data:`_WALLPAPER_TILE_FILL_MODE_INT`) → one ``qdbus`` reconfigure,
-    last. Every panel is set to fit-content just BEFORE the wallpaper
-    fix-up (:func:`_set_panels_fit` — E16's iconbox/dragbar are
-    content-sized, and a full-width bar reads as Plasma, not E16; previous
-    modes recorded once in ``PrevPanelLengthModes``): the wallpaper step
+    last. Every panel is set to fit-content and un-floated just BEFORE the
+    wallpaper fix-up (:func:`_set_panels_fit` — E16's iconbox/dragbar are
+    content-sized docked strips, and a full-width or floating bar reads as
+    Plasma, not E16; previous modes recorded once in
+    ``PrevPanelLengthModes``/``PrevPanelFloating``): the wallpaper step
     is the likeliest to raise, and a failed apply should still have
     delivered the panel feel. The dedicated iconbox panel is created right
     after the fit step (:func:`_ensure_iconbox` — after, so it never
@@ -1014,6 +1074,7 @@ def revert() -> bool:
     prev_colors = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_COLORS_KEY)
     prev_plasma = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PLASMA_KEY)
     prev_panels = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PANELS_KEY)
+    prev_floating = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_FLOATING_KEY)
     prev_furniture = {
         key: _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, key)
         for key, _name, _script in _furniture_specs()
@@ -1025,6 +1086,7 @@ def revert() -> bool:
         and prev_colors is None
         and prev_plasma is None
         and prev_panels is None
+        and prev_floating is None
         and prev_rows is None
         and all(v is None for v in prev_furniture.values())
     ):
@@ -1187,9 +1249,31 @@ def revert() -> bool:
                 exc,
             )
 
+    floating_error: ApplyError | None = None
+    if prev_floating is not None:
+        try:
+            _restore_panel_floating(kw, prev_floating)
+            _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_FLOATING_KEY)
+        except ApplyError as exc:
+            floating_error = exc
+            log.warning(
+                "could not restore the previous panel floating states (%s) — "
+                "keeping the marker so a later `themey apply --revert` "
+                "can retry it",
+                exc,
+            )
+
     _reconfigure()
 
-    errors = (lnf_error, colors_error, plasma_error, iconbox_error, rows_error, panels_error)
+    errors = (
+        lnf_error,
+        colors_error,
+        plasma_error,
+        iconbox_error,
+        rows_error,
+        panels_error,
+        floating_error,
+    )
     if any(e is not None for e in errors):
         failed = " and ".join(str(e) for e in errors if e is not None)
         raise ApplyError(
