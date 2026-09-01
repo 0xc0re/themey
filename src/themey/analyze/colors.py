@@ -54,6 +54,7 @@ from themey.analyze.coords import (
     REFERENCE_WINDOW_WIDTH,
     resolve,
 )
+from themey.analyze.tclasses import title_tclass
 from themey.ir import BorderSpec, ColorGroup, ColorScheme, IClassSpec, Palette, TClassSpec
 
 log = logging.getLogger(__name__)
@@ -560,7 +561,7 @@ def build_scheme(
             f"focus fall back to Breeze blue rgb{BREEZE_ACCENT}"
         )
 
-    text1 = tclasses.get("TEXT1")
+    text1 = title_tclass(border, tclasses)
     return _compose(
         tint=tint if tint is not None else DEFAULT_TINT,
         accent=accent,
