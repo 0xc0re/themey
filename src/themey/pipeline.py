@@ -133,7 +133,7 @@ def convert(
     backend: str = "qml",
     upscale: str = "nearest",
     shade_button: str = "maximize",
-    iconbox_frames: str = "on",
+    iconbox_frames: str = "off",
 ) -> ConvertResult:
     """Convert one .etheme to an installed KWin decoration + preview + report.
 
@@ -160,10 +160,11 @@ def convert(
             ``"none"`` (today's inert disabled button). The SVG backend
             never consumes this flag, so any value is accepted regardless
             of ``backend``.
-        iconbox_frames: Plasma Style task frames for the iconbox panel:
-            ``"on"`` (default — the iconbox button art as per-icon plates)
-            or ``"off"`` (E16's own frameless iconbox default, transparent
-            sets); ``plasmastyle.ICONBOX_FRAME_MODES``.
+        iconbox_frames: Plasma Style task frames for the icon task
+            manager: ``"off"`` (default — E16's own frameless iconbox,
+            ``container.c`` ``draw_icon_base = 0``) or ``"on"`` (the
+            iconbox button art as per-icon plates);
+            ``plasmastyle.ICONBOX_FRAME_MODES``.
 
     Returns:
         A :class:`ConvertResult`. ``installed_dir`` is the SVG theme dir
