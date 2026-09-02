@@ -37,6 +37,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **XLFD family aliasing** — X11 core families that fontconfig has no
+  alias for (`lucida`, 1360 corpus alias lines; `fixed`,
+  `lucidatypewriter`, `clean`) no longer fall to the default sans: lucida
+  renders with DejaVu Sans (Bitstream Vera, the same foundry lineage as
+  Lucida), the monospace names with DejaVu Sans Mono, clean with the generic
+  sans-serif; helvetica/times/courier keep going through fontconfig's own
+  Nimbus/Liberation aliases. Each mapping is reported as a `fonts:` note.
 - **E16 tooltips** — `tooltips.cfg` is parsed (E16's `ThemeConfigLoad`
   order; the `DEFINE_TOOLTIP*` macros expand through the bundled
   `config/definitions`) and the Plasma Style's `widgets/tooltip.svg` plus

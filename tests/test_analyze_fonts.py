@@ -45,7 +45,7 @@ def test_e13_xlfd_entry_has_no_ttf(e13_root):
     fonts = parse_fonts(e13_root)
     spec = fonts["font-coords"]
     assert spec.ttf_path is None
-    assert spec.family == "lucida"
+    assert spec.family == "DejaVu Sans" and spec.source_family == "lucida"
     # "-*-lucida-bold-r-normal-*-*-100-*-*-p-*-iso8859-1": pixel field is a
     # wildcard, point field 100 → size 10 POINTS (points=True → 13 px).
     assert spec.size == 10
@@ -98,7 +98,8 @@ def test_xlfd_weight_slant_and_pixel_field(tmp_path):
     from themey.analyze.fonts import _parse_xlfd
 
     spec = _parse_xlfd("f", "-*-helvetica-bold-o-*-*-12-*-*-*-*-*-*-*")
-    assert spec.family == "helvetica" and spec.size == 12
+    assert spec.family == "helvetica" and spec.source_family is None
+    assert spec.size == 12
     assert spec.points is False and spec.pixel_size == 12
     assert spec.bold is True and spec.italic is True
     spec = _parse_xlfd("g", "-*-lucida-medium-r-*-*-*-120-*-*-*-*-*-*")
@@ -129,3 +130,49 @@ def test_xft_pattern_entries(tmp_path):
     assert f.points is True and f.bold is True and f.italic is False
     assert fonts["font-i"].family == "Sans Serif" and fonts["font-i"].italic is True
     assert fonts["font-p"].size == 6 and fonts["font-p"].bold is False
+
+
+def test_xlfd_family_aliases(tmp_path):
+    """X11 core families a Plasma system lacks map to fontconfig names
+    (module docstring); fontconfig's own aliases (helvetica) pass through."""
+    from themey.analyze.fonts import _parse_xft, _parse_xlfd, alias_family
+
+    assert alias_family("lucida") == ("DejaVu Sans", "lucida")
+    assert alias_family("Lucida") == ("DejaVu Sans", "Lucida")
+    assert alias_family("lucidatypewriter") == ("DejaVu Sans Mono", "lucidatypewriter")
+    assert alias_family("fixed") == ("DejaVu Sans Mono", "fixed")
+    assert alias_family("clean") == ("sans-serif", "clean")
+    assert alias_family("helvetica") == ("helvetica", None)
+    assert alias_family(None) == (None, None)
+    spec = _parse_xlfd("f", "-b&h-lucida-bold-r-normal-*-*-100-*-*-p-*-iso8859-1")
+    assert spec.family == "DejaVu Sans" and spec.source_family == "lucida"
+    assert spec.bold is True
+    xft = _parse_xft("g", "xft:lucida-10:italic")
+    assert xft is not None and xft.family == "DejaVu Sans" and xft.source_family == "lucida"
+
+
+def test_build_theme_notes_font_aliases(tmp_path):
+    """One ``fonts:`` note per distinct authored → mapped family."""
+    from themey.analyze.build_theme import build_theme
+    from themey.etheme.ast import Block, KeyVal
+
+    (tmp_path / "fonts.theme.cfg").write_text(
+        '__FONTS __BGN\n'
+        '  font-default "-*-lucida-medium-r-*-*-12-*-*-*-*-*-*-*"\n'
+        '  font-focus "-*-lucida-bold-r-*-*-12-*-*-*-*-*-*-*"\n'
+        '  font-mono "-*-fixed-medium-r-*-*-13-*-*-*-*-*-*-*"\n'
+        '  font-h "-*-helvetica-medium-r-*-*-12-*-*-*-*-*-*-*"\n'
+        '__END\n'
+    )
+    border = Block(
+        keyword="__BORDER", head_values=("DEFAULT",),
+        children=(
+            KeyVal(keyword="__BORDER_SIZE", values=(1, 1, 1, 1), line=0),
+        ),
+        line=0,
+    )
+    theme = build_theme(tmp_path, [border], name="t")
+    font_notes = [n for n in theme.notes if n.startswith("fonts:")]
+    assert len(font_notes) == 2
+    assert any("fixed" in n and "DejaVu Sans Mono" in n for n in font_notes)
+    assert any("lucida" in n and "DejaVu Sans" in n for n in font_notes)
