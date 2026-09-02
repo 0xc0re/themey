@@ -56,12 +56,22 @@ from themey.ir import Theme  # noqa: E402
 
 DEFAULT_CORPUS = Path.home() / "Desktop" / "ethemes" / "e16"
 
-#: Contact-sheet geometry (px). Kept small on purpose — the whole sheet
-#: must stay under a megabyte to be worth opening.
+#: Contact-sheet geometry (px) at full size, and the hard ceiling on the
+#: resulting PNG. A sheet too big to open is not an audit artifact, so
+#: :func:`_contact_sheet` re-renders at successively smaller scales until
+#: it fits and refuses outright if even the smallest does not — the
+#: 223-theme corpus lands around 95 KB, so the cap only bites on a much
+#: larger one.
 STRIP = (88, 13)
 LABEL_W = 104
 COLUMNS = 4
 ROW_H = 17
+MAX_SHEET_BYTES = 1_000_000
+SHEET_SCALES = (1.0, 0.7, 0.5, 0.35, 0.25)
+
+
+class SheetTooLargeError(RuntimeError):
+    """No scale in :data:`SHEET_SCALES` brought the sheet under the cap."""
 
 
 # --------------------------------------------------------------------- #
@@ -231,35 +241,67 @@ def _strip(spec: Any, state: str) -> list[list[int]] | None:
 # Reports
 # --------------------------------------------------------------------- #
 
-def _contact_sheet(records: list[dict[str, Any]], out: Path) -> int:
-    """One row per theme: name, hover strip, selected strip; flips marked
-    with a ``>`` and a red rule. Returns the file size in bytes."""
-    rows = [r for r in records if r.get("strips")]
+def _render_sheet(rows: list[dict[str, Any]], out: Path, scale: float) -> int:
+    """Draw the sheet at *scale* and save it; returns the file size."""
+    sw = max(8, round(STRIP[0] * scale))
+    sh = max(3, round(STRIP[1] * scale))
+    label_w = max(20, round(LABEL_W * scale))
+    row_h = max(sh + 2, round(ROW_H * scale))
     per_col = (len(rows) + COLUMNS - 1) // COLUMNS or 1
-    cell_w = LABEL_W + STRIP[0] * 2 + 12
+    cell_w = label_w + sw * 2 + round(12 * scale)
     sheet = Image.new(
-        "RGB", (cell_w * COLUMNS, ROW_H * per_col + 4), (24, 24, 24)
+        "RGB", (cell_w * COLUMNS, row_h * per_col + 4), (24, 24, 24)
     )
     draw = ImageDraw.Draw(sheet)
     for i, rec in enumerate(rows):
         col, row = divmod(i, per_col)
-        x0, y0 = col * cell_w, row * ROW_H + 2
+        x0, y0 = col * cell_w, row * row_h + 2
         flipped = any(s["flipped"] for s in rec["states"])
-        draw.text(
-            (x0 + 2, y0 + 2), ("> " if flipped else "  ") + rec["name"][:15],
-            fill=(255, 120, 120) if flipped else (200, 200, 200),
-        )
+        if scale >= 0.9:  # the bitmap font stops being legible below this
+            draw.text(
+                (x0 + 2, y0 + 2), ("> " if flipped else "  ") + rec["name"][:15],
+                fill=(255, 120, 120) if flipped else (200, 200, 200),
+            )
+        elif flipped:
+            draw.rectangle(
+                (x0 + 2, y0 + 1, x0 + 4, y0 + sh), fill=(255, 120, 120)
+            )
         for j, state in enumerate(("hover", "selected")):
             data = rec["strips"].get(state)
             if data is None:
                 continue
             flat = bytes(v for line in data for v in line)
             strip = Image.frombytes("RGB", STRIP, flat)
-            sheet.paste(strip, (x0 + LABEL_W + j * (STRIP[0] + 4), y0 + 1))
+            if (sw, sh) != STRIP:
+                strip = strip.resize((sw, sh), Image.Resampling.NEAREST)
+            sheet.paste(strip, (x0 + label_w + j * (sw + round(4 * scale)), y0 + 1))
     sheet.convert("P", palette=Image.Palette.ADAPTIVE, colors=256).save(
         out, optimize=True
     )
     return out.stat().st_size
+
+
+def _contact_sheet(
+    records: list[dict[str, Any]], out: Path, max_bytes: int = MAX_SHEET_BYTES
+) -> int:
+    """One row per theme: name, hover strip, selected strip; flips marked
+    with a ``>`` (a red tick once the labels are dropped). Returns the file
+    size in bytes, re-rendering smaller until it is at most *max_bytes*.
+
+    Raises :class:`SheetTooLargeError` when even the smallest scale
+    overshoots — better a clear failure than an artifact nobody can open.
+    """
+    rows = [r for r in records if r.get("strips")]
+    size = 0
+    for scale in SHEET_SCALES:
+        size = _render_sheet(rows, out, scale)
+        if size <= max_bytes:
+            return size
+    raise SheetTooLargeError(
+        f"contact sheet is {size} bytes at the smallest scale "
+        f"({SHEET_SCALES[-1]:g}x), over the {max_bytes}-byte cap; "
+        f"narrow the run with --only/--limit or pass --no-sheet"
+    )
 
 
 def _markdown(records: list[dict[str, Any]]) -> str:
@@ -364,7 +406,11 @@ def main() -> int:
 
     sheet_note = ""
     if not args.no_sheet:
-        size = _contact_sheet(records, args.out / "contact.png")
+        try:
+            size = _contact_sheet(records, args.out / "contact.png")
+        except SheetTooLargeError as exc:
+            print(exc, file=sys.stderr)
+            return 1
         sheet_note = f", contact.png {size / 1024:.0f} KB"
 
     (args.out / "viewitem.md").write_text(_markdown(records), encoding="utf-8")

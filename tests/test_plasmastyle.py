@@ -2505,6 +2505,10 @@ def _sheen_png(tmp_path: Path, name: str, size=(64, 16)) -> Path:
 
 
 def test_middle_is_textured_grain_vs_gradient(tmp_path: Path) -> None:
+    """Synthetic ends of the range. The one calibration case these cannot
+    reach is art sitting JUST under ``_TEXTURE_MIN_GRAIN`` with every other
+    condition passing — that is Aliens' real MENU_SEL normal art, pinned in
+    ``test_pipeline_plasmastyle.py``."""
     noise = Image.open(_noise_png(tmp_path, "n.png")).convert("RGBA")
     grad = Image.open(_gradient_png(tmp_path, "g.png")).convert("RGBA")
     flat = Image.new("RGBA", (64, 16), (90, 60, 40, 255))
