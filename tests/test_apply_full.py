@@ -61,6 +61,9 @@ class FakeKConfig:
         self.park_reply: str = "parked"
         #: stdout served for each top-panel UNPARKING script.
         self.unpark_reply: str = "unparked"
+        #: stdout served for the screen-geometry READ script ("WxH";
+        #: "" = plasmashell printed nothing, the parse-failure signal).
+        self.screen_geometry_reply: str = "1920x1080"
         #: stdout served for the iconbox REMOVAL script ("" = the script
         #: threw and printed nothing — qdbus still exits 0).
         self.iconbox_remove_reply: str = "removed"
@@ -71,6 +74,10 @@ class FakeKConfig:
         if prog in self.fail_on:
             return subprocess.CompletedProcess(
                 cmd, 1, stdout="", stderr=self.fail_on[prog]
+            )
+        if any("evaluateScript" in tok for tok in cmd) and "screenGeometry" in cmd[-1]:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout=self.screen_geometry_reply + "\n"
             )
         if any("evaluateScript" in tok for tok in cmd) and "out.push" in cmd[-1]:
             if "p.location == 'top'" in cmd[-1]:
@@ -103,6 +110,12 @@ class FakeKConfig:
             )
         if prog.startswith("kwriteconfig"):
             key = cmd[cmd.index("--key") + 1]
+            if cmd[cmd.index("--file") + 1] == "plasmashellrc":
+                # Per-panel groups ([PlasmaViews][Panel <id>]) share the
+                # panelVisibility key name, so the store key carries the
+                # whole path.
+                groups = [cmd[i + 1] for i, t in enumerate(cmd) if t == "--group"]
+                key = "/".join(["plasmashellrc", *groups, key])
             if "--delete" in cmd:
                 self.store.pop(key, None)
             else:
@@ -1077,7 +1090,8 @@ def test_apply_full_creates_pager_panel_and_records_marker(
     assert "p.location = 'left'" in script
     assert "p.alignment = 'left'" in script
     assert "p.lengthMode = 'fit'" in script
-    assert "p.height = 130" in script
+    # 48 px E16 cells at the screen's 16:9 aspect (48 * 1920/1080).
+    assert "p.height = 85" in script
     # A scripted `new Panel` starts with min=max=full-screen and
     # lengthMode='fit' does NOT clear them (verified live 2026-08-31:
     # the panel drew as a full-height column around 33px of content).
@@ -1108,7 +1122,7 @@ def test_apply_full_creates_iconbox_panel_and_records_marker(
     assert "p.location = 'left'" in script
     assert "p.alignment = 'right'" in script
     assert "p.lengthMode = 'fit'" in script
-    assert "p.height = 60" in script
+    assert "p.height = 48" in script  # E16's iconsize
     assert "p.minimumLength = 0" in script
     assert "p.addWidget('org.kde.plasma.icontasks')" in script
     assert "org.themey.pager" not in script
@@ -1155,8 +1169,8 @@ def test_apply_full_second_apply_reuses_live_iconbox(
     # A live panel is brought back to spec: thickness, fit, min cleared
     # (chris's iconbox had drifted to 120 px; live 2026-09-01).
     reasserts = [c[-1] for c in fake_kconfig.calls if "reasserted" in c[-1]]
-    assert any("panelById(301)" in s and "p.height = 60" in s for s in reasserts)
-    assert any("panelById(302)" in s and "p.height = 130" in s for s in reasserts)
+    assert any("panelById(301)" in s and "p.height = 48" in s for s in reasserts)
+    assert any("panelById(302)" in s and "p.height = 85" in s for s in reasserts)
     fit = [s for s in reasserts if "panelById(303)" not in s]
     assert len(fit) == 2
     assert all("lengthMode = 'fit'" in s and "minimumLength = 0" in s for s in fit)
@@ -1887,3 +1901,305 @@ def test_revert_icon_theme_write_failure_keeps_marker(
         apply_mod.revert()
     assert fake_kconfig.store["PrevIconTheme"] == "Fluency"
     assert fake_kconfig.store["theme"] == "Breeze"  # the rest restored
+
+
+# --- furniture options: E16 sizes, struts, opt-outs ----------------------
+
+
+def test_furniture_options_defaults_are_e16_sizes() -> None:
+    """E16 1.0.31's own first-run furniture: 48 px pager cells
+    (pager.c:788-796) and a 48 px iconbox (container.c:103 iconsize), all
+    three panels on, struts off (Windows Go Below)."""
+    opts = apply_mod.FurnitureOptions()
+    assert (opts.pager, opts.iconbox, opts.dragbar) == (True, True, True)
+    assert opts.strut is False
+    assert opts.pager_cell_px == 48
+    assert opts.iconbox_px == 48
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_furniture_options_rejects_nonpositive_sizes(value: int) -> None:
+    with pytest.raises(apply_mod.ApplyError):
+        apply_mod.FurnitureOptions(pager_cell_px=value)
+    with pytest.raises(apply_mod.ApplyError):
+        apply_mod.FurnitureOptions(iconbox_px=value)
+
+
+def test_furniture_specs_defaults_return_all_three() -> None:
+    """revert enumerates the specs to find its markers, so the default
+    call must still describe every panel themey can create."""
+    keys = [s.key for s in apply_mod._furniture_specs()]
+    assert keys == ["PagerPanel", "IconboxPanel", "DragbarPanel"]
+
+
+@pytest.mark.parametrize(
+    "geometry,pager_px",
+    [("1920x1080", 85), ("1024x768", 64), ("2560x1440", 85)],
+)
+def test_pager_thickness_follows_screen_aspect(
+    fake_kconfig: FakeKConfig, geometry: str, pager_px: int,
+) -> None:
+    """E16 sized its pager ``w = 48 * screenW/screenH`` (pager.c:788-796),
+    so the panel thickness is the cell size times the screen aspect."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.screen_geometry_reply = geometry
+    apply_mod.apply_full("e13")
+    i = fake_kconfig.index_of("new Panel", "org.themey.pager")
+    assert f"p.height = {pager_px}" in fake_kconfig.calls[i][-1]
+    j = fake_kconfig.index_of("new Panel", "icontasks")
+    assert "p.height = 48" in fake_kconfig.calls[j][-1]
+
+
+@pytest.mark.parametrize("reply", ["", "not-a-geometry", "1920x0"])
+def test_pager_thickness_falls_back_to_16_9(
+    fake_kconfig: FakeKConfig, caplog, reply: str,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.screen_geometry_reply = reply
+    with caplog.at_level("WARNING"):
+        apply_mod.apply_full("e13")
+    i = fake_kconfig.index_of("new Panel", "org.themey.pager")
+    assert "p.height = 85" in fake_kconfig.calls[i][-1]
+    assert "16:9" in caplog.text
+
+
+def test_pager_geometry_script_failure_falls_back(
+    fake_kconfig: FakeKConfig, caplog,
+) -> None:
+    """A plasmashell that cannot answer must not fail the whole apply."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    real_run = fake_kconfig.run
+
+    def failing_geometry(cmd, **kwargs):
+        if any("screenGeometry" in tok for tok in cmd):
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="no shell")
+        return real_run(cmd, **kwargs)
+
+    fake_kconfig.run = failing_geometry  # type: ignore[method-assign]
+    apply_mod.subprocess.run = failing_geometry  # type: ignore[assignment]
+    with caplog.at_level("WARNING"):
+        apply_mod.apply_full("e13")
+    i = fake_kconfig.index_of("new Panel", "org.themey.pager")
+    assert "p.height = 85" in fake_kconfig.calls[i][-1]
+    assert "16:9" in caplog.text
+
+
+def test_furniture_size_overrides(fake_kconfig: FakeKConfig) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    apply_mod.apply_full(
+        "e13",
+        furniture=apply_mod.FurnitureOptions(pager_cell_px=60, iconbox_px=30),
+    )
+    i = fake_kconfig.index_of("new Panel", "org.themey.pager")
+    assert "p.height = 107" in fake_kconfig.calls[i][-1]  # 60 * 1920/1080
+    j = fake_kconfig.index_of("new Panel", "icontasks")
+    assert "p.height = 30" in fake_kconfig.calls[j][-1]
+
+
+def test_furniture_default_is_windows_go_below(fake_kconfig: FakeKConfig) -> None:
+    """The left-edge panels must not steal screen from maximized windows.
+
+    plasmashell's scripting engine has NO string for WindowsGoBelow (every
+    spelling reads back 'none' — verified live 2026-09-01), so the
+    creation scripts leave ``hiding`` alone and the mode is written into
+    plasmashellrc as ``panelVisibility=3``. The dragbar keeps its strut.
+    """
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    apply_mod.apply_full("e13")
+    pager = fake_kconfig.calls[
+        fake_kconfig.index_of("new Panel", "org.themey.pager")
+    ][-1]
+    iconbox = fake_kconfig.calls[
+        fake_kconfig.index_of("new Panel", "icontasks")
+    ][-1]
+    dragbar = fake_kconfig.calls[
+        fake_kconfig.index_of("new Panel", "org.themey.deskbutton")
+    ][-1]
+    assert "p.hiding" not in pager
+    assert "p.hiding" not in iconbox
+    assert "p.hiding = 'none'" in dragbar
+    store = fake_kconfig.store
+    assert store["plasmashellrc/PlasmaViews/Panel 302/panelVisibility"] == "3"
+    assert store["plasmashellrc/PlasmaViews/Panel 301/panelVisibility"] == "3"
+    assert store["plasmashellrc/PlasmaViews/Panel 303/panelVisibility"] == "0"
+
+
+def test_furniture_strut_keeps_normal_panels(fake_kconfig: FakeKConfig) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    apply_mod.apply_full("e13", furniture=apply_mod.FurnitureOptions(strut=True))
+    for needle in ("org.themey.pager", "icontasks", "org.themey.deskbutton"):
+        script = fake_kconfig.calls[fake_kconfig.index_of("new Panel", needle)][-1]
+        assert "p.hiding = 'none'" in script
+    store = fake_kconfig.store
+    for pid in ("301", "302", "303"):
+        assert store[f"plasmashellrc/PlasmaViews/Panel {pid}/panelVisibility"] == "0"
+
+
+def test_panel_visibility_written_after_all_furniture_scripting(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """Scripting flushes ``hiding`` to plasmashellrc lazily, so the
+    config write must come after every furniture script (verified live
+    2026-09-01: a later scripted hiding did NOT overwrite the file)."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    apply_mod.apply_full("e13")
+    last_script = max(
+        fake_kconfig.index_of("new Panel", w)
+        for w in ("org.themey.pager", "icontasks", "org.themey.deskbutton")
+    )
+    first_write = fake_kconfig.index_of("plasmashellrc", "panelVisibility")
+    assert last_script < first_write
+
+
+def test_second_apply_reasserts_size_and_visibility(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """A live panel that drifted (the 130/60 px panels earlier applies
+    created) is brought back to themey's spec without a revert."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["PagerPanel"] = "302"
+    fake_kconfig.store["IconboxPanel"] = "301"
+    fake_kconfig.store["DragbarPanel"] = "303"
+    fake_kconfig.iconbox_exists_reply = "exists"
+    apply_mod.apply_full("e13")
+    reassert = fake_kconfig.calls[
+        fake_kconfig.index_of("panelById(302)", "p.height")
+    ][-1]
+    assert "p.height = 85" in reassert
+    assert "p.hiding" not in reassert
+    dragbar = fake_kconfig.calls[
+        fake_kconfig.index_of("panelById(303)", "p.height")
+    ][-1]
+    assert "p.hiding = 'none'" in dragbar
+    assert (
+        fake_kconfig.store["plasmashellrc/PlasmaViews/Panel 302/panelVisibility"]
+        == "3"
+    )
+
+
+def test_reassert_writes_hiding_none_with_strut(fake_kconfig: FakeKConfig) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["PagerPanel"] = "302"
+    fake_kconfig.iconbox_exists_reply = "exists"
+    apply_mod.apply_full("e13", furniture=apply_mod.FurnitureOptions(strut=True))
+    reassert = fake_kconfig.calls[
+        fake_kconfig.index_of("panelById(302)", "p.height")
+    ][-1]
+    assert "p.hiding = 'none'" in reassert
+
+
+def test_no_restart_warns_strut_mode_pending(
+    fake_kconfig: FakeKConfig, caplog,
+) -> None:
+    """``panelVisibility`` only takes at the next plasmashell start."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    with caplog.at_level("WARNING"):
+        apply_mod.apply_full("e13", restart_shell=False)
+    assert "restart" in caplog.text.lower()
+    assert "panelVisibility" in caplog.text or "strut" in caplog.text.lower()
+
+
+def test_no_pager_skips_creation_and_desktop_grid(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["Number"] = "2"
+    apply_mod.apply_full("e13", furniture=apply_mod.FurnitureOptions(pager=False))
+    assert all(
+        "org.themey.pager" not in c[-1]
+        for c in fake_kconfig.calls
+        if "new Panel" in c[-1]
+    )
+    assert "PagerPanel" not in fake_kconfig.store
+    assert "Rows" not in fake_kconfig.store
+    assert "PrevDesktopRows" not in fake_kconfig.store
+    # The other two are still built.
+    fake_kconfig.index_of("new Panel", "icontasks")
+    fake_kconfig.index_of("new Panel", "org.themey.deskbutton")
+
+
+def test_no_pager_removes_recorded_pager_panel(fake_kconfig: FakeKConfig) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["PagerPanel"] = "302"
+    apply_mod.apply_full("e13", furniture=apply_mod.FurnitureOptions(pager=False))
+    i = fake_kconfig.index_of("panelById(302)", "p.remove()")
+    assert "org.kde.plasmashell" in fake_kconfig.calls[i]
+    assert "PagerPanel" not in fake_kconfig.store
+
+
+def test_no_pager_restores_recorded_desktop_rows(fake_kconfig: FakeKConfig) -> None:
+    """The stacked desktop grid exists only for the pager, so opting out
+    puts the user's own grid back (the same restore revert does)."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["Number"] = "4"
+    fake_kconfig.store["Rows"] = "4"
+    fake_kconfig.store["PrevDesktopRows"] = "2"
+    apply_mod.apply_full("e13", furniture=apply_mod.FurnitureOptions(pager=False))
+    assert fake_kconfig.store["Rows"] == "2"
+    assert "PrevDesktopRows" not in fake_kconfig.store
+    i = fake_kconfig.index_of("VirtualDesktopManager", "rows")
+    assert fake_kconfig.calls[i][-1] == "2"
+
+
+def test_no_iconbox_removes_recorded_iconbox_panel(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["IconboxPanel"] = "301"
+    apply_mod.apply_full("e13", furniture=apply_mod.FurnitureOptions(iconbox=False))
+    fake_kconfig.index_of("panelById(301)", "p.remove()")
+    assert "IconboxPanel" not in fake_kconfig.store
+    assert all(
+        "icontasks" not in c[-1]
+        for c in fake_kconfig.calls
+        if "new Panel" in c[-1]
+    )
+
+
+def test_no_dragbar_skips_parking_and_unparks(fake_kconfig: FakeKConfig) -> None:
+    """Without themey's dragbar the top edge belongs to the user again."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["PrevTopPanels"] = "1911=0:top:none"
+    fake_kconfig.store["DragbarPanel"] = "303"
+    fake_kconfig.top_panels_reply = "1912=0:top:none"
+    apply_mod.apply_full("e13", furniture=apply_mod.FurnitureOptions(dragbar=False))
+    assert all("'parked'" not in c[-1] for c in fake_kconfig.calls)
+    fake_kconfig.index_of("panelById(1911)", "'unparked'")
+    assert "PrevTopPanels" not in fake_kconfig.store
+    fake_kconfig.index_of("panelById(303)", "p.remove()")
+    assert "DragbarPanel" not in fake_kconfig.store
+    assert all(
+        "org.themey.deskbutton" not in c[-1]
+        for c in fake_kconfig.calls
+        if "new Panel" in c[-1]
+    )
+
+
+def test_applet_precheck_only_requires_enabled_applets(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    import shutil as _shutil
+
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    _shutil.rmtree(paths.plasmoids() / plasmoids.PAGER_ID)
+    # Pager off: its applet is not needed.
+    apply_mod.apply_full("e13", furniture=apply_mod.FurnitureOptions(pager=False))
+    # Pager on: it is.
+    with pytest.raises(apply_mod.ApplyError, match=plasmoids.PAGER_ID):
+        apply_mod.apply_full("e13")
