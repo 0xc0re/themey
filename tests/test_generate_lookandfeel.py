@@ -9,6 +9,7 @@ kdeglobals/kcminputrc/Wallpaper/kwinrc.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -340,6 +341,21 @@ def test_defaults_snapshot_all_artifacts(tmp_path: Path, snapshot) -> None:
         deco_theme="themey_Aliens",
     )
     assert (out_dir / "contents" / "defaults").read_text() == snapshot
+
+
+def test_lookandfeel_metadata_carries_scale(tmp_path: Path) -> None:
+    """``X-Themey-Scale`` rides in the bundle metadata so ``apply`` can
+    size the dragbar panel it creates (``scale_px(16)``) without a new
+    artifact — the bundle is the file apply already opens."""
+    theme = _make_theme()
+    out_dir = tmp_path / plugin_id(theme.name)
+    write_metadata_json(theme, out_dir)
+    meta = json.loads((out_dir / "metadata.json").read_text())
+    assert meta["X-Themey-Scale"] == theme.scale
+    theme15 = replace(theme, scale=1.5)
+    write_metadata_json(theme15, out_dir)
+    meta = json.loads((out_dir / "metadata.json").read_text())
+    assert meta["X-Themey-Scale"] == 1.5
 
 
 def test_metadata_snapshot_all_artifacts(tmp_path: Path, snapshot) -> None:

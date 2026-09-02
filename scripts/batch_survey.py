@@ -200,7 +200,8 @@ def _viewitem_stats(style_dir: Path | None, scale: float) -> dict[str, Any]:
 _SOURCE_RE = re.compile(
     r"^plasmastyle: (?P<what>panel background|menu/list selection|task frames|"
     r"popup/dialog background|popup/dialog frame composed|tooltip background|"
-    r"widget buttons) from (?:iclass |menu frame pieces )(?P<src>[A-Za-z0-9_+, ]+?)"
+    r"widget buttons|pager cells|pager window rects|dragbar desk buttons) "
+    r"from (?:iclass |menu frame pieces )(?P<src>[A-Za-z0-9_+, ]+?)"
     r"(?: art| around|;|\s*\(|$)"
 )
 _SOURCE_KEY = {
@@ -211,6 +212,9 @@ _SOURCE_KEY = {
     "popup/dialog frame composed": "dialog",
     "tooltip background": "tooltip",
     "widget buttons": "button",
+    "pager cells": "pager",
+    "pager window rects": "pager_win",
+    "dragbar desk buttons": "dragbar",
 }
 
 
@@ -499,7 +503,10 @@ def aggregate(records: list[dict[str, Any]]) -> dict[str, Any]:
         key: collections.Counter(
             str(r["stats"]["sources"].get(key)) for r in ok
         ).most_common()
-        for key in ("panel", "viewitem", "tasks", "dialog", "tooltip", "button")
+        for key in (
+            "panel", "viewitem", "tasks", "dialog", "tooltip", "button",
+            "pager", "pager_win", "dragbar",
+        )
     }
     agg["style_files"] = collections.Counter(
         f for r in ok for f in r["stats"].get("style_files", [])
