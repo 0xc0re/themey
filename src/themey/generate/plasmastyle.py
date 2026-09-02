@@ -31,10 +31,13 @@ inside a ``Plasma/Theme`` KPackage under
   wordmark bar art ("AE", "ALIENS", "Enlightenment" baked into the
   length-axis caps, which E16 pinned at the bar's start and FrameSvg pins
   the same way, ``_panel_margins`` hugging them) — allowed up to
-  ``PANEL_MAX_REF_LENGTH_CAPS`` on bars at least
-  ``PANEL_WORDMARK_MIN_THICKNESS_REF`` thick, since the panel stretches
-  the bar (wordmark included) to its own thickness and a 6 px strip
-  smears; the ``west-``/``east-`` sets dress the left-edge furniture from
+  ``PANEL_MAX_REF_LENGTH_CAPS``; the ``south-`` set (foreign bottom
+  bars) additionally wants the bar at least
+  ``PANEL_WORDMARK_MIN_THICKNESS_REF`` thick, since such a panel
+  stretches the bar (wordmark included) to its own 40-60 px and a 6 px
+  strip smears, while ``north-`` is exempt because themey's apply
+  creates the top dragbar panel at exactly ``scale_px(16)`` — E16's own
+  dragbar thickness; the ``west-``/``east-`` sets dress the left-edge furniture from
   the iconbox trough first (``_PANEL_VERT_SOURCES``). Shaped art is
   rejected everywhere (a 1-bit-masked bar over a rectangular panel leaks
   wallpaper through its holes). Middles STRETCH when E16 stretched them
@@ -89,6 +92,12 @@ fixture authors the checked box/radio as ``*_ACTIVE`` art — so the
 falls back to ``normal`` (a checked mark reusing unchecked art makes the
 states indistinguishable, worse than the Breeze fallback; those builders
 skip their file instead).
+
+Two files serve themey's OWN applets (``generate/plasmoids.py``) and have
+no Breeze counterpart or fallback semantics: ``widgets/themey-dragbar.svg``
+(:func:`build_dragbar`, the dragbar's desk-next/prev buttons) and the
+``window-``/``window-active-`` prefixes in ``widgets/pager.svg``
+(:func:`build_pager`, E16's PAGER_WIN rect art for the live pager).
 
 Deliberately NOT shipped even where E16 has art: ``widgets/lineedit.svg``
 (E16 dialogs have no text-entry widget; focus/hover would be invented),
@@ -178,6 +187,9 @@ _PANEL_EDGE, _PANEL_CENTER = 4, 24
 #: Relative SVG paths (also the ``shipped`` vocabulary and the mirror set).
 PANEL_SVG = "widgets/panel-background.svg"
 PAGER_SVG = "widgets/pager.svg"
+#: themey's own file (no Breeze counterpart): the E16 dragbar's desk
+#: buttons, read only by the ``org.themey.deskbutton`` applet.
+DRAGBAR_SVG = "widgets/themey-dragbar.svg"
 TASKS_SVG = "widgets/tasks.svg"
 DIALOG_SVG = "dialogs/background.svg"
 TOOLTIP_SVG = "widgets/tooltip.svg"
@@ -335,11 +347,14 @@ PANEL_MAX_REF_CAPS = 32
 PANEL_MAX_REF_LENGTH_CAPS = 160
 
 #: Ref-px minimum THICKNESS of bar art before its wordmark caps are worth
-#: shipping. A cap is painted at the art's own scale and the panel then
-#: stretches the whole bar to its thickness (40-60 px): e13's 6 px-tall
-#: dragbar smeared its "E" ten times taller across the bottom bar (live
-#: 2026-09-01); the corpus median dragbar is 16 px. At 24 ref px the
-#: stretch stays ≤ 2.5x on a 60 px panel.
+#: shipping on a FOREIGN panel (the ``south-`` set). A cap is painted at
+#: the art's own scale and the panel then stretches the whole bar to its
+#: thickness (40-60 px): e13's 6 px-tall dragbar smeared its "E" ten
+#: times taller across the bottom bar (live 2026-09-01); the corpus
+#: median dragbar is 16 px. At 24 ref px the stretch stays ≤ 2.5x on a
+#: 60 px panel. The ``north-`` set is EXEMPT (``thin_ok``): themey's
+#: apply creates the top dragbar panel at exactly ``scale_px(16)`` px, so
+#: whatever stretch the strip gets there is the one E16 gave it.
 PANEL_WORDMARK_MIN_THICKNESS_REF = 24
 
 
@@ -462,7 +477,9 @@ def _flat_center(path: Path) -> RGB | None:
     return extract_dominant(path)
 
 
-def _panel_art_guard(spec: IClassSpec, *, wordmark: bool = False) -> str | None:
+def _panel_art_guard(
+    spec: IClassSpec, *, wordmark: bool = False, thin_ok: bool = False
+) -> str | None:
     """None when *spec*'s normal art may back a panel set, else the reason.
 
     Guards (the ``_dialog_source`` idiom): shaped art
@@ -481,7 +498,9 @@ def _panel_art_guard(spec: IClassSpec, *, wordmark: bool = False) -> str | None:
     ``PANEL_MAX_REF_LENGTH_CAPS`` — they stay pinned exactly as E16 drew
     them — provided the bar is at least ``PANEL_WORDMARK_MIN_THICKNESS_REF``
     thick, since the panel stretches the bar (wordmark included) to its
-    own thickness. Measured after ``_fit_caps`` so an E16 overlapping-cap
+    own thickness — unless ``thin_ok`` (the ``north-`` set: themey's own
+    16 ref px dragbar panel, where the strip is not stretched beyond what
+    E16 did). Measured after ``_fit_caps`` so an E16 overlapping-cap
     declaration is judged by what would render.
     """
     found = _state_attr(spec, "normal")
@@ -526,7 +545,11 @@ def _panel_art_guard(spec: IClassSpec, *, wordmark: bool = False) -> str | None:
             f"exceed {PANEL_MAX_REF_LENGTH_CAPS} (pinned caps this large "
             "swallow a fit-content panel)"
         )
-    if length_sum > PANEL_MAX_REF_CAPS and thick_px < PANEL_WORDMARK_MIN_THICKNESS_REF:
+    if (
+        not thin_ok
+        and length_sum > PANEL_MAX_REF_CAPS
+        and thick_px < PANEL_WORDMARK_MIN_THICKNESS_REF
+    ):
         return (
             f"wordmark caps on a {thick_px} ref px thin bar (under "
             f"{PANEL_WORDMARK_MIN_THICKNESS_REF}; the panel would stretch the "
@@ -540,20 +563,26 @@ def _panel_art_source(
     names: tuple[str, ...] = _PANEL_ART_SOURCES,
     *,
     wordmark: bool = False,
+    thin_ok: bool = False,
 ) -> IClassSpec | None:
     """First of *names* whose normal art passes :func:`_panel_art_guard`
-    (strict by default; ``wordmark=True`` for the ``north-``/``south-``
-    sets).
+    (strict by default; ``wordmark=True`` for the ``south-`` set,
+    ``wordmark=True, thin_ok=True`` for the ``north-`` one).
 
     Every rejection appends one deduplicated ``plasmastyle:`` note (the
     function is re-resolved by ``style_scheme`` and ``write``).
     """
-    role = "wordmark (north-/south-) set" if wordmark else "panel background"
+    if not wordmark:
+        role = "panel background"
+    elif thin_ok:
+        role = "wordmark (north-) set"
+    else:
+        role = "wordmark (south-) set"
     for name in names:
         spec = theme.iclasses.get(name)
         if spec is None or _state_image(spec, "normal") is None:
             continue
-        reason = _panel_art_guard(spec, wordmark=wordmark)
+        reason = _panel_art_guard(spec, wordmark=wordmark, thin_ok=thin_ok)
         if reason is None:
             return spec
         note = (
@@ -1316,10 +1345,13 @@ def build_panel_background(
       tint. Middle stretched when E16 stretched it, tiled when E16 tiled.
     * ``north-``/``south-`` sets carry the wordmark bar art
       (``_panel_art_guard(wordmark=True)``: length caps up to
-      ``PANEL_MAX_REF_LENGTH_CAPS`` on a bar at least
-      ``PANEL_WORDMARK_MIN_THICKNESS_REF`` thick) when that differs from
-      the unprefixed source — the horizontal bar shows E16's pinned
-      wordmark, the vertical furniture never sees those caps.
+      ``PANEL_MAX_REF_LENGTH_CAPS``) when that differs from the
+      unprefixed source — the horizontal bar shows E16's pinned wordmark,
+      the vertical furniture never sees those caps. ``south-`` (foreign
+      bottom bars) additionally requires the bar to be at least
+      ``PANEL_WORDMARK_MIN_THICKNESS_REF`` thick; ``north-`` is exempt
+      (``thin_ok``) because themey's own dragbar panel is 16 ref px
+      thick — the corpus-median strip is exactly that.
     * ``west-``/``east-`` sets from the vertical bar art (iconbox trough
       first, ``_PANEL_VERT_SOURCES``), strict guard, then wordmark rules.
 
@@ -1346,12 +1378,21 @@ def build_panel_background(
     if src is None:
         _panel_tint_set(theme, canvas, alpha)
 
-    wordmark = _panel_art_source(theme, wordmark=True)
-    if wordmark is not None and (src is None or wordmark.name != src.name):
-        if not _emit_panel_prefix_sets(theme, canvas, wordmark, ("north-", "south-")):
-            wordmark = None
+    # north- (themey's own 16 ref px dragbar panel; thin strips allowed)
+    # and south- (foreign bottom bars; thickness guard kept) resolve
+    # separately — e13's 6 px strip ships north but not south.
+    north = _panel_art_source(theme, wordmark=True, thin_ok=True)
+    if north is not None and (src is None or north.name != src.name):
+        if not _emit_panel_prefix_sets(theme, canvas, north, ("north-",)):
+            north = None
     else:
-        wordmark = None
+        north = None
+    south = _panel_art_source(theme, wordmark=True)
+    if south is not None and (src is None or south.name != src.name):
+        if not _emit_panel_prefix_sets(theme, canvas, south, ("south-",)):
+            south = None
+    else:
+        south = None
 
     vert = _panel_art_source(theme, _PANEL_VERT_SOURCES)
     if vert is None:
@@ -1373,16 +1414,28 @@ def build_panel_background(
             f"(alpha {alpha}) of {source} — no E16 bar art passed the "
             "shaped/cap guards for the shared set"
         )
-    if wordmark is not None:
+    if north is not None and south is not None and north.name == south.name:
         notes.append(
-            f"plasmastyle: horizontal panels wear the {wordmark.name} "
+            f"plasmastyle: horizontal panels wear the {north.name} "
             "wordmark art (north-/south- sets; the shared set stays "
             "cap-free because Plasma makes its caps every panel's minimum "
             "thickness)"
         )
+    else:
+        if north is not None:
+            notes.append(
+                f"plasmastyle: top panels wear the {north.name} wordmark "
+                "art (north- set only — themey's dragbar panel is 16 ref px "
+                "thick, so the strip is not stretched past what E16 did)"
+            )
+        if south is not None:
+            notes.append(
+                f"plasmastyle: bottom panels wear the {south.name} wordmark "
+                "art (south- set)"
+            )
     if vert is not None:
         notes.append(f"plasmastyle: vertical panels from {vert.name}")
-    if src is not None or wordmark is not None or vert is not None:
+    if src is not None or north is not None or south is not None or vert is not None:
         notes.append(
             "plasmastyle: panel margin hints hug the cap art (cap − 4 px per "
             "side; E16 __PADDING dropped — Plasma pads panel content on top "
@@ -2032,6 +2085,17 @@ def build_pager(theme: Theme) -> ET.Element | None:
     background than a stale one. Window rects come from Kirigami.Theme
     via the bundled colors file. Skipped without ``PAGER_SEL`` art —
     Breeze's pager, re-tinted by this package's colors, beats bare cells.
+
+    themey's own pager applet (``org.themey.pager``, E16's LIVE mode
+    replayed at runtime) reads the same file and adds two prefixes:
+    ``window-`` from ``PAGER_WIN`` normal art (E16's window-rect art,
+    223/223 corpus themes) and ``window-active-`` from its explicit
+    hilited art when authored (:func:`_hilited_image`), so the active
+    window's rect can differ. The applet falls back to stock-style
+    ``Kirigami.Theme.textColor`` rects when ``window-center`` is absent.
+    Both the stock and the themey pager keep a MISSING ``normal-`` layer
+    invisible — intended for a transparent/absent ``PAGER_BACKGROUND``:
+    the applet paints the live wallpaper mini there instead.
     """
     sel = _iclass_with_art(theme, "PAGER_SEL")
     if sel is None:
@@ -2050,8 +2114,84 @@ def build_pager(theme: Theme) -> ET.Element | None:
     theme.notes.append(
         f"plasmastyle: pager cells from iclass {sel.name}"
         + (f" (normal desks from {bg.name})" if bg is not None else "")
-        + "; cells carry no desktop preview — Plasma's pager cannot show "
-        "live desktops, and a baked wallpaper mini would go stale"
+        + "; cells carry no baked desktop preview — themey's pager applet "
+        "paints the live wallpaper at runtime (a baked mini would go stale)"
+    )
+    win = _iclass_with_art(theme, "PAGER_WIN")
+    if win is not None and _emit_set(theme, canvas, "window-", win, "normal") is not None:
+        hilited = _hilited_image(win)
+        active = ""
+        if hilited is not None:
+            _emit_set(theme, canvas, "window-active-", win, "hover")
+            active = " (active window from its hilited art)"
+        theme.notes.append(
+            f"plasmastyle: pager window rects from iclass {win.name}{active}"
+        )
+    return canvas.finish()
+
+
+#: ((direction element, orientation), (E16 iclass)) for the dragbar desk
+#: buttons. E16's DEFAULT dragbar ordering (desktops.c, ordering 1) puts
+#: DESKTOP_RAISEBUTTON at the bar's START running ``desk next`` and
+#: DESKTOP_LOWERBUTTON at its END running ``desk prev`` — so the elements
+#: are named by ACTION (what the applet needs), not by the iclass's
+#: raise/lower name.
+_DRAGBAR_SOURCES: tuple[tuple[str, str, str], ...] = (
+    ("next", "horiz", "DESKTOP_RAISEBUTTON_HORIZ"),
+    ("prev", "horiz", "DESKTOP_LOWERBUTTON_HORIZ"),
+    ("next", "vert", "DESKTOP_RAISEBUTTON_VERT"),
+    ("prev", "vert", "DESKTOP_LOWERBUTTON_VERT"),
+)
+_DRAGBAR_STATES: tuple[str, ...] = ("normal", "hover", "pressed")
+
+
+def build_dragbar(theme: Theme) -> ET.Element | None:
+    """``widgets/themey-dragbar.svg`` — the E16 dragbar's desk buttons.
+
+    E16 synthesizes its top bar in C (desktops.c:95-346): a 16 px strip
+    per desktop made of DESKTOP_RAISEBUTTON (start, ``desk next``),
+    DESKTOP_DRAGBUTTON (stretched across — the ``north-`` panel set) and
+    DESKTOP_LOWERBUTTON (end, ``desk prev``). This file carries the two
+    end buttons as plain elements ``<next|prev>-<horiz|vert>-<normal|
+    hover|pressed>`` (states via the module state map; a missing state
+    reuses normal as E16 does), scaled by ``theme.scale`` like every
+    glyph here. Only themey's ``org.themey.deskbutton`` applet reads it:
+    no Breeze fallback semantics apply (the applet falls back to
+    ``widgets/arrows`` per missing element), so a single horizontal
+    button ships alone and no shaped-art guard runs (these are 16×16
+    glyphs, transparent corners and all). Skipped, with a note, when
+    neither HORIZ iclass has normal art — the dragbar panel is
+    horizontal; the ``vert`` quartet is optional extra.
+    """
+    horiz = [
+        (d, o, name) for d, o, name in _DRAGBAR_SOURCES
+        if o == "horiz" and _state_image(theme.iclasses.get(name), "normal") is not None
+    ]
+    if not horiz:
+        theme.notes.append(
+            "plasmastyle: no DESKTOP_RAISEBUTTON_HORIZ/DESKTOP_LOWERBUTTON_HORIZ "
+            "art; the dragbar desk buttons fall back to widgets/arrows"
+        )
+        return None
+    canvas = _Canvas()
+    shipped: list[str] = []
+    for direction, orient, name in _DRAGBAR_SOURCES:
+        spec = theme.iclasses.get(name)
+        if _state_image(spec, "normal") is None:
+            continue
+        assert spec is not None
+        items: list[tuple[str, Image.Image]] = []
+        for state in _DRAGBAR_STATES:
+            path = _state_image(spec, state)
+            assert path is not None  # normal exists, every chain ends there
+            items.append((f"{direction}-{orient}-{state}", _load_scaled(path, theme.scale)))
+        _emit_plain_row(canvas, items)
+        if orient == "horiz":
+            shipped.append(name)
+    theme.notes.append(
+        f"plasmastyle: dragbar desk buttons from iclass {'+'.join(shipped)} "
+        "(E16 desktops.c: raise = desk next at the bar's start, lower = "
+        "desk prev at its end)"
     )
     return canvas.finish()
 
@@ -2451,6 +2591,7 @@ _BUILDERS: tuple[tuple[str, Callable[[Theme], ET.Element | None]], ...] = (
     (FRAME_SVG, build_frame),
     (PAGER_SVG, build_pager),
     (TASKS_SVG, build_tasks),
+    (DRAGBAR_SVG, build_dragbar),
 )
 
 

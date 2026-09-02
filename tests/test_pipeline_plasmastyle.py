@@ -23,6 +23,7 @@ ALIENS_EXPECTED_SVGS = {
     plasmastyle.SCROLLBAR_SVG,
     plasmastyle.ARROWS_SVG,
     plasmastyle.PAGER_SVG,  # Aliens has PAGER_SEL/PAGER_BACKGROUND art
+    plasmastyle.DRAGBAR_SVG,  # DESKTOP_RAISE/LOWERBUTTON_HORIZ desk buttons
     # Dialog-widget art: Aliens carries every source iclass (check/radio
     # w/ checked _ACTIVE art, slider bases + knobs, separator, AREA).
     plasmastyle.CHECKMARKS_SVG,
