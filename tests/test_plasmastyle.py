@@ -2155,11 +2155,27 @@ def test_dialog_source_uses_menu_style_bg_iclass_over_conventional_names(
     assert any("from iclass MY_MENU_BACK" in n for n in theme.notes)
 
 
-def test_dialog_item_backgrounds_tile_item_art(tmp_path: Path) -> None:
+def _bevel_strip(path: Path, size=(64, 16), body=(40, 40, 40), rim=(200, 200, 200)) -> Path:
+    """A menu-row strip: *body* grain with a 1-px *rim* on every edge."""
+    im = Image.new("RGBA", size, (*body, 255))
+    w, h = size
+    for x in range(w):
+        im.putpixel((x, 0), (*rim, 255))
+        im.putpixel((x, h - 1), (*rim, 255))
+    for y in range(h):
+        im.putpixel((0, y), (*rim, 255))
+        im.putpixel((w - 1, y), (*rim, 255))
+    im.save(path, format="PNG")
+    return path
+
+
+def test_dialog_item_backgrounds_flat_center_in_strip_bevel(tmp_path: Path) -> None:
     """OldE: NeXTSTEP style, __USE_ITEM_BACKGROUNDS __ON. E16 drew no menu
-    background at all — every row wore MENU_SEL's normal art — so the
-    popup is that art repeated (hint-tile-center), never the DIALOG art."""
-    item = _png(tmp_path, "item.png", size=(64, 16), color=(40, 40, 40, 255))
+    background at all — every row wore MENU_SEL's normal art — so the popup
+    wears that strip's bevel around a FLAT center in the strip's dominant
+    color (repeating the strip striped a tall Kickoff with its bevel rows,
+    live 2026-09-01), never the DIALOG art and never hint-tile-center."""
+    item = _bevel_strip(tmp_path / "item.png")
     dialog = _png(tmp_path, "dialog.png", size=(32, 32), color=(0, 0, 0, 255))
     theme = _theme(tmp_path, {
         "MENU_SEL": _iclass("MENU_SEL", edge=(3, 3, 3, 3), normal=item),
@@ -2169,9 +2185,27 @@ def test_dialog_item_backgrounds_tile_item_art(tmp_path: Path) -> None:
     svg = plasmastyle.build_dialog_background(theme)
     assert svg is not None
     ids = _ids(svg)
-    assert "hint-tile-center" in ids
+    assert "hint-tile-center" not in ids
     assert _center_rgb(svg) == (40, 40, 40)
-    assert any("item backgrounds" in n and "MENU_SEL" in n for n in theme.notes)
+    # The strip's own rim survives as the popup frame.
+    assert _corner_rgb(svg, "topleft") == (200, 200, 200)
+    assert any("item backgrounds" in n and "flat center" in n for n in theme.notes)
+
+
+def _corner_rgb(svg: ET.Element, element: str) -> tuple[int, int, int]:
+    import base64
+    import io
+
+    for e in svg.iter():
+        if e.get("id") != element:
+            continue
+        img = e if e.tag.endswith("image") else next(
+            (c for c in e.iter() if c.tag.endswith("image")), None
+        )
+        assert img is not None
+        data = base64.b64decode(img.get(XLINK).split(",", 1)[1])
+        return Image.open(io.BytesIO(data)).convert("RGB").getpixel((0, 0))
+    raise AssertionError(f"no {element} element")
 
 
 def test_dialog_menu_style_shaped_bg_falls_through(tmp_path: Path) -> None:

@@ -442,9 +442,24 @@ def _dialog_source(theme: Theme) -> IClassSpec | None:
 def _item_background_note(spec: IClassSpec) -> str:
     return (
         f" (E16 item backgrounds — __USE_ITEM_BACKGROUNDS: the menu had no "
-        f"background of its own, every row wore {spec.name}'s normal art, so "
-        "the popup repeats that strip at its authored height)"
+        f"background of its own, every row wore {spec.name}'s normal art; the "
+        "popup keeps that strip's bevel as its frame around a flat center in "
+        "the strip's dominant color — repeating the strip painted its bevel "
+        "rows as stripes across a tall launcher)"
     )
+
+
+def _flat_center(path: Path) -> RGB | None:
+    """*path*'s dominant color, for a flat popup center behind
+    item-background (NeXTSTEP-style) menu strips. E16 never painted
+    a menu background for those styles — every row wore the strip — and a
+    FrameSvg center can only stretch or repeat, so repeating the strip
+    stacked its bevel rows into stripes across a 600 px Kickoff (OldE,
+    live 2026-09-01). The flat fill is the same ``extract_dominant`` the
+    ``colors`` Window group samples, so popup art and text guards agree.
+    None when the art yields no dominant color (the caller keeps tiling).
+    """
+    return extract_dominant(path)
 
 
 def _panel_art_guard(spec: IClassSpec, *, wordmark: bool = False) -> str | None:
@@ -1016,6 +1031,7 @@ def _emit_set(
     | None = None,
     close_open_edges: bool = False,
     tile_center: bool | None = None,
+    flat_center: RGB | None = None,
 ) -> tuple[int, int, int, int] | None:
     """One prefixed 9-part set (+ optional margin hints) for *spec*/*state*.
 
@@ -1033,7 +1049,11 @@ def _emit_set(
     pins synthetic caps with it. ``close_open_edges`` (viewitem only)
     runs :func:`_close_open_edges` on the overridden caps. ``tile_center``
     overrides the ``__FILLRULE``-derived choice (the popup builder tiles
-    E16 item-background art the menu repeated per row).
+    E16 item-background art the menu repeated per row). ``flat_center``
+    (a solid color) is painted over the art's center box — everything
+    inside the caps — before slicing, so the set keeps the art's own
+    bevel and gets a flat, stretchable center; it forces ``tile_center``
+    off.
     """
     found = _state_attr(spec, state)
     if found is None:
@@ -1087,6 +1107,12 @@ def _emit_set(
     scale = _surface_scale(theme, spec, edge)
     img = upscale_part(src, scale)
     caps = _scaled_caps(edge, src_w, src_h, scale)
+    if flat_center is not None:
+        box = (caps[0], caps[2], img.width - caps[1], img.height - caps[3])
+        if box[2] > box[0] and box[3] > box[1]:
+            img = img.copy()
+            img.paste((*flat_center, 255), box)
+        tile_center = False
     if tile_center is None:
         tile_center = spec.fill_for(state_attr) != FILL_STRETCH
     try:
@@ -1462,6 +1488,11 @@ def _emit_composite_frame(
     center_img: Image.Image | None = None
     if center_path is not None:
         center_img = _load_scaled(center_path, scale)
+        if center_tiled:
+            flat = _flat_center(center_path)
+            if flat is not None:
+                center_img = Image.new("RGBA", (4, 4), (*flat, 255))
+                center_tiled = False
 
     for row in (
         ("topleft", "top", "topright"),
@@ -1568,9 +1599,11 @@ def build_dialog_background(theme: Theme) -> ET.Element | None:
         return None
     src, tiled = resolved
     canvas = _Canvas()
+    flat = _flat_center(_state_image(src, "normal") or Path()) if tiled else None
     _emit_set(
         theme, canvas, "", src, "normal", hints=True,
-        tile_center=True if tiled else None,
+        tile_center=True if tiled and flat is None else None,
+        flat_center=flat,
     )
     if canvas.is_empty:
         return None
