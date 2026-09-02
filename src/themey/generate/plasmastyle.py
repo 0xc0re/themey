@@ -252,11 +252,15 @@ SURFACE_MAX_REF_CHROME = 32
 #: live 2026-08-31). 12 ref px ≈ Breeze's logical scrollbar thickness.
 SCROLLBAR_MAX_REF_THICKNESS = 12
 
-#: Ref-px ceiling for the separator rule's thickness. LiteGnome authors a
-#: real 120x4 hline; Aliens/e13 point DIALOG_WIDGET_SEPARATOR at a ~64 px
-#: bevel box that E16 squeezed into a thin rule at layout time — the same
-#: image-dimension-is-not-widget-size trap SCROLLBAR_MAX_REF_THICKNESS
-#: documents. The art is squeezed (NEAREST) to this thickness.
+#: Ref-px ceiling for the separator rule's thickness. E16 sizes a separator
+#: from the iclass ``__PADDING``, not the art (``dialog.c:1048-1056``:
+#: ``w = pad.l + pad.r``, ``h = pad.t + pad.b``): 127 corpus themes declare
+#: 2 px, 73 declare 4, ten declare nothing. The art is squeezed (NEAREST)
+#: into that thickness — LiteGnome's 120x4 hline and Aliens/e13's ~64 px
+#: bevel box alike, the same image-dimension-is-not-widget-size trap
+#: SCROLLBAR_MAX_REF_THICKNESS documents. The ceiling catches the outliers
+#: (LCARS declares 8+8) and serves as the cap for the art-height fallback
+#: when no padding is declared.
 LINE_MAX_REF_THICKNESS = 4
 
 _ARROW_SOURCES: tuple[tuple[str, str], ...] = (
@@ -883,6 +887,14 @@ VIEWITEM_PILL_MAX_REF = 40
 #: no stretching middle left at all.
 VIEWITEM_MAX_REF_CAP = 12
 
+#: OUTPUT-px ceiling for a viewitem set's top+bottom caps. Kickoff's
+#: sidebar rows are ~30-34 px at 1x and FrameSvg needs a centre row to
+#: paint at all: StarEnli's 27 px MENU_SEL pill at 1.5x carried 18+18 px
+#: of caps into a 30 px row and painted a degenerate half-pill sliver
+#: (chris's screenshot 2026-09-01). Past this the set stays at source
+#: scale — ``VIEWITEM_MAX_REF_CAP`` guarantees 12+12 ref px always fits.
+VIEWITEM_MAX_ROW_CHROME_PX = 24
+
 #: Per-pixel contrast (0-1: luminance delta for two painted pixels, 1.0
 #: when the shape mask cuts exactly one of them) at or above which a pixel
 #: pair counts as OUTLINE — a painted rim or a rounded end's alpha edge.
@@ -1062,6 +1074,8 @@ def _emit_set(
     close_open_edges: bool = False,
     tile_center: bool | None = None,
     flat_center: RGB | None = None,
+    max_v_chrome_px: int | None = None,
+    clear_center: bool = False,
 ) -> tuple[int, int, int, int] | None:
     """One prefixed 9-part set (+ optional margin hints) for *spec*/*state*.
 
@@ -1083,7 +1097,17 @@ def _emit_set(
     (a solid color) is painted over the art's center box — everything
     inside the caps — before slicing, so the set keeps the art's own
     bevel and gets a flat, stretchable center; it forces ``tile_center``
-    off.
+    off. ``max_v_chrome_px`` (viewitem only) is the most OUTPUT px of
+    top+bottom caps the set may carry: past it the set is kept at source
+    scale with a note — FrameSvg cannot fit 36 px of caps into a ~30 px
+    Plasma list row and paints a degenerate sliver (StarEnli's 27 px
+    MENU_SEL pill at 1.5x, chris's Kickoff screenshot 2026-09-01).
+    ``clear_center`` (frame only) makes everything inside the caps — or
+    inside the scaled ``__PADDING`` when that ring is wider — fully
+    transparent, the way E16's ``DITEM_AREA`` covers the interior with
+    its area window; the ring caps grow to the padding so the ``center``
+    element (which must exist — a center-less set paints nothing) is
+    entirely transparent.
     """
     found = _state_attr(spec, state)
     if found is None:
@@ -1135,8 +1159,36 @@ def _emit_set(
         )
         edge = fitted
     scale = _surface_scale(theme, spec, edge)
+    if max_v_chrome_px is not None and scale > 1:
+        _, _, top_px, bottom_px = _scaled_caps(edge, src_w, src_h, scale)
+        if top_px + bottom_px > max_v_chrome_px:
+            note = (
+                f"plasmastyle: menu/list selection art kept at source scale: "
+                f"{top_px + bottom_px} px of caps would not fit a Plasma list "
+                f"row (FrameSvg paints a sliver past {max_v_chrome_px} px; "
+                "E16 rows were the art's own height)"
+            )
+            if note not in theme.notes:
+                theme.notes.append(note)
+            scale = 1.0
     img = upscale_part(src, scale)
     caps = _scaled_caps(edge, src_w, src_h, scale)
+    if clear_center:
+        pad = tuple(
+            max(1, scale_px(v, scale)) if v > 0 else 0 for v in spec.padding
+        )
+        ring_l, ring_r = _shave_for_center(
+            max(caps[0], pad[0]), max(caps[1], pad[1]), img.width
+        )
+        ring_t, ring_b = _shave_for_center(
+            max(caps[2], pad[2]), max(caps[3], pad[3]), img.height
+        )
+        caps = (ring_l, ring_r, ring_t, ring_b)
+        box = (ring_l, ring_t, img.width - ring_r, img.height - ring_b)
+        if box[2] > box[0] and box[3] > box[1]:
+            img = img.copy()
+            img.paste((0, 0, 0, 0), box)
+        tile_center = False
     if flat_center is not None:
         box = (caps[0], caps[2], img.width - caps[1], img.height - caps[3])
         if box[2] > box[0] and box[3] > box[1]:
@@ -1893,14 +1945,19 @@ def _viewitem_caps(
 def build_viewitem(theme: Theme) -> ET.Element | None:
     """``widgets/viewitem.svg`` from ``MENU_SEL``.
 
-    ``normal-`` is emitted only when MENU_SEL has explicit normal art —
-    an always-painted normal set would draw menu-row chrome under every
-    unhovered list row, which most E16 themes leave to the background.
-    All sets use :func:`_viewitem_caps` in place of the declared edge —
-    see its docstring for why the declared edge cannot be trusted here —
-    and are the ONE caller of :func:`_close_open_edges` (an open pill end
-    reads as a missing border on a Plasma list). Fully transparent art
-    (five corpus themes) leaves the file to Breeze.
+    Only ``hover-``/``selected-``/``selected+hover-`` are emitted, never
+    ``normal-``: Plasma's ``PlasmaExtras.Highlight`` paints the ``normal``
+    prefix for a current-but-unhovered item (Kicker, folder views — Kickoff
+    forces ``hovered: true``) at 0.6 opacity, whereas E16 painted MENU_SEL's
+    normal art on EVERY row; neither semantic matches the other and Breeze
+    ships no ``normal`` prefix either. Every set is capped at
+    ``VIEWITEM_MAX_ROW_CHROME_PX`` output px of vertical chrome (kept at
+    source scale past it) so it fits a Plasma list row. All sets use
+    :func:`_viewitem_caps` in place of the declared edge — see its
+    docstring for why the declared edge cannot be trusted here — and are
+    the ONE caller of :func:`_close_open_edges` (an open pill end reads as
+    a missing border on a Plasma list). Fully transparent art (five corpus
+    themes) leaves the file to Breeze.
     """
     src = theme.iclasses.get("MENU_SEL")
     if _state_image(src, "hover") is None or src is None:
@@ -1938,19 +1995,15 @@ def build_viewitem(theme: Theme) -> ET.Element | None:
         caps, branch = _viewitem_caps(edge, img.width, img.height, rounded=_is_rounded(img))
         return True if branch == "bevel" and _middle_is_textured(img, caps) else None
 
-    has_normal_art = (src.normal is not None and src.normal.is_file()) or (
-        src.normal_active is not None and src.normal_active.is_file()
-    )
     sets = [("hover-", "hover"), ("selected-", "selected"),
             # Literal "+" in the id — FrameSvg's combined-state prefix.
             ("selected+hover-", "selected")]
-    if has_normal_art:
-        sets.insert(0, ("normal-", "normal"))
     for prefix, state in sets:
         _emit_set(
             theme, canvas, prefix, src, state,
             edge_override=caps_override, close_open_edges=True,
             tile_center=repeats_middle(state),
+            max_v_chrome_px=VIEWITEM_MAX_ROW_CHROME_PX,
         )
     if canvas.is_empty:
         return None
@@ -2599,13 +2652,86 @@ def build_slider(theme: Theme) -> ET.Element | None:
     return canvas.finish()
 
 
+def _rule_thickness(padding_sum: int, art_px: int) -> tuple[int, str]:
+    """Separator thickness in ref px, and the note fragment explaining it.
+
+    E16 (``dialog.c:1048-1056``) sizes the rule from the iclass
+    ``__PADDING`` — ``pad.t + pad.b`` for a horizontal rule, ``pad.l +
+    pad.r`` for a vertical one — and squeezes the art into it; the art's
+    own dimension is used only when no padding is declared (ten corpus
+    themes). Both are capped at ``LINE_MAX_REF_THICKNESS``.
+    """
+    if padding_sum > 0:
+        if padding_sum > LINE_MAX_REF_THICKNESS:
+            return LINE_MAX_REF_THICKNESS, (
+                f"__PADDING declares {padding_sum} ref px, clamped to "
+                f"{LINE_MAX_REF_THICKNESS} — E16 drew {padding_sum}"
+            )
+        return padding_sum, (
+            f"{padding_sum} ref px thick from __PADDING, as E16 sized them"
+            + (f"; art {art_px} px squeezed" if art_px > padding_sum else "")
+        )
+    if art_px > LINE_MAX_REF_THICKNESS:
+        return LINE_MAX_REF_THICKNESS, (
+            f"no __PADDING; {art_px} ref px of art squeezed to "
+            f"{LINE_MAX_REF_THICKNESS} — E16 squeezed this art into a thin "
+            "rule at layout time"
+        )
+    return art_px, f"no __PADDING; {art_px} ref px thick from the art"
+
+
+def _rule_art(
+    rgba: Image.Image, padding_sum: int, scale: float, *, horizontal: bool
+) -> tuple[Image.Image, str]:
+    """One rule element: the art fitted into E16's separator thickness.
+
+    The art is first trimmed to its opaque span on the THICKNESS axis
+    (LCARS's ``widget_separator.png`` is 1x16 with ONE opaque hairline
+    row inside ``__PADDING 2 2 8 8`` — a NEAREST squeeze of 16 rows into
+    4 dropped that row and the rule vanished). A trimmed span that fits
+    the thickness is centred in a transparent canvas of that thickness
+    (the hairline keeps its 1 px and some of E16's breathing room); a
+    larger one (Aliens/e13's 64 px bevel box) is squeezed (NEAREST) into
+    it. The other axis is scaled as is.
+    """
+    # Same alpha threshold as _opaque_trim (a lookup table — pyright
+    # rejects the lambda form).
+    mask = rgba.getchannel("A").point([0] * 128 + [255] * 128)
+    bbox = mask.getbbox()
+    if bbox is not None:
+        if horizontal:
+            rgba = rgba.crop((0, bbox[1], rgba.width, bbox[3]))
+        else:
+            rgba = rgba.crop((bbox[0], 0, bbox[2], rgba.height))
+    art_px = rgba.height if horizontal else rgba.width
+    ref, why = _rule_thickness(padding_sum, art_px)
+    thick = max(1, scale_px(ref, scale))
+    length = max(1, scale_px(rgba.width if horizontal else rgba.height, scale))
+    if art_px < ref:
+        art_thick = max(1, scale_px(art_px, scale))
+        size = (length, art_thick) if horizontal else (art_thick, length)
+        art = rgba.resize(size, resample=Image.Resampling.NEAREST)
+        canvas_size = (length, thick) if horizontal else (thick, length)
+        out = Image.new("RGBA", canvas_size, (0, 0, 0, 0))
+        offset = (0, (thick - art_thick) // 2) if horizontal else ((thick - art_thick) // 2, 0)
+        out.paste(art, offset)
+        return out, why + f"; {art_px} px of art centred in it"
+    size = (length, thick) if horizontal else (thick, length)
+    return rgba.resize(size, resample=Image.Resampling.NEAREST), why
+
+
 def build_line(theme: Theme) -> ET.Element | None:
     """``widgets/line.svg`` — section separators in tray popups/SpinBox.
 
-    The art is squeezed (NEAREST) to ``LINE_MAX_REF_THICKNESS`` — see that
-    constant for why the image's own height is not the rule's thickness.
-    ``vertical-line`` is the same image rotated 90°, always shipped with
-    the file (per-FILE fallback: a missing element renders nothing).
+    Thickness comes from the iclass ``__PADDING`` like E16's
+    ``DITEM_SEPARATOR`` (:func:`_rule_thickness`), NOT from the art: the
+    art is fitted into it (:func:`_rule_art`). StarEnli's 46x2 magenta
+    strip with ``__PADDING 1 1 1 1`` is a 2 ref px rule on both axes; the
+    earlier art-width vertical rule painted it 4 ref px (6 px at 1.5x,
+    chris's Kickoff screenshot 2026-09-01). ``vertical-line`` is the
+    ``__CLICKED`` art when authored (``dialog.c:1380-1383``, 107 corpus
+    themes), else the horizontal rule rotated 90°; always shipped with the
+    file (per-FILE fallback: a missing element renders nothing).
     """
     src = _iclass_with_art(theme, "DIALOG_WIDGET_SEPARATOR")
     if src is None:
@@ -2614,15 +2740,8 @@ def build_line(theme: Theme) -> ET.Element | None:
     assert path is not None  # _iclass_with_art guarantees it
     with Image.open(path) as im:
         rgba = im.convert("RGBA")
-    clamped = rgba.height > LINE_MAX_REF_THICKNESS
-    target = (
-        max(1, scale_px(rgba.width, theme.scale)),
-        max(
-            1,
-            scale_px(min(rgba.height, LINE_MAX_REF_THICKNESS), theme.scale),
-        ),
-    )
-    line = rgba.resize(target, resample=Image.Resampling.NEAREST)
+    pad_l, pad_r, pad_t, pad_b = src.padding
+    line, h_why = _rule_art(rgba, pad_t + pad_b, theme.scale, horizontal=True)
     # dialog.c:1380-1383: E16 draws a VERTICAL separator with the iclass's
     # STATE_CLICKED art (107 corpus themes author one); without it, the
     # horizontal art rotated.
@@ -2631,12 +2750,10 @@ def build_line(theme: Theme) -> ET.Element | None:
     if clicked_path is not None and clicked_path.is_file():
         with Image.open(clicked_path) as im:
             vr = im.convert("RGBA")
-        vtarget = (
-            max(1, scale_px(min(vr.width, LINE_MAX_REF_THICKNESS), theme.scale)),
-            max(1, scale_px(vr.height, theme.scale)),
+        vertical, v_why = _rule_art(vr, pad_l + pad_r, theme.scale, horizontal=False)
+        vertical_note = (
+            f"; vertical rule from the __CLICKED art, as E16 drew it ({v_why})"
         )
-        vertical = vr.resize(vtarget, resample=Image.Resampling.NEAREST)
-        vertical_note = " (vertical rule from the __CLICKED art, as E16 drew it)"
     else:
         vertical = line.transpose(Image.Transpose.ROTATE_90)
         vertical_note = "; the vertical rule is the same art rotated"
@@ -2647,15 +2764,7 @@ def build_line(theme: Theme) -> ET.Element | None:
     ):
         _emit_plain_row(canvas, [(element, img)])
     theme.notes.append(
-        f"plasmastyle: separators from iclass {src.name}"
-        + (
-            f" ({rgba.height} ref px tall, squeezed to "
-            f"{LINE_MAX_REF_THICKNESS} — E16 squeezed this art into a "
-            "thin rule at layout time)"
-            if clamped
-            else ""
-        )
-        + vertical_note
+        f"plasmastyle: separators from iclass {src.name} ({h_why})" + vertical_note
     )
     return canvas.finish()
 
@@ -2668,17 +2777,28 @@ def build_frame(theme: Theme) -> ET.Element | None:
     unprefixed set (the same mechanism the panel builder relies on).
     Breeze's ``base``/``raised-``/``sunken-`` sets are deliberately not
     emitted — E16 has one dialog-area look.
+
+    Ring only: E16's ``DITEM_AREA`` covers everything inside the padding
+    with a child window (``dialog.c:776-783``), so of StarEnli's 256x256
+    solid-magenta ``DIALOG_WIDGET_AREA`` only the 1 px ring ever showed;
+    14 corpus themes have solid area art and all 223 an opaque centre,
+    which shipped whole as the PC3 Frame/GroupBox background. The
+    ``clear_center`` set keeps the caps/padding ring and a transparent
+    centre (the mirrors stay byte copies — Breeze's ``opaque/`` frame has
+    a transparent centre too).
     """
     src = _iclass_with_art(theme, "DIALOG_WIDGET_AREA", "DIALOG_WIDGET_TABLE")
     if src is None:
         return None
     canvas = _Canvas()
-    _emit_set(theme, canvas, "", src, "normal", hints=True)
+    _emit_set(theme, canvas, "", src, "normal", hints=True, clear_center=True)
     if canvas.is_empty:
         return None
     theme.notes.append(
-        f"plasmastyle: group frames from iclass {src.name} (one unprefixed "
-        "set; FrameSvg's adjustPrefix serves it for PC3's plain prefix)"
+        f"plasmastyle: group frames from iclass {src.name} (ring only — "
+        "E16's DITEM_AREA covers the interior with the area window; one "
+        "unprefixed set, FrameSvg's adjustPrefix serves it for PC3's plain "
+        "prefix)"
     )
     return canvas.finish()
 

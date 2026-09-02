@@ -19,9 +19,14 @@ Two applies live here:
   default wallpaper's E16 fill mode (:func:`_set_wallpaper_fill` — Plasma's
   Image wallpaper plugin does not read fill-mode from the wallpaper
   package) and — because plasmashell never repaints a scripted fill-mode
-  change — ends a tiled apply with an automatic plasmashell restart
-  (:func:`_restart_plasmashell`, opt-out ``restart_shell=False`` / CLI
-  ``--no-restart-shell``).
+  change, and applets compute some KSvg metrics ONCE at load
+  (``KickoffSingleton.lineSvg.horLineHeight``, ``listItemMetrics``) so a
+  freshly applied Plasma Style keeps the previous theme's separator
+  thickness until the shell restarts (verified live 2026-09-01: Kickoff
+  drew the previous theme's 6 px rule over StarEnli's 3 px art) — ends
+  a tiled apply OR a Plasma Style apply with an automatic plasmashell
+  restart (:func:`_restart_plasmashell`, opt-out ``restart_shell=False``
+  / CLI ``--no-restart-shell``).
 
 Both applies share the decoration-writing logic (``_write_deco``) and the
 button-order snapshot/restore machinery. Button ORDER is global kwinrc
@@ -1108,16 +1113,21 @@ def _quit_plasmashell_gracefully(systemctl: str) -> None:
 
 
 def _restart_plasmashell() -> None:
-    """Restart plasmashell so a tiled wallpaper actually repaints.
+    """Restart plasmashell so a tiled wallpaper and a new Plasma Style's
+    applet metrics actually take.
 
     plasmashell 6.6.6 does NOT repaint fill-mode from any scripting write
     (verified live 2026-08-31: FillMode alone, +Image rewrite,
     +reloadConfig, even an Image swap-away-and-back all left the render
     pixel-identical) — only the first paint after a shell restart or a
-    manual KCM toggle honors the new mode. The theme is fully applied by
-    the time this runs, so a failure (or a machine without systemd) is a
-    logged warning telling the user to restart manually, never a failed
-    apply.
+    manual KCM toggle honors the new mode. Likewise Kickoff computes
+    ``KickoffSingleton.lineSvg.horLineHeight`` and ``listItemMetrics``
+    once at load (``elementSize()`` is a function call, not a bound
+    property), so after ``plasma-apply-desktoptheme`` its separators keep
+    the PREVIOUS theme's thickness (verified live 2026-09-01). The theme
+    is fully applied by the time this runs, so a failure (or a machine
+    without systemd) is a logged warning telling the user to restart
+    manually, never a failed apply.
     """
     systemctl = shutil.which("systemctl")
     if systemctl is None:
@@ -1392,8 +1402,10 @@ def apply_full(
     plugin does not itself read fill-mode from the wallpaper package;
     ``stretch``/``fit``/``pad`` go through the apply tool's ``-f``, the
     tile modes through a scripted ``FillMode`` write — see
-    :data:`_WALLPAPER_FILL_MODE_INTS`) → one ``qdbus`` reconfigure,
-    last. Every panel is set to fit-content and un-floated just BEFORE the
+    :data:`_WALLPAPER_FILL_MODE_INTS`) → one ``qdbus`` reconfigure →
+    dead last, a plasmashell restart when a tile mode was scripted or a
+    Plasma Style was applied (:func:`_restart_plasmashell`; *restart_shell*
+    ``False`` opts out). Every panel is set to fit-content and un-floated just BEFORE the
     wallpaper fix-up (:func:`_set_panels_fit` — E16's iconbox/dragbar are
     content-sized docked strips, and a full-width or floating bar reads as
     Plasma, not E16; previous modes recorded once in
@@ -1576,9 +1588,13 @@ def apply_full(
     _reconfigure()
 
     # Dead last — a shell restart would race any earlier evaluateScript.
-    # Only when a tile mode was scripted: nothing else needs the repaint,
-    # and a tool-applied fill should not flicker the desktop.
-    if restart_shell and needs_restart:
+    # Only when a tile mode was scripted OR a Plasma Style was applied:
+    # applets compute some KSvg metrics once at load (Kickoff's
+    # horLineHeight/listItemMetrics), so without the restart the popups
+    # keep the previous theme's separator thickness (live 2026-09-01).
+    # A deco/colour/tool-applied-fill-only apply must not flicker the
+    # desktop.
+    if restart_shell and (needs_restart or has_style):
         _restart_plasmashell()
 
 

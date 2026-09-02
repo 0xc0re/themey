@@ -258,6 +258,7 @@ _STYLE_PROBE_CELLS: tuple[tuple[str, str], ...] = (
     ("widgets/viewitem", "selected"),
     ("widgets/slider", "groove"),
     ("widgets/frame", "raised"),
+    ("widgets/line", ""),
 )
 
 _STYLE_PROBE_COLUMNS = 5
@@ -265,15 +266,20 @@ _STYLE_PROBE_ROWS = 4  # ceil(len(_STYLE_PROBE_CELLS) / columns)
 
 #: Per-cell shape hints; cells absent here get the uniform grid cell. The
 #: viewitem pair is deliberately stretched WIDE (hover: a full column, 30
-#: px tall) and TALL (selected: 30 px wide, a full row): an open pill end
-#: or an oversized cap only shows once the middle has to stretch far past
-#: the art's own size (Yellow's MENU_SEL, 2026-09-01). Cell sizes are
+#: px tall — exactly a Kickoff sidebar row, so caps that do not fit one
+#: paint the same sliver here, StarEnli 2026-09-01) and TALL (selected:
+#: 30 px wide, a full row): an open pill end or an oversized cap only
+#: shows once the middle has to stretch far past the art's own size
+#: (Yellow's MENU_SEL, 2026-09-01). ``widgets/line`` is not a FrameSvg
+#: set: the "line" cell paints both rule elements as SvgItems at their
+#: natural thickness, the way Kickoff/SpinBox size them. Cell sizes are
 #: computed in QML from the applet's ACTUAL size — plasmoidviewer gives
 #: it less than the requested implicit size, and fixed px cells clipped
 #: the last column (verified 2026-09-01).
 _STYLE_PROBE_CELL_SHAPES: dict[tuple[str, str], str] = {
     ("widgets/viewitem", "hover"): "wide",
     ("widgets/viewitem", "selected"): "tall",
+    ("widgets/line", ""): "line",
 }
 
 _STYLE_PROBE_ID = "org.themey.styleprobe"
@@ -330,10 +336,35 @@ PlasmoidItem {{
                         font.pixelSize: 10
                     }}
                     KSvg.FrameSvgItem {{
+                        visible: modelData.shape !== "line"
                         width: modelData.shape === "tall" ? 30 : sheet.cellW
                         height: modelData.shape === "wide" ? 30 : sheet.cellH
                         imagePath: modelData.path
                         prefix: modelData.prefix
+                    }}
+                    // widgets/line: plain elements at their natural
+                    // thickness (Kickoff's horLineHeight, SpinBox rules).
+                    Item {{
+                        visible: modelData.shape === "line"
+                        width: sheet.cellW
+                        height: sheet.cellH
+                        KSvg.SvgItem {{
+                            id: hrule
+                            x: 4
+                            y: 4
+                            width: parent.width - 8
+                            height: naturalSize.height
+                            imagePath: modelData.path
+                            elementId: "horizontal-line"
+                        }}
+                        KSvg.SvgItem {{
+                            x: 4
+                            y: hrule.y + hrule.height + 4
+                            width: naturalSize.width
+                            height: parent.height - y - 4
+                            imagePath: modelData.path
+                            elementId: "vertical-line"
+                        }}
                     }}
                 }}
             }}
