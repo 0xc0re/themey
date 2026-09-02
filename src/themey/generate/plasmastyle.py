@@ -120,6 +120,7 @@ import shutil
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from functools import partial
 from pathlib import Path
 
 from PIL import Image, ImageOps
@@ -2196,6 +2197,37 @@ def build_dragbar(theme: Theme) -> ET.Element | None:
     return canvas.finish()
 
 
+#: ``--iconbox-frames``: ``on`` ships the iconbox button art as task
+#: frames (the look chris has lived with; ``DEFAULT_ICON_BUTTON`` art is
+#: seen nowhere else), ``off`` replays E16's own default —
+#: ``container.c:98-114`` ``draw_icon_base = 0``: no per-icon plate, bare
+#: icons on the trough.
+ICONBOX_FRAME_MODES: tuple[str, ...] = ("on", "off")
+#: Task-manager prefixes that ship in every ``widgets/tasks.svg``
+#: (per-FILE fallback — a missing prefix would paint nothing).
+_TASKS_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("normal-", "normal"),
+    ("minimized-", "normal"),
+    ("", "normal"),  # launcher frame
+    ("hover-", "hover"),
+    ("attention-", "hover"),
+    ("progress-", "hover"),
+    ("focus-", "pressed"),
+)
+#: Hover-on-state prefixes, shipped only when the iconbox button has its
+#: own hilited art: a pinned launcher under the mouse reads
+#: ``launcher-hover-`` and never falls back to plain ``hover-``; the
+#: active task under the mouse reads ``focus-hover-`` (clicked chain —
+#: the depressed button stays depressed).
+_TASKS_HOVER_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("launcher-hover-", "hover"),
+    ("focus-hover-", "pressed"),
+)
+#: Iconbox trough iclasses whose ``__PADDING`` spaces the bare icons in
+#: frames-off mode (E16 ``container.c``: icons sit ``__PADDING`` apart
+#: inside the trough).
+_ICONBOX_TROUGH_SOURCES: tuple[str, ...] = ("ICONBOX_VERTICAL", "ICONBOX_HORIZONTAL")
+
 #: (element direction, ICONBOX arrow iclass) for the task-group expanders.
 _EXPANDER_SOURCES: tuple[tuple[str, str], ...] = (
     ("left", "ICONBOX_ARROW_LEFT"),
@@ -2205,7 +2237,57 @@ _EXPANDER_SOURCES: tuple[tuple[str, str], ...] = (
 )
 
 
-def build_tasks(theme: Theme) -> ET.Element | None:
+def _tasks_source(theme: Theme) -> IClassSpec | None:
+    """The iconbox button iclass the task frames come from."""
+    return _iclass_with_art(theme, "DEFAULT_ICON_BUTTON", "DEFAULT_DOCK_BUTTON")
+
+
+def tasks_hover(theme: Theme) -> bool:
+    """Whether the iconbox button has its own hilited art — the value
+    apply writes into the iconbox task manager's ``taskHoverEffect``
+    (``metadata.json`` ``X-Themey-TasksHover``). Without hilited art the
+    hover frame is the normal one and Plasma's hover animation would
+    only invent a highlight E16 never drew."""
+    src = _tasks_source(theme)
+    return src is not None and _hilited_image(src) is not None
+
+
+def _emit_blank_set(
+    canvas: _Canvas, prefix: str, padding: tuple[int, int, int, int], scale: float
+) -> None:
+    """A fully transparent 1 px center-only set for *prefix* plus its
+    margin hints from *padding* — the frames-OFF task set. NOT
+    :func:`_emit_set`: its transparent-art refusal must not fire here,
+    the transparency IS the point (E16 drew no plate). FrameSvg needs a
+    ``<prefix>center`` to paint anything at all, and painting a 0-alpha
+    rect is exactly nothing."""
+    ET.SubElement(
+        canvas.root,
+        f"{{{SVG_NS}}}rect",
+        {
+            "id": f"{prefix}center",
+            "x": "0",
+            "y": str(canvas.y),
+            "width": "1",
+            "height": "1",
+            "style": "opacity:0",
+        },
+    )
+    canvas.advance(1, 1)
+    _margin_hints(canvas, prefix, padding, scale)
+
+
+def _iconbox_trough_padding(theme: Theme) -> tuple[int, int, int, int]:
+    """``__PADDING`` of the iconbox trough (first of
+    ``_ICONBOX_TROUGH_SOURCES`` defined), else E16's default 2 px."""
+    for name in _ICONBOX_TROUGH_SOURCES:
+        spec = theme.iclasses.get(name)
+        if spec is not None and spec.padding != (0, 0, 0, 0):
+            return spec.padding
+    return (2, 2, 2, 2)
+
+
+def build_tasks(theme: Theme, *, iconbox_frames: str = "on") -> ET.Element | None:
     """``widgets/tasks.svg`` — task-manager frames from the iconbox button.
 
     themey's own apply creates the iconbox panel with an icons-only task
@@ -2217,25 +2299,49 @@ def build_tasks(theme: Theme) -> ET.Element | None:
     prefixes). ``focus-`` wears the CLICKED chain — E16's active iconbox
     button is the depressed one; ``attention-``/``progress-`` approximate
     with the hilited chain (E16 has no such states — noted).
-    ``group-expander-*`` come from the four ``ICONBOX_ARROW_*`` when all
-    exist (the ``build_arrows`` census), else they are omitted with a
-    note.
+    ``launcher-hover-``/``focus-hover-`` ship only with explicit hilited
+    art (``_TASKS_HOVER_PREFIXES``). ``group-expander-*`` come from the
+    four ``ICONBOX_ARROW_*`` when all exist (the ``build_arrows`` census),
+    else they are omitted with a note.
+
+    ``iconbox_frames="off"`` (``ICONBOX_FRAME_MODES``) replays E16's own
+    default — ``container.c`` ``draw_icon_base = 0``, no per-icon plate:
+    every prefix ships as a transparent 1 px set
+    (:func:`_emit_blank_set`) with margin hints from the iconbox trough's
+    ``__PADDING`` so the icons keep E16's spacing, and the expanders stay.
+    Skipping the file instead would bring Breeze's plates back — worse
+    than either E16 look. ``on`` (the default) keeps the button art chris
+    has lived with and notes that E16 itself drew none.
     """
-    src = _iclass_with_art(theme, "DEFAULT_ICON_BUTTON", "DEFAULT_DOCK_BUTTON")
-    if src is None:
-        return None
+    if iconbox_frames not in ICONBOX_FRAME_MODES:
+        raise PlasmaStyleError(
+            f"iconbox_frames must be one of {ICONBOX_FRAME_MODES} (got {iconbox_frames!r})"
+        )
+    src = _tasks_source(theme)
     canvas = _Canvas()
-    for prefix, state in (
-        ("normal-", "normal"),
-        ("minimized-", "normal"),
-        ("", "normal"),  # launcher frame
-        ("hover-", "hover"),
-        ("attention-", "hover"),
-        ("progress-", "hover"),
-        ("focus-", "pressed"),
-    ):
-        if _emit_set(theme, canvas, prefix, src, state, hints=True) is None:
-            return None  # transparent button art: the whole file is Breeze's
+    if iconbox_frames == "off":
+        padding = _iconbox_trough_padding(theme)
+        for prefix, _state in _TASKS_PREFIXES + _TASKS_HOVER_PREFIXES:
+            _emit_blank_set(canvas, prefix, padding, theme.scale)
+        from_trough = any(
+            (spec := theme.iclasses.get(n)) is not None and spec.padding != (0, 0, 0, 0)
+            for n in _ICONBOX_TROUGH_SOURCES
+        )
+        theme.notes.append(
+            "plasmastyle: task frames OFF (--iconbox-frames off): E16's "
+            "iconbox draws no per-icon plate (container.c draw_icon_base = 0); "
+            f"transparent sets with {padding} __PADDING margins"
+            + (" from the iconbox trough" if from_trough else " (E16 default)")
+        )
+    else:
+        if src is None:
+            return None
+        for prefix, state in _TASKS_PREFIXES:
+            if _emit_set(theme, canvas, prefix, src, state, hints=True) is None:
+                return None  # transparent button art: the whole file is Breeze's
+        if _hilited_image(src) is not None:
+            for prefix, state in _TASKS_HOVER_PREFIXES:
+                _emit_set(theme, canvas, prefix, src, state, hints=True)
 
     expanders: list[tuple[str, Path]] = []
     for direction, name in _EXPANDER_SOURCES:
@@ -2254,12 +2360,14 @@ def build_tasks(theme: Theme) -> ET.Element | None:
             "plasmastyle: not all four ICONBOX_ARROW_* have art; task "
             "group expanders left to the Breeze fallback"
         )
-    theme.notes.append(
-        f"plasmastyle: task frames from iclass {src.name} (E16 iconbox "
-        "button; focus wears the clicked art — the active task shows the "
-        "depressed button; attention/progress approximate with the "
-        "hilited art)"
-    )
+    if iconbox_frames == "on" and src is not None:
+        theme.notes.append(
+            f"plasmastyle: task frames from iclass {src.name} (E16 iconbox "
+            "button; focus wears the clicked art — the active task shows the "
+            "depressed button; attention/progress approximate with the "
+            "hilited art; E16's own iconbox default draws NO per-icon plate — "
+            "--iconbox-frames off replays that)"
+        )
     return canvas.finish()
 
 
@@ -2840,7 +2948,9 @@ def _write_metadata(theme: Theme, out_dir: Path) -> None:
     included); ``KPackageStructure`` added for symmetry with the
     Look-and-Feel writer. ``Version`` keys the SVG cache
     (``plasma_theme_<id>*.kcache``) — apply clears that cache explicitly
-    because a re-convert never bumps this Version.
+    because a re-convert never bumps this Version. ``X-Themey-TasksHover``
+    (:func:`tasks_hover`) tells apply whether the iconbox task manager
+    should animate hover.
     """
     meta = {
         "KPackageStructure": "Plasma/Theme",
@@ -2853,17 +2963,20 @@ def _write_metadata(theme: Theme, out_dir: Path) -> None:
             "Version": "1.0",
         },
         "X-Plasma-API": "5.0",
+        "X-Themey-TasksHover": tasks_hover(theme),
     }
     (out_dir / "metadata.json").write_text(
         json.dumps(meta, indent=4, sort_keys=True) + "\n"
     )
 
 
-def write(theme: Theme, out_dir: Path) -> PlasmaStyle:
+def write(theme: Theme, out_dir: Path, *, iconbox_frames: str = "on") -> PlasmaStyle:
     """Write the Plasma Style package for *theme* under *out_dir*.
 
     ``out_dir``'s basename MUST be ``slug.plugin_id(theme.name)`` — the
     dir name is the ``plasmarc [Theme] name=`` value Plasma matches on.
+    ``iconbox_frames`` (``ICONBOX_FRAME_MODES``) is threaded into
+    :func:`build_tasks`.
     A single SVG whose source art cannot be read skips that one file with
     a ``plasmastyle:`` note; an EMPTY SVG set is legitimate (colors-only
     package, like breeze-dark). Any other failure removes ``out_dir`` and
@@ -2875,6 +2988,14 @@ def write(theme: Theme, out_dir: Path) -> PlasmaStyle:
             f"out_dir basename must be {pkg_id!r} (got {out_dir.name!r}) — "
             "the dir name is the plasmarc Theme name Plasma matches on"
         )
+    if iconbox_frames not in ICONBOX_FRAME_MODES:
+        raise PlasmaStyleError(
+            f"iconbox_frames must be one of {ICONBOX_FRAME_MODES} (got {iconbox_frames!r})"
+        )
+    builders: list[tuple[str, Callable[[Theme], ET.Element | None]]] = [
+        (rel, partial(build_tasks, iconbox_frames=iconbox_frames) if rel == TASKS_SVG else b)
+        for rel, b in _BUILDERS
+    ]
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
         _write_metadata(theme, out_dir)
@@ -2882,7 +3003,7 @@ def write(theme: Theme, out_dir: Path) -> PlasmaStyle:
 
         shipped: list[str] = []
         panel_is_tint = False
-        for rel, builder in _BUILDERS:
+        for rel, builder in builders:
             try:
                 svg = builder(theme)
             except (OSError, ValueError) as exc:

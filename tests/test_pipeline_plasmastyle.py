@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from themey.generate import plasmastyle
 from themey.pipeline import convert
 from themey.slug import plugin_id
@@ -102,7 +104,7 @@ def test_pager_ships_from_art_without_wallpapers(fake_home, tmp_path):
 def test_style_failure_is_non_fatal_with_note(fake_home, tmp_path, monkeypatch):
     from themey import pipeline
 
-    def boom(theme, out_dir):
+    def boom(theme, out_dir, **kwargs):
         raise plastyle_err
 
     plastyle_err = plasmastyle.PlasmaStyleError("style exploded")
@@ -175,3 +177,27 @@ def test_aliens_viewitem_caps_clamped(fake_home, tmp_path):
     declared = scale_px(2, 2)
     assert dims["hover-left"][0] == dims["hover-right"][0] == declared <= limit
     assert dims["hover-top"][1] == dims["hover-bottom"][1] == declared <= limit
+
+
+def test_convert_rejects_bad_iconbox_frames(fake_home, tmp_path):
+    with pytest.raises(ValueError, match="iconbox_frames"):
+        convert(
+            FIXTURES / "Aliens.etheme", scale=2, backend="qml",
+            output_dir=tmp_path / "out", iconbox_frames="bogus",
+        )
+
+
+def test_convert_iconbox_frames_off_ships_blank_tasks(fake_home, tmp_path):
+    import json
+
+    out = tmp_path / "out"
+    result = convert(
+        FIXTURES / "Aliens.etheme", scale=2, backend="qml", output_dir=out,
+        iconbox_frames="off",
+    )
+    assert result.desktop_theme_dir is not None
+    tasks = result.desktop_theme_dir / "widgets" / "tasks.svg"
+    assert "opacity:0" in tasks.read_text()
+    assert any("task frames OFF" in n for n in result.notes)
+    meta = json.loads((result.desktop_theme_dir / "metadata.json").read_text())
+    assert isinstance(meta["X-Themey-TasksHover"], bool)

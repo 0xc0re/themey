@@ -18,6 +18,10 @@ Flags (convert):
                   QML-backend-only remap for E16's dead shade button
                   (Plasma 6 removed window shading): maximize (default),
                   keepAbove, keepBelow, menu, hide, or none
+    --iconbox-frames on|off
+                  Plasma Style task frames on the iconbox panel: on
+                  (default, the iconbox button art as plates) or off
+                  (E16's own frameless iconbox default)
     --no-open     do not launch the HTML preview in a browser
     -v / -vv      increase verbosity (DEBUG, default INFO)
     -q            quiet (WARNING+ only)
@@ -170,6 +174,17 @@ def convert_cmd(
             ),
         ),
     ] = "maximize",
+    iconbox_frames: Annotated[
+        str,
+        typer.Option(
+            "--iconbox-frames",
+            help=(
+                "Plasma Style task frames on the iconbox panel: 'on' "
+                "(default: the iconbox button art as per-icon plates) or "
+                "'off' (E16's own frameless iconbox default)"
+            ),
+        ),
+    ] = "on",
     verbose: Annotated[
         int,
         typer.Option(
@@ -194,6 +209,7 @@ def convert_cmd(
         result = convert(
             theme, scale=scale, output_dir=output, backend=backend,
             upscale=upscale, shade_button=shade_button,
+            iconbox_frames=iconbox_frames,
         )
     except Exception as exc:
         logging.getLogger(__name__).error("conversion failed: %s", exc)

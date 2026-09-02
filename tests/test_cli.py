@@ -198,3 +198,24 @@ def test_cli_shade_button_invalid_rejected():
         app, ["--shade-button", "bogus", str(FIXTURES / "Aliens.etheme")]
     )
     assert result.exit_code != 0
+
+
+def test_cli_iconbox_frames_off_accepted(tmp_path, monkeypatch):
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    result = CliRunner().invoke(
+        app,
+        ["--iconbox-frames", "off", "--output", str(tmp_path / "o"), "--no-open",
+         str(FIXTURES / "Aliens.etheme")],
+    )
+    assert result.exit_code == 0, result.output
+    tasks = tmp_path / "o" / "desktoptheme" / "themey_Aliens" / "widgets" / "tasks.svg"
+    assert tasks.is_file()
+    assert "opacity:0" in tasks.read_text()
+
+
+def test_cli_iconbox_frames_invalid_rejected():
+    result = CliRunner().invoke(
+        app, ["--iconbox-frames", "bogus", str(FIXTURES / "Aliens.etheme")]
+    )
+    assert result.exit_code != 0
