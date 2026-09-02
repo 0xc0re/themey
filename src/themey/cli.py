@@ -22,11 +22,18 @@ Flags (convert):
                   Plasma Style task frames on the icon task manager: off
                   (default, E16's own frameless iconbox) or on (the
                   iconbox button art as per-icon plates)
+    --widget-style windows|fusion|breeze
+                  Qt application style for the bundle to select
+                  (default: leave the user's application style alone)
+    --apply       hand the freshly installed theme straight to
+                  `themey apply` (the E16 furniture flags below apply)
+    --no-restart-shell
+                  only with --apply; see the apply flag of the same name
     --no-open     do not launch the HTML preview in a browser
     -v / -vv      increase verbosity (DEBUG, default INFO)
     -q            quiet (WARNING+ only)
 
-Flags (apply, E16 furniture):
+Flags (apply, E16 furniture — convert takes the same six with --apply):
     --no-pager / --no-iconbox / --no-dragbar
                   leave that panel out (an already-created one is removed)
     --furniture-strut
@@ -34,6 +41,11 @@ Flags (apply, E16 furniture):
                   (default: Windows Go Below)
     --pager-cell PX / --iconbox-size PX
                   override E16's own 48 px cell / iconbox sizes
+
+Flags (apply, other):
+    --widget-style windows|fusion|breeze
+                  override the bundle's own X-Themey-WidgetStyle stamp
+                  for this run
 
 Group flags:
     --version     print themey.__version__ and exit 0
@@ -43,6 +55,7 @@ Batch form (themey --all <dir>) is unbuilt and intentionally not exposed.
 from __future__ import annotations
 
 import logging
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
 
@@ -51,6 +64,21 @@ import typer.core
 
 from . import __version__, apply, external, log
 from .pipeline import convert
+
+
+class WidgetStyle(StrEnum):
+    """``--widget-style`` choices, on both ``convert`` and ``apply``.
+
+    The members mirror :data:`themey.generate.lookandfeel.WIDGET_STYLES`
+    (which owns the token -> Qt style-name mapping); this enum exists so
+    Typer renders and validates the choice list. Absent = the user's
+    application style is left alone.
+    """
+
+    windows = "windows"
+    fusion = "fusion"
+    breeze = "breeze"
+
 
 #: Lone flags that belong to the group itself, not to the implicit
 #: ``convert``. Without this exemption ``_DefaultConvertGroup`` would rewrite
@@ -195,6 +223,80 @@ def convert_cmd(
             ),
         ),
     ] = "off",
+    widget_style: Annotated[
+        WidgetStyle | None,
+        typer.Option(
+            "--widget-style",
+            help=(
+                "Qt application style for the Global Theme bundle to "
+                "select (kdeglobals widgetStyle); default: leave the "
+                "user's application style alone"
+            ),
+        ),
+    ] = None,
+    apply_flag: Annotated[
+        bool,
+        typer.Option(
+            "--apply",
+            help="Apply the theme to the live desktop as soon as it is "
+            "installed (the same work as a following `themey apply NAME`); "
+            "not available with --output or --backend svg/both",
+        ),
+    ] = False,
+    no_restart_shell: Annotated[
+        bool,
+        typer.Option(
+            "--no-restart-shell",
+            help="Skip the automatic plasmashell restart that makes a tiled "
+            "wallpaper repaint immediately (the config still lands; the "
+            "repaint then waits for the next login). Only with --apply",
+        ),
+    ] = False,
+    no_pager: Annotated[
+        bool,
+        typer.Option(
+            "--no-pager",
+            help="Don't create E16's pager panel (an existing themey one is removed)",
+        ),
+    ] = False,
+    no_iconbox: Annotated[
+        bool,
+        typer.Option(
+            "--no-iconbox",
+            help="Don't create E16's iconbox panel (an existing themey one is removed)",
+        ),
+    ] = False,
+    no_dragbar: Annotated[
+        bool,
+        typer.Option(
+            "--no-dragbar",
+            help="Don't create E16's top dragbar (the parked top panels come back)",
+        ),
+    ] = False,
+    furniture_strut: Annotated[
+        bool,
+        typer.Option(
+            "--furniture-strut",
+            help="Let the pager/iconbox panels reserve screen space; default is "
+            "Windows Go Below, so maximized windows keep the whole screen",
+        ),
+    ] = False,
+    pager_cell: Annotated[
+        int,
+        typer.Option(
+            "--pager-cell",
+            help="Pager cell height in px (E16's own default 48); the panel is "
+            "one aspect-true cell thick",
+        ),
+    ] = apply.DEFAULT_FURNITURE.pager_cell_px,
+    iconbox_size: Annotated[
+        int,
+        typer.Option(
+            "--iconbox-size",
+            help="Iconbox panel thickness in px = the task icon size "
+            "(E16's own default 48)",
+        ),
+    ] = apply.DEFAULT_FURNITURE.iconbox_px,
     verbose: Annotated[
         int,
         typer.Option(
@@ -215,11 +317,36 @@ def convert_cmd(
 ) -> None:
     """Convert one .etheme to a Plasma 6 KWin window decoration."""
     log.setup_logging(verbose=verbose, quiet=quiet)
+    # Every --apply usage error is raised BEFORE the conversion: a bad
+    # flag combination must not cost a full convert + install first.
+    style_token = widget_style.value if widget_style else None
+    furniture = apply.DEFAULT_FURNITURE
+    if apply_flag:
+        if output is not None:
+            raise typer.BadParameter(
+                "--apply needs an installed theme, but --output writes the "
+                "tree under DIR and installs nothing; drop one of the two"
+            )
+        if backend != "qml":
+            raise typer.BadParameter(
+                f"--apply is QML-only (got --backend {backend}); the full "
+                "Look-and-Feel apply has no SVG path — convert without "
+                "--apply, then `themey apply NAME --deco-only --backend svg`"
+            )
+        furniture = _furniture_options(
+            no_pager=no_pager,
+            no_iconbox=no_iconbox,
+            no_dragbar=no_dragbar,
+            furniture_strut=furniture_strut,
+            pager_cell=pager_cell,
+            iconbox_size=iconbox_size,
+        )
     try:
         result = convert(
             theme, scale=scale, output_dir=output, backend=backend,
             upscale=upscale, shade_button=shade_button,
             iconbox_frames=iconbox_frames,
+            widget_style=style_token,
         )
     except Exception as exc:
         logging.getLogger(__name__).error("conversion failed: %s", exc)
@@ -248,15 +375,18 @@ def convert_cmd(
     typer.echo(f"Report:    {result.report_path}")
     if result.installed:
         qml_built = result.qml_installed_dir is not None
-        if qml_built:
-            typer.echo(
-                f"Apply via System Settings - Window Decorations - {result.theme_name}, "
-                f"or: themey apply {result.theme_name}"
-            )
-        else:
+        # With --apply (which implies the QML backend) the apply runs
+        # below, after this whole block, and prints its own line — none of
+        # the "here is how to apply it" advice belongs on that path.
+        if not qml_built:
             typer.echo(
                 f"Apply via System Settings - Window Decorations - {result.theme_name}, "
                 f"or: themey apply {result.theme_name} --deco-only --backend svg"
+            )
+        elif not apply_flag:
+            typer.echo(
+                f"Apply via System Settings - Window Decorations - {result.theme_name}, "
+                f"or: themey apply {result.theme_name}"
             )
         if result.color_scheme_path is not None:
             typer.echo(
@@ -269,7 +399,9 @@ def convert_cmd(
                 "System Settings - Cursors"
             )
         if result.lnf_id is not None:
-            if qml_built:
+            if apply_flag:
+                typer.echo(f"Global theme: {result.lnf_id}")
+            elif qml_built:
                 typer.echo(
                     f"Global theme: {result.lnf_id} — apply: themey apply "
                     f"{result.theme_name}"
@@ -281,6 +413,21 @@ def convert_cmd(
                     f"only: themey apply {result.theme_name} --deco-only "
                     "--backend svg"
                 )
+
+    if apply_flag:
+        # One command, converted and loaded. The theme is installed
+        # either way; only the apply can fail from here on.
+        try:
+            apply.apply_full(
+                result.theme_name,
+                restart_shell=not no_restart_shell,
+                furniture=furniture,
+                widget_style=style_token,
+            )
+        except apply.ApplyError as exc:
+            logging.getLogger(__name__).error("apply failed: %s", exc)
+            raise typer.Exit(code=1) from exc
+        typer.echo("Applied.")
 
     if no_open:
         return
@@ -526,6 +673,16 @@ def apply_cmd(
             "(E16's own default 48)",
         ),
     ] = apply.DEFAULT_FURNITURE.iconbox_px,
+    widget_style: Annotated[
+        WidgetStyle | None,
+        typer.Option(
+            "--widget-style",
+            help="Qt application style to select (kdeglobals widgetStyle), "
+            "overriding the bundle's own --widget-style stamp for this "
+            "run; default: use the stamp, or leave the style alone when "
+            "the bundle carries none. Full apply only",
+        ),
+    ] = None,
 ) -> None:
     """Point the live KWin session at an installed theme's full Look-and-Feel
     bundle (or, with --deco-only, just its decoration), and reconfigure."""
@@ -577,6 +734,7 @@ def apply_cmd(
                     pager_cell=pager_cell,
                     iconbox_size=iconbox_size,
                 ),
+                widget_style=widget_style.value if widget_style else None,
             )
     except apply.ApplyError as exc:
         logging.getLogger(__name__).error("apply failed: %s", exc)

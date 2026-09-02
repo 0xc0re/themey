@@ -14,6 +14,7 @@ from typer.testing import CliRunner
 from themey import apply as apply_mod
 from themey import cli as cli_mod
 from themey.cli import app
+from themey.generate.lookandfeel import WIDGET_STYLES
 
 
 def test_apply_default_routes_to_apply_full(monkeypatch) -> None:
@@ -28,6 +29,7 @@ def test_apply_default_routes_to_apply_full(monkeypatch) -> None:
             "legacy_plugin": False, "border_size": None,
             "keep_buttons": False, "restart_shell": True,
             "furniture": apply_mod.FurnitureOptions(),
+            "widget_style": None,
         })
     ]
     assert "revert: themey apply --revert" in result.output
@@ -177,3 +179,40 @@ def test_furniture_options_helper_is_reusable() -> None:
         furniture_strut=False, pager_cell=48, iconbox_size=48,
     )
     assert opts == apply_mod.FurnitureOptions(iconbox=False)
+
+
+def test_apply_widget_style_passes_through(monkeypatch) -> None:
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        apply_mod, "apply_full", lambda name, **kw: calls.append((name, kw))
+    )
+    result = CliRunner().invoke(app, ["apply", "e13", "--widget-style", "windows"])
+    assert result.exit_code == 0, result.output
+    assert calls[0][1]["widget_style"] == "windows"
+
+
+def test_apply_widget_style_defaults_to_none(monkeypatch) -> None:
+    """No flag = whatever the bundle was stamped with (apply reads it)."""
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        apply_mod, "apply_full", lambda name, **kw: calls.append((name, kw))
+    )
+    result = CliRunner().invoke(app, ["apply", "e13"])
+    assert result.exit_code == 0, result.output
+    assert calls[0][1]["widget_style"] is None
+
+
+def test_apply_widget_style_invalid_rejected(monkeypatch) -> None:
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        apply_mod, "apply_full", lambda name, **kw: calls.append((name, kw))
+    )
+    result = CliRunner().invoke(app, ["apply", "e13", "--widget-style", "kvantum"])
+    assert result.exit_code != 0
+    assert calls == []
+
+
+def test_widget_style_enum_matches_the_generator_map() -> None:
+    """The CLI's choices and lookandfeel's token->Qt-name map are one
+    vocabulary — a new style is added in exactly one place."""
+    assert {m.value for m in cli_mod.WidgetStyle} == set(WIDGET_STYLES)
