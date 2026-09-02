@@ -227,3 +227,50 @@ def test_report_surfaces_plasmastyle_notes_before_the_state_bucket(
     out = write(theme, tmp_path / "r.txt", backend="qml")
     text = out.read_text()
     assert text.index("plasmastyle: panel background") < text.index("some state note")
+
+
+def test_report_scaler_line_defaults_to_nearest(tmp_path: Path) -> None:
+    text = write(_make_theme(), tmp_path / "r.txt").read_text()
+    assert "with NEAREST." in text
+
+
+def test_report_scaler_line_names_hqx_after_a_quality_run(tmp_path: Path) -> None:
+    """It hardcoded NEAREST through every --upscale quality run until
+    2026-09-02, so the report told you the opposite of what shipped."""
+    text = write(
+        _make_theme(), tmp_path / "r.txt", upscale="quality"
+    ).read_text()
+    assert "with hqx (--upscale quality)." in text
+    assert "NEAREST" not in text.split("Pixel-art borders")[1].split("\n")[0]
+
+
+def test_report_scaler_line_names_waifu2x(tmp_path: Path) -> None:
+    text = write(
+        _make_theme(), tmp_path / "r.txt", upscale="waifu2x"
+    ).read_text()
+    assert "with waifu2x (--upscale waifu2x)." in text
+
+
+def test_report_scaler_line_falls_back_to_nearest_for_an_unknown_mode(
+    tmp_path: Path,
+) -> None:
+    """An unrecognized mode reads as the baseline rather than crashing a
+    report that is otherwise complete."""
+    text = write(_make_theme(), tmp_path / "r.txt", upscale="xbrz").read_text()
+    assert "with NEAREST." in text
+
+
+def test_report_surfaces_upscale_notes_before_the_state_bucket(
+    tmp_path: Path,
+) -> None:
+    """The waifu2x-fell-back-to-hqx note is a layout decision, not a
+    per-state collapse, so it must not be truncated away with them."""
+    notes = [f"state {i} dropped" for i in range(30)]
+    notes.append("upscale: waifu2x-ncnn-vulkan is not on PATH — part art "
+                 "upscaled with hqx instead")
+    text = write(
+        _make_theme(notes=notes), tmp_path / "r.txt", upscale="quality"
+    ).read_text()
+    assert "upscale: waifu2x-ncnn-vulkan is not on PATH" in text
+    approximated = text.split("## Approximated")[1]
+    assert approximated.index("upscale:") < approximated.index("state 0 dropped")

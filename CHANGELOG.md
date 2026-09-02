@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`--upscale waifu2x`** — a third part-art scaler, running
+  [waifu2x-ncnn-vulkan](https://github.com/nihui/waifu2x-ncnn-vulkan) on
+  the window-decoration art. Local, free, deterministic and offline; the
+  CNN reconstructs edges where hqx only smooths them. QML-backend-only,
+  like `--upscale quality`.
+
+  The binary needs its `models-*` directories, which most installs miss —
+  upstream ships them as flat siblings of the executable and the tool
+  resolves `-m` against the *current directory*, so copying just the
+  binary onto `PATH` leaves it runnable and modelless. themey passes an
+  explicit `-m`, probing `$THEMEY_WAIFU2X_MODELS`, the binary's own
+  directory, then `/usr/local/share/` and `/usr/share/`. When either half
+  is missing the conversion still succeeds: the art is upscaled with hqx
+  and `report.txt` carries an `upscale:` note naming what was not found.
+
+  `THEMEY_WAIFU2X_GPU=<index>` pins the Vulkan device when the tool's own
+  auto-pick chooses badly. A timeout now quotes the device banner waifu2x
+  printed before it was killed, and the limit is 300 s — a hang guard, not
+  a performance budget, sized to clear the one-off shader-pipeline compile
+  the first run against a device pays (36 s vs 1.7 s warm, measured).
+
+### Fixed
+
+- `report.txt`'s Approximated section named the scaler that actually ran.
+  It hardcoded "NEAREST" through every `--upscale quality` run.
+- The SVG backend's rejection of a smoothing `--upscale` mode said
+  "quality" whatever mode you passed.
+- `upscale_part` dispatched by falling through to hqx for anything past
+  the `nearest` early-returns, so a new mode would have silently rendered
+  as hqx. Each mode now has an explicit branch and the fall-through raises.
+
+### Changed
+
+- `generate/qmldeco/package.export_images` scales each *distinct* source
+  image once instead of once per manifest entry (e13: 26 rather than 76).
+  Output is unchanged; the corpus survey is byte-identical.
+
 ## [0.5.0] - 2026-09-02
 
 ### Added

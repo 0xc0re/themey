@@ -24,7 +24,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import install, paths
+from . import external, install, paths
 from .analyze.build_theme import build_theme
 from .etheme.archive import extract
 from .etheme.parse import parse_tree
@@ -153,7 +153,14 @@ def convert(
             package), ``"svg"`` (the legacy Aurorae SVG theme, kept as
             an escape hatch), or ``"both"``.
         upscale: Part-art scaler for the QML package: ``"nearest"``
-            (default) or ``"quality"`` (hqx). Quality is QML-backend-only.
+            (default), ``"quality"`` (the in-tree hqx port) or
+            ``"waifu2x"`` (the external waifu2x-ncnn-vulkan CNN). Both
+            smoothing modes are QML-backend-only. ``"waifu2x"`` degrades
+            to ``"quality"`` with an ``upscale:`` note when the binary or
+            its model weights are missing, so it never fails a convert;
+            the substitution is decided once, right after ``build_theme``,
+            and the effective mode is what both the generator and the
+            report see.
         shade_button: QML-backend-only remap for E16's shade button
             (KWin removed window shading in Plasma 6): one of
             ``qmldeco.SHADE_BUTTON_MODES`` — ``"maximize"`` (default),
@@ -210,7 +217,7 @@ def convert(
     if want_svg and upscale != "nearest":
         raise ValueError(
             f"backend {backend!r} requires upscale 'nearest' "
-            f"(got {upscale!r}); --upscale quality is QML-backend-only"
+            f"(got {upscale!r}); --upscale {upscale} is QML-backend-only"
         )
     if shade_button not in qmldeco.SHADE_BUTTON_MODES:
         raise ValueError(
@@ -243,6 +250,20 @@ def convert(
             display_name=theme_name,
             scale=scale,
         )
+        # ONE decision point for the whole run: waifu2x is an optional
+        # external binary, so decide here — where theme.notes exists to
+        # record it — and hand the EFFECTIVE mode to every consumer. The
+        # scaler and the report line can then never disagree.
+        effective_upscale = upscale
+        if upscale == "waifu2x":
+            reason = external.waifu2x_unavailable_reason()
+            if reason is not None:
+                effective_upscale = "quality"
+                theme.notes.append(
+                    f"upscale: {reason} — part art upscaled with hqx instead"
+                )
+                log.warning("waifu2x unavailable, falling back to hqx: %s", reason)
+
         log.info(
             "theme: parts=%d iclasses=%d notes=%d skipped=%d",
             len(theme.border.parts),
@@ -291,7 +312,7 @@ def convert(
                 if qml_installed.exists():
                     shutil.rmtree(qml_installed)
                 qmldeco.write(
-                    theme, qml_installed, upscale=upscale,
+                    theme, qml_installed, upscale=effective_upscale,
                     shade_button=shade_button,
                 )
                 log.info("wrote QML decoration package to %s", qml_installed)
@@ -407,7 +428,7 @@ def convert(
                 if want_qml:
                     stage_pkg_dir = stage / pkg_id
                     qmldeco.write(
-                        theme, stage_pkg_dir, upscale=upscale,
+                        theme, stage_pkg_dir, upscale=effective_upscale,
                         shade_button=shade_button,
                     )
                     log.debug("wrote QML package to %s", stage_pkg_dir)
@@ -540,6 +561,7 @@ def convert(
             theme,
             previews / f"{theme_name}.report.txt",
             backend=backend,
+            upscale=effective_upscale,
             wallpaper_specs=tuple(installed_wallpaper_specs),
             cursor_theme=cursor_theme,
             lnf_id=pkg_id,

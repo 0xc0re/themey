@@ -75,13 +75,28 @@ def export_images(
     upscale: str = "nearest",
 ) -> list[Path]:
     """Export part art as raw PNGs upscaled to scale_px dims (NEAREST by
-    default; ``upscale="quality"`` runs the opt-in hqx path)."""
+    default; ``upscale="quality"`` runs the in-tree hqx path and
+    ``"waifu2x"`` the external CNN).
+
+    States share art, so the manifest names the same source file many
+    times over — e13's 76 entries are ~26 distinct files. The memo below
+    scales each source ONCE: it saves two thirds of the pure-Python hqx
+    work, and two thirds of the waifu2x subprocesses, whose ~2.8 s of
+    Vulkan init per launch dominates that mode entirely. Keyed by source
+    path, local to the call, nothing on disk — ``upscale_part`` stays a
+    pure function of (image, scale, mode), so one result per source is
+    exactly what every entry would have got anyway.
+    """
     img_dir = pkg_dir / "contents" / "images"
     img_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
+    scaled: dict[Path, Image.Image] = {}
     for relname, source in sorted(manifest.items()):
-        with Image.open(source) as im:
-            out_img = upscale_part(im.convert("RGBA"), scale, upscale)
+        out_img = scaled.get(source)
+        if out_img is None:
+            with Image.open(source) as im:
+                out_img = upscale_part(im.convert("RGBA"), scale, upscale)
+            scaled[source] = out_img
         target = img_dir / relname
         out_img.save(target)
         written.append(target)

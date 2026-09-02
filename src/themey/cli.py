@@ -13,7 +13,9 @@ Flags (convert):
                   QML-backend-only; default 2
     --output DIR  write the theme tree + report + preview under DIR instead
                   of installing to ~/.local/share (nothing outside DIR is touched)
-    --upscale M   part-art scaler: nearest (default) or quality (QML-only hqx)
+    --upscale M   part-art scaler: nearest (default), quality (in-tree hqx)
+                  or waifu2x (external CNN; falls back to hqx when the
+                  binary or its models are missing). Both QML-only
     --shade-button ACTION
                   QML-backend-only remap for E16's dead shade button
                   (Plasma 6 removed window shading): maximize (default),
@@ -184,8 +186,11 @@ def convert_cmd(
         typer.Option(
             "--upscale",
             help=(
-                "Part-art scaler: 'nearest' (default, pixel-art sharp) or "
-                "'quality' (hqx smoothing; QML-backend-only)"
+                "Part-art scaler: 'nearest' (default, pixel-art sharp), "
+                "'quality' (in-tree hqx smoothing) or 'waifu2x' "
+                "(waifu2x-ncnn-vulkan; falls back to hqx with a report "
+                "note when the binary or its models are absent). Both "
+                "smoothing modes are QML-backend-only"
             ),
         ),
     ] = "nearest",
@@ -491,7 +496,10 @@ def render_cmd(
     ] = 2,
     upscale: Annotated[
         str,
-        typer.Option("--upscale", help="'nearest' (default) or 'quality' (hqx)"),
+        typer.Option(
+            "--upscale",
+            help="'nearest' (default), 'quality' (hqx) or 'waifu2x'",
+        ),
     ] = "nearest",
     verbose: Annotated[
         int,
