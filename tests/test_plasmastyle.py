@@ -13,7 +13,7 @@ from PIL import Image
 
 from themey.generate import plasmastyle
 from themey.generate.qmldeco.resolver import scale_px
-from themey.ir import BorderSpec, IClassSpec, Palette, TClassSpec, Theme
+from themey.ir import BorderSpec, IClassSpec, Palette, TClassSpec, Theme, TooltipSpec
 
 SVG_NS = "http://www.w3.org/2000/svg"
 XLINK = "{http://www.w3.org/1999/xlink}href"
@@ -43,6 +43,7 @@ def _theme(
     iclasses: dict[str, IClassSpec],
     tclasses: dict[str, TClassSpec] | None = None,
     scale: float = 1,
+    tooltips: dict[str, TooltipSpec] | None = None,
 ) -> Theme:
     return Theme(
         name="TestStyle",
@@ -63,6 +64,7 @@ def _theme(
             titlebar_active=(64, 64, 64), titlebar_inactive=(128, 128, 128),
             text_active=(255, 255, 255), text_inactive=(192, 192, 192),
         ),
+        tooltips=tooltips or {},
     )
 
 
@@ -1211,6 +1213,61 @@ def test_every_image_href_is_a_data_uri(tmp_path: Path) -> None:
 
 
 # ------------------------------------------------------------------ #
+# Tooltip source resolution (tooltips.cfg DEFAULT block)
+# ------------------------------------------------------------------ #
+
+
+def test_build_tooltip_uses_default_tooltip_iclass(tmp_path: Path) -> None:
+    """11 corpus DEFAULT tooltips name an iclass other than TT_MAIN (TT_MINI,
+    BAR, COORDS, TT_CLOUD); that art is what E16 showed."""
+    bar = _png(tmp_path, "bar.png", color=(90, 10, 10, 255))
+    main = _png(tmp_path, "tt.png", color=(10, 30, 60, 255))
+    theme = _theme(
+        tmp_path,
+        {"BAR": _iclass("BAR", normal=bar), "TT_MAIN": _iclass("TT_MAIN", normal=main)},
+        tooltips={"DEFAULT": TooltipSpec(name="DEFAULT", iclass="BAR", tclass="COORDS")},
+    )
+    svg = plasmastyle.build_tooltip(theme)
+    assert svg is not None
+    assert any("tooltip background from iclass BAR" in n for n in theme.notes)
+
+
+def test_build_tooltip_without_default_block_uses_tt_main(tmp_path: Path) -> None:
+    png = _png(tmp_path, "tt.png", color=(10, 30, 60, 255))
+    theme = _theme(tmp_path, {"TT_MAIN": _iclass("TT_MAIN", normal=png)})
+    svg = plasmastyle.build_tooltip(theme)
+    assert svg is not None
+    assert any("tooltip background from iclass TT_MAIN" in n for n in theme.notes)
+
+
+def test_build_tooltip_artless_tooltip_iclass_falls_back_to_tt_main(
+    tmp_path: Path,
+) -> None:
+    png = _png(tmp_path, "tt.png", color=(10, 30, 60, 255))
+    theme = _theme(
+        tmp_path,
+        {"BAR": _iclass("BAR"), "TT_MAIN": _iclass("TT_MAIN", normal=png)},
+        tooltips={"DEFAULT": TooltipSpec(name="DEFAULT", iclass="BAR", tclass="TT_TEXT")},
+    )
+    svg = plasmastyle.build_tooltip(theme)
+    assert svg is not None
+    assert any("tooltip background from iclass TT_MAIN" in n for n in theme.notes)
+
+
+def test_build_tooltip_artless_default_iclass_is_noted(tmp_path: Path) -> None:
+    png = _png(tmp_path, "tt.png", color=(10, 30, 60, 255))
+    theme = _theme(
+        tmp_path,
+        {"BAR": _iclass("BAR"), "TT_MAIN": _iclass("TT_MAIN", normal=png)},
+        tooltips={"DEFAULT": TooltipSpec(name="DEFAULT", iclass="BAR", tclass="TT_TEXT")},
+    )
+    assert plasmastyle.build_tooltip(theme) is not None
+    assert any(
+        "DEFAULT tooltip iclass BAR has no normal art" in n for n in theme.notes
+    )
+
+
+# ------------------------------------------------------------------ #
 # style_scheme
 # ------------------------------------------------------------------ #
 
@@ -1228,6 +1285,82 @@ def test_style_scheme_tooltip_override(tmp_path: Path) -> None:
     assert scheme.tooltip.background_normal == (10, 30, 60)
     assert scheme.tooltip.foreground_normal == (230, 230, 200)
     assert any("colors Tooltip" in n for n in theme.notes)
+
+
+def test_style_scheme_tooltip_text_from_default_tooltip_tclass(tmp_path: Path) -> None:
+    """88 corpus DEFAULT tooltips name a tclass other than TT_TEXT (TEXT1,
+    TEXT2, COORDS, ...); E16 paints the tooltip with THAT one."""
+    png = _png(tmp_path, "tt.png", color=(10, 30, 60, 255))
+    theme = _theme(
+        tmp_path,
+        {"TT_MAIN": _iclass("TT_MAIN", normal=png)},
+        {
+            "TT_TEXT": _tclass("TT_TEXT", fg=(230, 230, 200)),
+            "TEXT1": _tclass("TEXT1", fg=(200, 240, 255)),
+        },
+        tooltips={"DEFAULT": TooltipSpec(name="DEFAULT", iclass="TT_MAIN", tclass="TEXT1")},
+    )
+    scheme = plasmastyle.style_scheme(
+        theme, shipped=frozenset({plasmastyle.TOOLTIP_SVG})
+    )
+    assert scheme.tooltip.foreground_normal == (200, 240, 255)
+    assert any("colors Tooltip" in n and "TEXT1" in n for n in theme.notes)
+
+
+def test_style_scheme_tooltip_background_from_default_tooltip_iclass(
+    tmp_path: Path,
+) -> None:
+    bar = _png(tmp_path, "bar.png", color=(90, 10, 10, 255))
+    main = _png(tmp_path, "tt.png", color=(10, 30, 60, 255))
+    theme = _theme(
+        tmp_path,
+        {"BAR": _iclass("BAR", normal=bar), "TT_MAIN": _iclass("TT_MAIN", normal=main)},
+        {"COORDS": _tclass("COORDS", fg=(255, 255, 255))},
+        tooltips={"DEFAULT": TooltipSpec(name="DEFAULT", iclass="BAR", tclass="COORDS")},
+    )
+    scheme = plasmastyle.style_scheme(
+        theme, shipped=frozenset({plasmastyle.TOOLTIP_SVG})
+    )
+    assert scheme.tooltip.background_normal == (90, 10, 10)
+    assert any("colors Tooltip background from BAR art" in n for n in theme.notes)
+
+
+def test_style_scheme_tooltip_unknown_tclass_falls_back_to_tt_text(
+    tmp_path: Path,
+) -> None:
+    """A DEFAULT tooltip naming a tclass the theme never defines (two corpus
+    themes name their iclass) falls back to the TT_TEXT convention."""
+    png = _png(tmp_path, "tt.png", color=(10, 30, 60, 255))
+    theme = _theme(
+        tmp_path,
+        {"TT_MAIN": _iclass("TT_MAIN", normal=png)},
+        {"TT_TEXT": _tclass("TT_TEXT", fg=(230, 230, 200))},
+        tooltips={"DEFAULT": TooltipSpec(name="DEFAULT", iclass="TT_MAIN", tclass="TT_MAIN")},
+    )
+    scheme = plasmastyle.style_scheme(
+        theme, shipped=frozenset({plasmastyle.TOOLTIP_SVG})
+    )
+    assert scheme.tooltip.foreground_normal == (230, 230, 200)
+    assert any(
+        "DEFAULT tooltip names undefined tclass TT_MAIN" in n for n in theme.notes
+    )
+
+
+def test_style_scheme_tooltip_artless_default_iclass_samples_tt_main(
+    tmp_path: Path,
+) -> None:
+    main = _png(tmp_path, "tt.png", color=(10, 30, 60, 255))
+    theme = _theme(
+        tmp_path,
+        {"BAR": _iclass("BAR"), "TT_MAIN": _iclass("TT_MAIN", normal=main)},
+        {"TT_TEXT": _tclass("TT_TEXT", fg=(255, 255, 255))},
+        tooltips={"DEFAULT": TooltipSpec(name="DEFAULT", iclass="BAR", tclass="TT_TEXT")},
+    )
+    scheme = plasmastyle.style_scheme(
+        theme, shipped=frozenset({plasmastyle.TOOLTIP_SVG})
+    )
+    assert scheme.tooltip.background_normal == (10, 30, 60)
+    assert any("colors Tooltip background from TT_MAIN art" in n for n in theme.notes)
 
 
 def test_style_scheme_overrides_gated_on_shipped(tmp_path: Path) -> None:

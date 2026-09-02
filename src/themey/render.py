@@ -465,6 +465,15 @@ def render_style(
             XDG_DATA_HOME=str(data),
             XDG_RUNTIME_DIR=str(runtime),
             XDG_CACHE_HOME=str(work / "cache"),
+            # KWin authorizes org.kde.KWin.ScreenShot2 callers by matching
+            # the caller's /proc exe against a .desktop file's
+            # X-KDE-DBUS-Restricted-Interfaces through the service database;
+            # that lookup fails from a tty/ssh session (2026-09-01: "The
+            # process is not authorized to take a screenshot", spectacle rc 0,
+            # no PNG). This compositor is private and headless, so KWin's
+            # own escape hatch is the right fix rather than a desktop
+            # session's worth of environment.
+            KWIN_SCREENSHOT_NO_PERMISSION_CHECKS="1",
         )
         for var in ("WAYLAND_DISPLAY", "DISPLAY", "DBUS_SESSION_BUS_ADDRESS"):
             env.pop(var, None)
@@ -567,6 +576,15 @@ def render(
             XDG_DATA_HOME=str(data),
             XDG_RUNTIME_DIR=str(runtime),
             XDG_CACHE_HOME=str(work / "cache"),
+            # KWin authorizes org.kde.KWin.ScreenShot2 callers by matching
+            # the caller's /proc exe against a .desktop file's
+            # X-KDE-DBUS-Restricted-Interfaces through the service database;
+            # that lookup fails from a tty/ssh session (2026-09-01: "The
+            # process is not authorized to take a screenshot", spectacle rc 0,
+            # no PNG). This compositor is private and headless, so KWin's
+            # own escape hatch is the right fix rather than a desktop
+            # session's worth of environment.
+            KWIN_SCREENSHOT_NO_PERMISSION_CHECKS="1",
         )
         for var in ("WAYLAND_DISPLAY", "DISPLAY", "DBUS_SESSION_BUS_ADDRESS"):
             env.pop(var, None)

@@ -442,6 +442,31 @@ class MenuStyleSpec:
 
 
 @dataclass(frozen=True)
+class TooltipSpec:
+    """E16 ``__TOOLTIP`` — which iclass/tclass dress a tooltip (tooltips.c).
+
+    ``iclass`` is the tooltip window's own art (guaranteed defined in the
+    theme when built by ``build_theme``); ``bubbles`` are the up-to-four
+    cloud iclasses E16 drew between pointer and tooltip (positional —
+    ``bubbles[i]`` is ``__BUBBLE<i+1>_ICLASS``, an unset middle slot is an
+    empty string, trailing unset slots are dropped). ``tclass`` paints the
+    text, ``distance`` is the pointer offset in px and ``help_icon`` the
+    ``__TOOLTIP_HELP_ICON`` iclass, if any. ``TooltipShow`` looks up
+    ``DEFAULT`` for every window/button tooltip; ``ICONBOX``/``PAGER`` dress
+    only those two. Only ``iclass``/``tclass`` have a consumer today (the
+    Plasma Style tooltip frame and colour group); the rest is carried for
+    fidelity reporting.
+    """
+
+    name: str  # "DEFAULT", "ICONBOX", "PAGER"
+    iclass: str
+    tclass: str
+    bubbles: tuple[str, ...] = ()
+    distance: int = 0
+    help_icon: str | None = None
+
+
+@dataclass(frozen=True)
 class Theme:
     """Complete analyzed representation of one E16 theme.
 
@@ -479,5 +504,7 @@ class Theme:
     fonts: dict[str, FontSpec] = field(default_factory=dict)
     # __MENU_STYLE blocks (menustyles.cfg) keyed by style name.
     menu_styles: dict[str, MenuStyleSpec] = field(default_factory=dict)
+    # __TOOLTIP blocks (tooltips.cfg) keyed by tooltip name.
+    tooltips: dict[str, TooltipSpec] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)  # ONLY mutable accumulator
     skipped_borders: tuple[str, ...] = ()
