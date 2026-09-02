@@ -52,20 +52,32 @@ not Breeze), restores the deco triple and the button layout, then deletes
 both markers. No markers present means no prior full apply on this
 machine: a friendly no-op, not an error.
 
-:func:`apply_full` also creates E16's left-edge furniture — TWO vertical
-content-sized panels via plasmashell desktop scripting
-(:func:`_ensure_furniture`): a thick pager panel hugging the top-left
-corner (E16's pager window spot; two panels because pager cell size is
-panel thickness ÷ desktop-grid columns while task-icon size IS the panel
-thickness, so one shared panel cannot serve both) and a slim iconbox
-panel hugging the bottom-left whose icons-only task manager shows only
-MINIMIZED windows, E16's iconbox behavior. The ``[Themey] PagerPanel``
-and ``IconboxPanel`` markers are the ones that are NOT ``Prev*``
-baselines: each records a themey-CREATED artifact (that panel's
-containment id), so it is overwritten when the recorded panel no longer
-exists (recreate), left alone when it does (idempotent second apply), and
-deleted when :func:`revert` removes the panel. Existing panels are never
-touched beyond the fit-content step. The desktop grid is set to one
+:func:`apply_full` also creates E16's furniture via plasmashell desktop
+scripting (:func:`_ensure_furniture`): TWO vertical content-sized
+left-edge panels — a thick pager panel hugging the top-left corner
+(E16's pager window spot, hosting themey's OWN ``org.themey.pager``
+applet; two panels because pager cell size is panel thickness ÷
+desktop-grid columns while task-icon size IS the panel thickness, so one
+shared panel cannot serve both) and a slim iconbox panel hugging the
+bottom-left whose icons-only task manager shows only MINIMIZED windows,
+E16's iconbox behavior — plus E16's DRAGBAR: a full-width top panel
+``scale_px(16)`` px thick (the bundle's ``X-Themey-Scale``; floor 24 px)
+carrying ``org.themey.deskbutton`` next/prev ends around the tray and
+clock. The top edge is E16's dragbar alone, so
+:func:`_park_top_panels` first moves every pre-existing top panel to a
+nonexistent screen index (config kept, never shown — verified live
+2026-09-01) and records ``id=screen:location:hiding`` once in
+``[Themey] PrevTopPanels``; :func:`revert` puts them back. The
+``[Themey] PagerPanel``/``IconboxPanel``/``DragbarPanel`` markers are the
+ones that are NOT ``Prev*`` baselines: each records a themey-CREATED
+artifact (that panel's containment id), so it is overwritten when the
+recorded panel no longer exists (recreate), left alone when it does
+(idempotent second apply) — a pager panel still hosting the STOCK pager
+counts as stale and is recreated — and deleted when :func:`revert`
+removes the panel. Existing panels are never touched beyond the
+fit-content step and the parking. Both applet packages must be installed
+(any ``themey convert`` installs them; apply refuses otherwise and warns
+when their ``X-Themey-Runtime`` is behind). The desktop grid is set to one
 column (kwinrc ``[Desktops] Rows = Number`` plus the live D-Bus rows —
 :func:`_set_desktop_grid_column`) so the stacked pager cells fill the
 panel box; ``PrevDesktopRows`` is the record-once baseline and
@@ -84,9 +96,12 @@ import logging
 import shutil
 import subprocess
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import paths
+from .generate import plasmoids
+from .generate.qmldeco.resolver import scale_px
 from .install import clear_style_cache
 from .kwin import BORDER_SIZES, PLUGINS, recommended_border_size
 from .slug import plugin_id
@@ -289,10 +304,47 @@ _ICONBOX_KEY = "IconboxPanel"
 _ICONBOX_WIDGET = "org.kde.plasma.icontasks"
 _ICONBOX_HEIGHT = 60
 _PAGER_KEY = "PagerPanel"
-_PAGER_WIDGET = "org.kde.plasma.pager"
+#: themey's own pager applet (``generate/plasmoids``): E16's LIVE pager
+#: replayed. A recorded pager panel still hosting the STOCK
+#: ``org.kde.plasma.pager`` (pre-2026-09-01 applies) is 'stale' — removed
+#: and recreated (:func:`_ensure_furniture`).
+_PAGER_WIDGET = plasmoids.PAGER_ID
 #: Thick enough that two side-by-side cells (a 1x2 desktop grid) land
 #: near E16's ~64px pager cells.
 _PAGER_HEIGHT = 130
+#: E16's desktop dragbar (desktops.c:95-346): a strip along the top of
+#: every desktop, ``dragbar_width`` (16) px thick — RAISEBUTTON ("desk
+#: next") at the start, the DRAGBUTTON strip across, LOWERBUTTON ("desk
+#: prev") at the end. themey recreates it as a full-width top panel of
+#: ``scale_px(16, scale)`` px (the conversion's ``X-Themey-Scale``; the
+#: ``north-`` Plasma Style set dresses it), floored at ``_DRAGBAR_MIN_PX``
+#: so the tray icons stay usable at scale 1, hosting the two
+#: ``org.themey.deskbutton`` ends around the tray and clock that the
+#: parked top panel used to carry.
+_DRAGBAR_KEY = "DragbarPanel"
+_DRAGBAR_WIDGET = plasmoids.DESKBUTTON_ID
+_DRAGBAR_THICKNESS_REF = 16
+_DRAGBAR_MIN_PX = 24
+#: Widgets re-homed into the dragbar between the two desk buttons.
+_DRAGBAR_MIDDLE_WIDGETS: tuple[str, ...] = (
+    "org.kde.plasma.panelspacer",
+    "org.kde.plasma.systemtray",
+    "org.kde.plasma.digitalclock",
+)
+#: Baseline for the parked pre-themey TOP panels (record-once):
+#: ``id=<screen>:<location>:<hiding>|...``. A parked panel is moved to a
+#: screen index that does not exist (``screenCount``) — plasmashell keeps
+#: its config and never shows it while no such screen exists (the
+#: mechanism behind KDE bug 512005; verified live 2026-09-01: assigning
+#: a nonexistent screen leaves ``p.screen == -1``, assigning the old
+#: index back re-attaches it). Fallback when the assignment does not
+#: take: right edge + autohide.
+_PREV_TOP_PANELS_KEY = "PrevTopPanels"
+_PANEL_LOCATIONS = frozenset({"top", "bottom", "left", "right"})
+#: Conversion scale assumed for a bundle without an ``X-Themey-Scale``
+#: stamp (bundles written before the stamp existed) — the pipeline's
+#: default ``scale``.
+_DEFAULT_THEME_SCALE = 2.0
 #: Baseline for the desktop-grid change (kwinrc [Desktops] Rows): one
 #: desktop per pager row so the stacked cells fill the panel box.
 _PREV_ROWS_KEY = "PrevDesktopRows"
@@ -494,42 +546,77 @@ def _restore_panel_floating(kw: str, marker: str) -> None:
     )
 
 
-def _panel_script(alignment: str, height: int, widgets: str) -> str:
+def _panel_script(
+    alignment: str,
+    height: int,
+    widgets: str,
+    *,
+    location: str = "left",
+    length_mode: str = "fit",
+) -> str:
     """Creation script for one furniture panel; prints the new panel id.
 
     ``qdbus`` exits 0 even when the script throws, so the printed id is
     the real success signal. ``p.floating`` is wrapped in try/catch: an
     unscriptable property assignment would otherwise kill the whole
-    script.
+    script. ``length_mode='fill'`` (the dragbar) spans the screen edge
+    like E16's strip; ``'fit'`` (pager/iconbox) is content-sized.
     """
     return (
         "var p = new Panel;"
-        " p.location = 'left';"
+        f" p.location = '{location}';"
         f" p.alignment = '{alignment}';"
         f" p.height = {height};"
         " p.hiding = 'none';"
-        " p.lengthMode = 'fit';"
+        f" p.lengthMode = '{length_mode}';"
         # A scripted `new Panel` starts with minimumLength == maximumLength
         # == the full screen dimension, and setting lengthMode='fit' does
         # NOT clear them — the panel then draws as a full-height column
         # around a few px of content (verified live 2026-08-31). Only the
         # minimum needs clearing; fit computes the real length.
-        " p.minimumLength = 0;"
-        " try { p.floating = false; } catch (e) {}"
+        + (" p.minimumLength = 0;" if length_mode == "fit" else "")
+        + " try { p.floating = false; } catch (e) {}"
         f"{widgets}"
         " print(p.id);"
     )
 
 
-def _furniture_specs() -> tuple[tuple[str, str, str, int], ...]:
-    """``(marker key, human name, creation script, thickness)`` per
-    themey panel.
+def dragbar_thickness_px(scale: float) -> int:
+    """Dragbar panel thickness: E16's 16 ref px at the conversion scale,
+    floored at ``_DRAGBAR_MIN_PX``."""
+    return max(scale_px(_DRAGBAR_THICKNESS_REF, scale), _DRAGBAR_MIN_PX)
 
-    Pager panel: top-left, thick, one pager — E16's pager window spot.
-    Iconbox panel: bottom-left, slim, an icons-only task manager showing
-    ONLY minimized windows — E16's iconbox: icons appear on iconify,
-    vanish on restore. ``launchers`` is cleared because icontasks ships
-    default pinned launchers.
+
+@dataclass(frozen=True)
+class FurnitureSpec:
+    """One themey-created panel: marker key, human name, creation script,
+    thickness, length mode, and the widget its recorded panel MUST host
+    to count as alive (None = any live panel counts)."""
+
+    key: str
+    name: str
+    script: str
+    height: int
+    length_mode: str = "fit"
+    required_widget: str | None = None
+
+
+def _furniture_specs(
+    *, scale: float = _DEFAULT_THEME_SCALE, tasks_hover: bool = True
+) -> tuple[FurnitureSpec, ...]:
+    """The themey panels, in creation order.
+
+    Pager panel: top-left, thick, themey's own pager — E16's pager window
+    spot. Iconbox panel: bottom-left, slim, an icons-only task manager
+    showing ONLY minimized windows — E16's iconbox: icons appear on
+    iconify, vanish on restore. ``launchers`` is cleared because icontasks
+    ships default pinned launchers; ``taskHoverEffect`` follows the Plasma
+    Style's ``X-Themey-TasksHover`` (*tasks_hover*: whether the style
+    ships hilited iconbox art). Dragbar panel: E16's top strip
+    (``_DRAGBAR_KEY``) — full width, ``dragbar_thickness_px(scale)``
+    thick, desk-next button, spacer, tray, clock, desk-prev button (E16's
+    default ordering: RAISE at the start, LOWER at the end). Created LAST
+    so it comes after :func:`_park_top_panels` and is never parked.
     """
     pager = _panel_script(
         "left",
@@ -542,6 +629,7 @@ def _furniture_specs() -> tuple[tuple[str, str, str, int], ...]:
         " w.writeConfig('showOnlyCurrentScreen', true);"
         " w.reloadConfig();",
     )
+    hover = "true" if tasks_hover else "false"
     iconbox = _panel_script(
         "right",
         _ICONBOX_HEIGHT,
@@ -549,37 +637,79 @@ def _furniture_specs() -> tuple[tuple[str, str, str, int], ...]:
         " w.currentConfigGroup = ['General'];"
         " w.writeConfig('showOnlyMinimized', true);"
         " w.writeConfig('launchers', '');"
+        f" w.writeConfig('taskHoverEffect', {hover});"
         " w.reloadConfig();",
     )
+    dragbar_px = dragbar_thickness_px(scale)
+    middle = "".join(f" p.addWidget('{w}');" for w in _DRAGBAR_MIDDLE_WIDGETS)
+    dragbar = _panel_script(
+        "left",
+        dragbar_px,
+        f" var w = p.addWidget('{_DRAGBAR_WIDGET}');"
+        " w.currentConfigGroup = ['General'];"
+        " w.writeConfig('direction', 'next');"
+        " w.reloadConfig();"
+        f"{middle}"
+        f" var w2 = p.addWidget('{_DRAGBAR_WIDGET}');"
+        " w2.currentConfigGroup = ['General'];"
+        " w2.writeConfig('direction', 'prev');"
+        " w2.reloadConfig();",
+        location="top",
+        length_mode="fill",
+    )
     return (
-        (_PAGER_KEY, "pager panel", pager, _PAGER_HEIGHT),
-        (_ICONBOX_KEY, "iconbox panel", iconbox, _ICONBOX_HEIGHT),
+        FurnitureSpec(_PAGER_KEY, "pager panel", pager, _PAGER_HEIGHT,
+                      required_widget=_PAGER_WIDGET),
+        FurnitureSpec(_ICONBOX_KEY, "iconbox panel", iconbox, _ICONBOX_HEIGHT),
+        FurnitureSpec(_DRAGBAR_KEY, "dragbar panel", dragbar, dragbar_px,
+                      length_mode="fill"),
     )
 
 
-def _furniture_reassert_script(panel_id: str, height: int) -> str:
+def _furniture_reassert_script(
+    panel_id: str, height: int, length_mode: str = "fit"
+) -> str:
     """Bring a live furniture panel back to themey's spec.
 
     A skipped-because-alive panel kept whatever thickness it had drifted
     to — chris's iconbox panel sat at 120 px (twice ``_ICONBOX_HEIGHT``)
-    across several applies (live 2026-09-01). Thickness, fit length and
-    the cleared minimum are themey's spec, so every apply re-asserts them;
-    widget config and alignment are left to the user.
+    across several applies (live 2026-09-01). Thickness, length mode and
+    (for fit panels) the cleared minimum are themey's spec, so every apply
+    re-asserts them; widget config and alignment are left to the user.
     """
     return (
         f"var p = panelById({panel_id});"
         f" if (p) {{ p.height = {height};"
-        " p.lengthMode = 'fit';"
-        " p.minimumLength = 0;"
-        " try { p.floating = false; } catch (e) {} }"
+        f" p.lengthMode = '{length_mode}';"
+        + (" p.minimumLength = 0;" if length_mode == "fit" else "")
+        + " try { p.floating = false; } catch (e) {} }"
         " print(p ? 'reasserted' : 'missing');"
     )
 
 
-def _ensure_furniture(kw: str, kr: str) -> None:
+def _furniture_exists_script(panel_id: str, required_widget: str | None) -> str:
+    """Existence check: ``exists`` / ``missing``, or ``stale`` when the
+    recorded panel is alive but no longer hosts *required_widget* (a
+    pager panel from before themey's own pager applet still carrying the
+    stock ``org.kde.plasma.pager``)."""
+    if required_widget is None:
+        return f"print(panelById({panel_id}) ? 'exists' : 'missing');"
+    return (
+        f"var p = panelById({panel_id});"
+        f" print(p ? (p.widgets('{required_widget}').length ? 'exists' : 'stale')"
+        " : 'missing');"
+    )
+
+
+def _ensure_furniture(
+    kw: str, kr: str, *, scale: float = _DEFAULT_THEME_SCALE, tasks_hover: bool = True
+) -> None:
     """Create each E16 furniture panel unless its recorded one is alive —
     in which case its thickness/length spec is re-asserted
-    (:func:`_furniture_reassert_script`).
+    (:func:`_furniture_reassert_script`). A recorded panel that is alive
+    but ``stale`` (:func:`_furniture_exists_script` — hosting the stock
+    pager instead of themey's) is removed and recreated, its marker
+    overwritten.
 
     Each marker is validated :func:`_is_panel_id` before it is ever
     interpolated into a plasmashell script — kdeglobals is user-editable,
@@ -589,28 +719,148 @@ def _ensure_furniture(kw: str, kr: str) -> None:
     stale marker (an earlier panel's marker survives the failure, so a
     retry skips it instead of doubling it).
     """
-    for key, name, script, height in _furniture_specs():
-        marker = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, key)
+    for spec in _furniture_specs(scale=scale, tasks_hover=tasks_hover):
+        marker = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, spec.key)
         if marker is not None and _is_panel_id(marker):
             alive = _evaluate_plasma_script(
-                f"print(panelById({marker}) ? 'exists' : 'missing');",
-                f"plasmashell {name} existence check",
+                _furniture_exists_script(marker, spec.required_widget),
+                f"plasmashell {spec.name} existence check",
             )
             if alive == "exists":
                 _evaluate_plasma_script(
-                    _furniture_reassert_script(marker, height),
-                    f"plasmashell {name} re-assert script",
+                    _furniture_reassert_script(marker, spec.height, spec.length_mode),
+                    f"plasmashell {spec.name} re-assert script",
                 )
                 continue
+            if alive == "stale":
+                log.info(
+                    "%s %s no longer hosts %s — recreating it",
+                    spec.name, marker, spec.required_widget,
+                )
+                _evaluate_plasma_script(
+                    f"var p = panelById({marker}); if (p) {{ p.remove(); }}",
+                    f"plasmashell stale {spec.name} removal script",
+                )
         reply = _evaluate_plasma_script(
-            script, f"plasmashell {name} creation script"
+            spec.script, f"plasmashell {spec.name} creation script"
         )
         if not _is_panel_id(reply):
             raise ApplyError(
-                f"plasmashell {name} creation script did not print a "
-                f"panel id (got {reply!r}) — the {name} was not created"
+                f"plasmashell {spec.name} creation script did not print a "
+                f"panel id (got {reply!r}) — the {spec.name} was not created"
             )
-        _cfg_write(kw, _KDEGLOBALS, _THEMEY_GROUP, key, reply)
+        _cfg_write(kw, _KDEGLOBALS, _THEMEY_GROUP, spec.key, reply)
+
+
+def _parse_top_panels_marker(marker: str) -> dict[str, tuple[str, str, str]]:
+    """``{id: (screen, location, hiding)}`` from a ``PrevTopPanels``
+    marker; malformed entries (a tampered kdeglobals) are dropped, never
+    interpolated."""
+    out: dict[str, tuple[str, str, str]] = {}
+    for entry in marker.split("|"):
+        if "=" not in entry:
+            continue
+        pid, rest = entry.split("=", 1)
+        parts = rest.split(":")
+        if len(parts) != 3:
+            continue
+        screen, location, hiding = parts
+        if (
+            _is_panel_id(pid)
+            and screen.isascii() and screen.isdigit()
+            and location in _PANEL_LOCATIONS
+            and hiding.isascii() and hiding.isalpha()
+        ):
+            out[pid] = (screen, location, hiding)
+    return out
+
+
+def _read_top_panels(exclude: set[str]) -> dict[str, tuple[str, str, str]]:
+    """``{id: (screen, location, hiding)}`` for every live top panel not
+    in *exclude*."""
+    out = _evaluate_plasma_script(
+        "var out = [];"
+        "for (const p of panels()) {"
+        " if (p.location == 'top') {"
+        " out.push(p.id + '=' + p.screen + ':' + p.location + ':' + p.hiding); } }"
+        "print(out.join('|'));",
+        "plasmashell top-panel read script",
+    )
+    found = _parse_top_panels_marker(out)
+    return {pid: v for pid, v in found.items() if pid not in exclude}
+
+
+def _park_top_panels(kw: str, kr: str) -> None:
+    """Park every pre-themey TOP panel so the dragbar owns the top edge.
+
+    E16 has exactly one thing along the top: the dragbar. The user's
+    existing top panel (a kicker/tray/clock bar on the reference machine)
+    is moved to a screen index that does not exist — plasmashell keeps
+    its whole config and simply never shows it (verified live 2026-09-01,
+    see ``_PREV_TOP_PANELS_KEY``) — and its ``screen:location:hiding``
+    recorded once in ``PrevTopPanels`` so :func:`revert` can put it back
+    exactly. A second apply parks only panels not yet recorded (a new top
+    panel the user added since) and appends them; the themey dragbar's
+    own marker id is always excluded. Fallback when the screen assignment
+    does not take: right edge + autohide (still recorded, still
+    restorable).
+    """
+    recorded_raw = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_TOP_PANELS_KEY)
+    recorded = _parse_top_panels_marker(recorded_raw) if recorded_raw else {}
+    exclude = set(recorded)
+    dragbar = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _DRAGBAR_KEY)
+    if dragbar is not None and _is_panel_id(dragbar):
+        exclude.add(dragbar)
+    to_park = _read_top_panels(exclude)
+    if not to_park:
+        return
+    for pid, (screen, _location, _hiding) in sorted(to_park.items()):
+        reply = _evaluate_plasma_script(
+            f"var p = panelById({pid});"
+            " if (!p) { print('absent'); } else {"
+            " var ok = false;"
+            f" try {{ p.screen = screenCount; ok = (p.screen != {screen}); }} catch (e) {{}}"
+            " if (!ok) { p.location = 'right'; p.hiding = 'autohide'; }"
+            " print(ok ? 'parked' : 'fallback'); }",
+            f"plasmashell top panel {pid} parking script",
+        )
+        if reply not in ("parked", "fallback", "absent"):
+            raise ApplyError(
+                f"plasmashell top panel {pid} parking script did not confirm "
+                f"(got {reply!r})"
+            )
+        if reply == "fallback":
+            log.warning(
+                "panel %s could not be moved off-screen; parked at the right "
+                "edge (autohide) instead", pid,
+            )
+    merged = {**recorded, **to_park}
+    marker = "|".join(
+        f"{pid}={screen}:{location}:{hiding}"
+        for pid, (screen, location, hiding) in sorted(merged.items())
+    )
+    _cfg_write(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_TOP_PANELS_KEY, marker)
+
+
+def _unpark_top_panels(marker: str) -> None:
+    """Put the recorded top panels back (revert path): screen, location
+    and hiding exactly as recorded; an absent panel is simply skipped."""
+    for pid, (screen, location, hiding) in sorted(
+        _parse_top_panels_marker(marker).items()
+    ):
+        reply = _evaluate_plasma_script(
+            f"var p = panelById({pid});"
+            " if (!p) { print('absent'); } else {"
+            f" try {{ p.screen = {screen}; }} catch (e) {{}}"
+            f" p.location = '{location}'; p.hiding = '{hiding}';"
+            " print('unparked'); }",
+            f"plasmashell top panel {pid} unparking script",
+        )
+        if reply not in ("unparked", "absent"):
+            raise ApplyError(
+                f"plasmashell top panel {pid} unparking script did not "
+                f"confirm (got {reply!r})"
+            )
 
 
 def _set_live_desktop_rows(rows: str) -> None:
@@ -989,12 +1239,6 @@ def _read_default_wallpaper_id(lnf_dir: Path) -> str | None:
         return None
 
 
-#: Conversion scale assumed for a bundle without an ``X-Themey-Scale``
-#: stamp (bundles written before the stamp existed) — the pipeline's
-#: default ``scale``.
-_DEFAULT_THEME_SCALE = 2.0
-
-
 def _read_theme_scale(lnf_dir: Path) -> float:
     """The ``X-Themey-Scale`` stamp from an installed bundle's
     ``metadata.json`` (``generate/lookandfeel.py``), or
@@ -1009,6 +1253,20 @@ def _read_theme_scale(lnf_dir: Path) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
         return _DEFAULT_THEME_SCALE
     return float(value)
+
+
+def _read_tasks_hover(style_dir: Path) -> bool:
+    """``X-Themey-TasksHover`` from an installed Plasma Style's
+    ``metadata.json`` (``generate/plasmastyle._write_metadata``): whether
+    the iconbox art has a hilited state worth a hover effect. Absent or
+    unreadable → True (Plasma's own default)."""
+    meta = style_dir / "metadata.json"
+    try:
+        data = json.loads(meta.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return True
+    value = data.get("X-Themey-TasksHover") if isinstance(data, dict) else None
+    return value if isinstance(value, bool) else True
 
 
 def _wallpaper_metadata(wallpaper_dir: Path) -> dict[str, object]:
@@ -1091,7 +1349,9 @@ def apply_full(
     delivered the panel feel. The dedicated iconbox panel is created right
     after the fit step (:func:`_ensure_iconbox` — after, so it never
     pollutes the ``PrevPanelLengthModes`` baseline; before the wallpaper
-    fix-up for the same survive-a-wallpaper-failure reason).
+    fix-up for the same survive-a-wallpaper-failure reason), the existing
+    top panels parked just before it (:func:`_park_top_panels`) so the
+    dragbar — created last — is never itself parked.
 
     ``name == "Breeze"`` (case-insensitive) is the one exception: Breeze
     has no Look-and-Feel bundle to verify or baseline to record — it is
@@ -1126,9 +1386,31 @@ def apply_full(
             f"under {paths.kwin_decorations()} — run `themey convert` first"
         )
 
+    missing_applets = [
+        pid for pid in plasmoids.PLASMOID_IDS
+        if not (paths.plasmoids() / pid / "metadata.json").is_file()
+    ]
+    if missing_applets:
+        raise ApplyError(
+            f"themey's applet packages are not installed under "
+            f"{paths.plasmoids()} ({', '.join(missing_applets)}) — run "
+            "`themey convert` first (any theme installs them)"
+        )
+    for pid in plasmoids.PLASMOID_IDS:
+        installed_rt = plasmoids.installed_runtime_version(paths.plasmoids() / pid)
+        if installed_rt is None or installed_rt < plasmoids.RUNTIME_VERSION:
+            log.warning(
+                "installed applet %s is runtime %s, this themey is %s — "
+                "re-run `themey convert` to refresh it",
+                pid, installed_rt, plasmoids.RUNTIME_VERSION,
+            )
+
     scheme_file = paths.color_schemes() / f"{pkg_id}.colors"
     has_colors = scheme_file.is_file()
-    has_style = (paths.desktop_themes() / pkg_id / "metadata.json").is_file()
+    style_dir = paths.desktop_themes() / pkg_id
+    has_style = (style_dir / "metadata.json").is_file()
+    theme_scale = _read_theme_scale(lnf_dir)
+    tasks_hover = _read_tasks_hover(style_dir) if has_style else True
 
     _record_prev_lookandfeel(kw, kr)
     _record_prev_deco(kw, kr)
@@ -1197,7 +1479,11 @@ def apply_full(
     # baseline snapshotted there) and, like it, before the wallpaper
     # fix-up.
     _set_desktop_grid_column(kw, kr)
-    _ensure_furniture(kw, kr)
+    # Park the pre-themey top panel(s) BEFORE creating the furniture: the
+    # dragbar is created last, so it is never itself parked, and after
+    # the fit step, so it never enters PrevPanelLengthModes.
+    _park_top_panels(kw, kr)
+    _ensure_furniture(kw, kr, scale=theme_scale, tasks_hover=tasks_hover)
 
     needs_restart = False
     wallpaper_id = _read_default_wallpaper_id(lnf_dir)
@@ -1273,10 +1559,11 @@ def revert() -> bool:
     prev_panels = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PANELS_KEY)
     prev_floating = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_FLOATING_KEY)
     prev_furniture = {
-        key: _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, key)
-        for key, _name, _script, _height in _furniture_specs()
+        spec.key: _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, spec.key)
+        for spec in _furniture_specs()
     }
     prev_rows = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_ROWS_KEY)
+    prev_top = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_TOP_PANELS_KEY)
     if (
         prev_deco is None
         and prev_lnf is None
@@ -1285,6 +1572,7 @@ def revert() -> bool:
         and prev_panels is None
         and prev_floating is None
         and prev_rows is None
+        and prev_top is None
         and all(v is None for v in prev_furniture.values())
     ):
         return False
@@ -1380,7 +1668,8 @@ def revert() -> bool:
     # on a thrown script would leak the panel with no retry). A non-digit
     # (tampered) marker is never interpolated: just dropped.
     iconbox_error: ApplyError | None = None
-    for key, name, _script, _height in _furniture_specs():
+    for spec in _furniture_specs():
+        key, name = spec.key, spec.name
         prev_panel = prev_furniture[key]
         if prev_panel is None:
             continue
@@ -1409,6 +1698,22 @@ def revert() -> bool:
                 )
         else:
             _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, key)
+
+    # Parked top panels back where they were — after the dragbar is gone
+    # (so the top edge is free again) and before the length-mode/floating
+    # restores, which iterate the now-visible panels.
+    top_error: ApplyError | None = None
+    if prev_top is not None:
+        try:
+            _unpark_top_panels(prev_top)
+            _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_TOP_PANELS_KEY)
+        except ApplyError as exc:
+            top_error = exc
+            log.warning(
+                "could not restore the parked top panel(s) (%s) — keeping "
+                "the marker so a later `themey apply --revert` can retry it",
+                exc,
+            )
 
     # Desktop grid back to the recorded shape — config AND live rows
     # (see _set_live_desktop_rows); '@unset' deletes the key and restores
@@ -1467,6 +1772,7 @@ def revert() -> bool:
         colors_error,
         plasma_error,
         iconbox_error,
+        top_error,
         rows_error,
         panels_error,
         floating_error,

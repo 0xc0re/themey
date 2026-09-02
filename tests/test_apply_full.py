@@ -19,6 +19,7 @@ import pytest
 from themey import apply as apply_mod
 from themey import install as install_mod
 from themey import paths
+from themey.generate import plasmoids
 from themey.generate.desktop_writer import write_desktop
 from themey.slug import plugin_id
 
@@ -46,8 +47,20 @@ class FakeKConfig:
         self.iconbox_create_reply: str = "301"
         #: stdout served for the pager-panel CREATE script.
         self.pager_create_reply: str = "302"
+        #: stdout served for the dragbar-panel CREATE script.
+        self.dragbar_create_reply: str = "303"
         #: stdout served for the furniture existence-check scripts.
         self.iconbox_exists_reply: str = "missing"
+        #: stdout served for the PAGER existence check (which also
+        #: reports 'stale'); None = same as iconbox_exists_reply.
+        self.pager_exists_reply: str | None = None
+        #: stdout served for the top-panel READ script
+        #: ("id=screen:location:hiding|..."; "" = no top panels).
+        self.top_panels_reply: str = ""
+        #: stdout served for each top-panel PARKING script.
+        self.park_reply: str = "parked"
+        #: stdout served for each top-panel UNPARKING script.
+        self.unpark_reply: str = "unparked"
         #: stdout served for the iconbox REMOVAL script ("" = the script
         #: threw and printed nothing — qdbus still exits 0).
         self.iconbox_remove_reply: str = "removed"
@@ -60,23 +73,30 @@ class FakeKConfig:
                 cmd, 1, stdout="", stderr=self.fail_on[prog]
             )
         if any("evaluateScript" in tok for tok in cmd) and "out.push" in cmd[-1]:
-            reply = (
-                self.panel_floating_reply
-                if "p.floating" in cmd[-1]
-                else self.panel_read_reply
-            )
+            if "p.location == 'top'" in cmd[-1]:
+                reply = self.top_panels_reply
+            elif "p.floating" in cmd[-1]:
+                reply = self.panel_floating_reply
+            else:
+                reply = self.panel_read_reply
             return subprocess.CompletedProcess(cmd, 0, stdout=reply + "\n")
         if any("evaluateScript" in tok for tok in cmd) and "new Panel" in cmd[-1]:
-            reply = (
-                self.iconbox_create_reply
-                if "icontasks" in cmd[-1]
-                else self.pager_create_reply
-            )
+            if "icontasks" in cmd[-1]:
+                reply = self.iconbox_create_reply
+            elif "org.themey.deskbutton" in cmd[-1]:
+                reply = self.dragbar_create_reply
+            else:
+                reply = self.pager_create_reply
             return subprocess.CompletedProcess(cmd, 0, stdout=reply + "\n")
         if any("evaluateScript" in tok for tok in cmd) and "'exists'" in cmd[-1]:
-            return subprocess.CompletedProcess(
-                cmd, 0, stdout=self.iconbox_exists_reply + "\n"
-            )
+            reply = self.iconbox_exists_reply
+            if "org.themey.pager" in cmd[-1] and self.pager_exists_reply is not None:
+                reply = self.pager_exists_reply
+            return subprocess.CompletedProcess(cmd, 0, stdout=reply + "\n")
+        if any("evaluateScript" in tok for tok in cmd) and "'parked'" in cmd[-1]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=self.park_reply + "\n")
+        if any("evaluateScript" in tok for tok in cmd) and "'unparked'" in cmd[-1]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=self.unpark_reply + "\n")
         if any("evaluateScript" in tok for tok in cmd) and "'removed'" in cmd[-1]:
             return subprocess.CompletedProcess(
                 cmd, 0, stdout=self.iconbox_remove_reply + "\n"
@@ -103,12 +123,25 @@ class FakeKConfig:
         raise AssertionError(f"no call contains {needle!r} in {self.calls!r}")
 
 
+def _install_fake_plasmoids(runtime: int | None = plasmoids.RUNTIME_VERSION) -> None:
+    """Both themey applet packages (apply's pre-check), stamped *runtime*
+    (None = no stamp)."""
+    for pid in plasmoids.PLASMOID_IDS:
+        pkg = paths.plasmoids() / pid
+        pkg.mkdir(parents=True, exist_ok=True)
+        meta: dict[str, object] = {"KPlugin": {"Id": pid}}
+        if runtime is not None:
+            meta["X-Themey-Runtime"] = runtime
+        (pkg / "metadata.json").write_text(json.dumps(meta))
+
+
 @pytest.fixture
 def fake_kconfig(monkeypatch, fake_home: Path) -> FakeKConfig:
     fk = FakeKConfig()
     monkeypatch.setattr(apply_mod.shutil, "which", lambda n: f"/usr/bin/{n}")
     monkeypatch.setattr(apply_mod.subprocess, "run", fk.run)
     monkeypatch.setattr(apply_mod, "_AURORAE_FLUSH_WAIT_S", 0.0, raising=False)
+    _install_fake_plasmoids()
     return fk
 
 
@@ -1038,7 +1071,7 @@ def test_apply_full_creates_pager_panel_and_records_marker(
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
     apply_mod.apply_full("e13")
-    i = fake_kconfig.index_of("new Panel", "org.kde.plasma.pager")
+    i = fake_kconfig.index_of("new Panel", "org.themey.pager")
     script = fake_kconfig.calls[i][-1]
     assert "org.kde.plasmashell" in fake_kconfig.calls[i]
     assert "p.location = 'left'" in script
@@ -1049,7 +1082,8 @@ def test_apply_full_creates_pager_panel_and_records_marker(
     # lengthMode='fit' does NOT clear them (verified live 2026-08-31:
     # the panel drew as a full-height column around 33px of content).
     assert "p.minimumLength = 0" in script
-    assert "p.addWidget('org.kde.plasma.pager')" in script
+    assert "p.addWidget('org.themey.pager')" in script
+    assert "org.kde.plasma.pager" not in script  # the stock pager is gone
     # Dual-head virtual desktops are ultrawide; per-screen cells keep
     # desktop aspect readable.
     assert "w.writeConfig('showOnlyCurrentScreen', true)" in script
@@ -1077,9 +1111,10 @@ def test_apply_full_creates_iconbox_panel_and_records_marker(
     assert "p.height = 60" in script
     assert "p.minimumLength = 0" in script
     assert "p.addWidget('org.kde.plasma.icontasks')" in script
-    assert "org.kde.plasma.pager" not in script
+    assert "org.themey.pager" not in script
     assert "w.writeConfig('showOnlyMinimized', true)" in script
     assert "w.writeConfig('launchers', '')" in script
+    assert "w.writeConfig('taskHoverEffect', true)" in script  # no style
     assert "print(p.id)" in script
     assert fake_kconfig.store["IconboxPanel"] == "301"
 
@@ -1113,15 +1148,22 @@ def test_apply_full_second_apply_reuses_live_iconbox(
     fake_kconfig.iconbox_exists_reply = "exists"
     apply_mod.apply_full("e13")
     creates = [c for c in fake_kconfig.calls if "new Panel" in c[-1]]
-    assert len(creates) == 2  # one per furniture panel, first apply only
+    assert len(creates) == 3  # one per furniture panel, first apply only
     assert fake_kconfig.store["IconboxPanel"] == "301"
     assert fake_kconfig.store["PagerPanel"] == "302"
+    assert fake_kconfig.store["DragbarPanel"] == "303"
     # A live panel is brought back to spec: thickness, fit, min cleared
     # (chris's iconbox had drifted to 120 px; live 2026-09-01).
     reasserts = [c[-1] for c in fake_kconfig.calls if "reasserted" in c[-1]]
     assert any("panelById(301)" in s and "p.height = 60" in s for s in reasserts)
     assert any("panelById(302)" in s and "p.height = 130" in s for s in reasserts)
-    assert all("lengthMode = 'fit'" in s and "minimumLength = 0" in s for s in reasserts)
+    fit = [s for s in reasserts if "panelById(303)" not in s]
+    assert len(fit) == 2
+    assert all("lengthMode = 'fit'" in s and "minimumLength = 0" in s for s in fit)
+    dragbar = [s for s in reasserts if "panelById(303)" in s]
+    assert len(dragbar) == 1
+    assert "p.height = 32" in dragbar[0] and "lengthMode = 'fill'" in dragbar[0]
+    assert "minimumLength" not in dragbar[0]
 
 
 def test_apply_full_recreates_iconbox_when_panel_gone(
@@ -1435,3 +1477,250 @@ def test_apply_full_restart_failure_only_warns(
     fake_kconfig.fail_on["systemctl"] = "unit not loaded"
     apply_mod.apply_full("e13")  # must not raise
     assert "restart" in caplog.text.lower()
+
+
+# --- Phase 3: dragbar panel, top-panel parking, pager migration ----------
+
+
+def test_apply_full_requires_themey_plasmoids(fake_kconfig: FakeKConfig) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    import shutil as _shutil
+
+    _shutil.rmtree(paths.plasmoids() / plasmoids.DESKBUTTON_ID)
+    with pytest.raises(apply_mod.ApplyError, match="themey convert"):
+        apply_mod.apply_full("e13")
+    assert all("new Panel" not in c[-1] for c in fake_kconfig.calls)
+
+
+def test_apply_full_warns_on_stale_plasmoid_runtime(
+    fake_kconfig: FakeKConfig, caplog,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    _install_fake_plasmoids(runtime=None)
+    with caplog.at_level("WARNING"):
+        apply_mod.apply_full("e13")
+    assert any("re-run `themey convert`" in r.message for r in caplog.records)
+
+
+def test_apply_full_creates_dragbar_panel(fake_kconfig: FakeKConfig) -> None:
+    """E16's top strip: full-width top panel, scale_px(16) = 32 px at the
+    default scale 2, desk-next button, spacer, tray, clock, desk-prev
+    button (E16's default ordering: RAISE/next at the start, LOWER/prev
+    at the end), fill length mode, docked."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    apply_mod.apply_full("e13")
+    i = fake_kconfig.index_of("new Panel", "org.themey.deskbutton")
+    script = fake_kconfig.calls[i][-1]
+    assert "p.location = 'top'" in script
+    assert "p.alignment = 'left'" in script
+    assert "p.height = 32" in script
+    assert "p.lengthMode = 'fill'" in script
+    assert "p.hiding = 'none'" in script
+    assert "p.floating = false" in script
+    assert "minimumLength" not in script
+    order = [
+        "var w = p.addWidget('org.themey.deskbutton')",
+        "w.writeConfig('direction', 'next')",
+        "p.addWidget('org.kde.plasma.panelspacer')",
+        "p.addWidget('org.kde.plasma.systemtray')",
+        "p.addWidget('org.kde.plasma.digitalclock')",
+        "var w2 = p.addWidget('org.themey.deskbutton')",
+        "w2.writeConfig('direction', 'prev')",
+    ]
+    positions = [script.index(tok) for tok in order]
+    assert positions == sorted(positions)
+    assert script.count("p.addWidget('org.themey.deskbutton')") == 2
+    assert "print(p.id)" in script
+    assert fake_kconfig.store["DragbarPanel"] == "303"
+
+
+def test_dragbar_thickness_from_scale_stamp(fake_kconfig: FakeKConfig) -> None:
+    _install_fake_deco("e13")
+    lnf = _install_fake_lnf("e13")
+    (lnf / "metadata.json").write_text(json.dumps({"X-Themey-Scale": 3}))
+    apply_mod.apply_full("e13")
+    i = fake_kconfig.index_of("new Panel", "org.themey.deskbutton")
+    assert "p.height = 48" in fake_kconfig.calls[i][-1]
+    assert apply_mod.dragbar_thickness_px(1) == 24  # floor for tray icons
+    assert apply_mod.dragbar_thickness_px(1.5) == 24
+    assert apply_mod.dragbar_thickness_px(2) == 32
+
+
+def test_dragbar_default_32px_without_scale_stamp(fake_kconfig: FakeKConfig) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")  # metadata.json is "{}"
+    apply_mod.apply_full("e13")
+    i = fake_kconfig.index_of("new Panel", "org.themey.deskbutton")
+    assert "p.height = 32" in fake_kconfig.calls[i][-1]
+
+
+def test_apply_full_parks_top_panels_and_records_once(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.top_panels_reply = "1911=0:top:none"
+    apply_mod.apply_full("e13")
+    assert fake_kconfig.store["PrevTopPanels"] == "1911=0:top:none"
+    i = fake_kconfig.index_of("panelById(1911)", "'parked'")
+    script = fake_kconfig.calls[i][-1]
+    assert "p.screen = screenCount" in script
+    assert "p.location = 'right'; p.hiding = 'autohide'" in script  # fallback
+    # Second apply: the dragbar (303) is now a live top panel and 1911 is
+    # recorded — neither is parked again, the marker is untouched.
+    fake_kconfig.top_panels_reply = "1911=0:top:none|303=0:top:none"
+    fake_kconfig.iconbox_exists_reply = "exists"
+    apply_mod.apply_full("e13")
+    parks = [c for c in fake_kconfig.calls if "'parked'" in c[-1]]
+    assert len(parks) == 1
+    assert fake_kconfig.store["PrevTopPanels"] == "1911=0:top:none"
+
+
+def test_apply_full_parks_new_top_panel_on_later_apply(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """A top panel the user added AFTER the first apply is parked and
+    appended; the recorded one keeps its original entry."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["PrevTopPanels"] = "1911=0:top:none"
+    fake_kconfig.store["DragbarPanel"] = "303"
+    fake_kconfig.iconbox_exists_reply = "exists"
+    fake_kconfig.pager_exists_reply = "exists"
+    fake_kconfig.top_panels_reply = "1911=1:top:none|303=0:top:none|1960=1:top:autohide"
+    apply_mod.apply_full("e13")
+    parks = [c[-1] for c in fake_kconfig.calls if "'parked'" in c[-1]]
+    assert len(parks) == 1 and "panelById(1960)" in parks[0]
+    assert fake_kconfig.store["PrevTopPanels"] == "1911=0:top:none|1960=1:top:autohide"
+
+
+def test_apply_full_no_top_panels_no_marker(fake_kconfig: FakeKConfig) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    apply_mod.apply_full("e13")
+    assert "PrevTopPanels" not in fake_kconfig.store
+
+
+def test_apply_full_park_fallback_logs_warning(fake_kconfig: FakeKConfig, caplog) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.top_panels_reply = "1911=0:top:none"
+    fake_kconfig.park_reply = "fallback"
+    with caplog.at_level("WARNING"):
+        apply_mod.apply_full("e13")
+    assert any("right edge" in r.message for r in caplog.records)
+    assert fake_kconfig.store["PrevTopPanels"] == "1911=0:top:none"
+
+
+def test_apply_full_park_unconfirmed_raises(fake_kconfig: FakeKConfig) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.top_panels_reply = "1911=0:top:none"
+    fake_kconfig.park_reply = ""
+    with pytest.raises(apply_mod.ApplyError, match="parking"):
+        apply_mod.apply_full("e13")
+    assert "PrevTopPanels" not in fake_kconfig.store
+
+
+def test_apply_full_order_fit_then_park_then_furniture(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.panel_read_reply = "1911=fill"
+    fake_kconfig.top_panels_reply = "1911=0:top:none"
+    apply_mod.apply_full("e13")
+    i_fit = fake_kconfig.index_of("p.lengthMode = 'fit'")
+    i_park = fake_kconfig.index_of("'parked'")
+    i_pager = fake_kconfig.index_of("new Panel", "org.themey.pager")
+    i_dragbar = fake_kconfig.index_of("new Panel", "org.themey.deskbutton")
+    assert i_fit < i_park < i_pager < i_dragbar
+    assert "303" not in fake_kconfig.store["PrevPanelLengthModes"]
+
+
+def test_apply_full_stale_pager_panel_is_recreated(fake_kconfig: FakeKConfig) -> None:
+    """A recorded pager panel still hosting the STOCK pager (an apply from
+    before themey's own applet) is removed and recreated."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["PagerPanel"] = "290"
+    fake_kconfig.store["IconboxPanel"] = "301"
+    fake_kconfig.iconbox_exists_reply = "exists"
+    fake_kconfig.pager_exists_reply = "stale"
+    apply_mod.apply_full("e13")
+    i_check = fake_kconfig.index_of("panelById(290)", "'stale'")
+    assert "p.widgets('org.themey.pager').length" in fake_kconfig.calls[i_check][-1]
+    i_remove = fake_kconfig.index_of("panelById(290)", "p.remove()")
+    i_create = fake_kconfig.index_of("new Panel", "org.themey.pager")
+    assert i_check < i_remove < i_create
+    assert fake_kconfig.store["PagerPanel"] == "302"
+    assert fake_kconfig.store["IconboxPanel"] == "301"  # untouched
+    # The iconbox check has no widget requirement — plain exists/missing.
+    i_ib = fake_kconfig.index_of("panelById(301)", "'exists'")
+    assert "widgets(" not in fake_kconfig.calls[i_ib][-1]
+
+
+def test_apply_full_iconbox_hover_from_style_metadata(
+    fake_kconfig: FakeKConfig, monkeypatch,
+) -> None:
+    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    style = _install_fake_style("e13")
+    (style / "metadata.json").write_text(json.dumps({"X-Themey-TasksHover": False}))
+    apply_mod.apply_full("e13")
+    i = fake_kconfig.index_of("new Panel", "icontasks")
+    assert "w.writeConfig('taskHoverEffect', false)" in fake_kconfig.calls[i][-1]
+
+
+def test_revert_removes_dragbar_then_unparks_then_restores_modes(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["DragbarPanel"] = "303"
+    fake_kconfig.store["PrevTopPanels"] = "1911=0:top:none"
+    fake_kconfig.store["PrevPanelLengthModes"] = "1911=fill"
+    fake_kconfig.store["PrevPanelFloating"] = "1911=true"
+    assert apply_mod.revert() is True
+    i_remove = fake_kconfig.index_of("panelById(303)", "'removed'")
+    i_unpark = fake_kconfig.index_of("panelById(1911)", "'unparked'")
+    i_modes = fake_kconfig.index_of("p.id == 1911", "lengthMode")
+    i_float = fake_kconfig.index_of("p.id == 1911", "floating")
+    assert i_remove < i_unpark < i_modes < i_float
+    script = fake_kconfig.calls[i_unpark][-1]
+    assert "p.screen = 0" in script
+    assert "p.location = 'top'; p.hiding = 'none'" in script
+    assert "DragbarPanel" not in fake_kconfig.store
+    assert "PrevTopPanels" not in fake_kconfig.store
+
+
+def test_revert_unpark_failure_keeps_marker(fake_kconfig: FakeKConfig) -> None:
+    fake_kconfig.store["PrevTopPanels"] = "1911=0:top:none"
+    fake_kconfig.store["ThemeyPrevDeco"] = "org.kde.breeze|Breeze|@unset"
+    fake_kconfig.unpark_reply = ""
+    with pytest.raises(apply_mod.ApplyError, match="unparking"):
+        apply_mod.revert()
+    assert fake_kconfig.store["PrevTopPanels"] == "1911=0:top:none"
+    assert fake_kconfig.store["theme"] == "Breeze"  # the rest restored
+
+
+def test_revert_with_only_top_panels_marker_is_a_revert(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["PrevTopPanels"] = "1911=0:top:none"
+    assert apply_mod.revert() is True
+    assert "PrevTopPanels" not in fake_kconfig.store
+
+
+def test_top_panels_marker_tampered_entries_never_interpolated(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    evil = "1911=0:top:none|1912); p.remove(); (=0:top:none|1913=x:top:none|1914=0:up:none"
+    fake_kconfig.store["PrevTopPanels"] = evil
+    assert apply_mod.revert() is True
+    unparks = [c[-1] for c in fake_kconfig.calls if "'unparked'" in c[-1]]
+    assert len(unparks) == 1 and "panelById(1911)" in unparks[0]
+    assert all("p.remove()" not in u for u in unparks)
+    assert apply_mod._parse_top_panels_marker(evil) == {"1911": ("0", "top", "none")}
