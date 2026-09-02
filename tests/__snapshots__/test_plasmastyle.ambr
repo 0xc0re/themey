@@ -168,7 +168,7 @@
           "Version": "1.0"
       },
       "X-Plasma-API": "5.0",
-      "X-Themey-TasksHover": false
+      "X-Themey-TasksHover": true
   }
   
   '''

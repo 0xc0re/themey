@@ -2250,32 +2250,84 @@ def build_dragbar(theme: Theme) -> ET.Element | None:
     return canvas.finish()
 
 
-#: ``--iconbox-frames``: ``on`` ships the iconbox button art as task
-#: frames (the look chris has lived with; ``DEFAULT_ICON_BUTTON`` art is
-#: seen nowhere else), ``off`` replays E16's own default —
+#: ``--iconbox-frames``: ``off`` (the DEFAULT) replays E16's own iconbox —
 #: ``container.c:98-114`` ``draw_icon_base = 0``: no per-icon plate, bare
-#: icons on the trough.
-ICONBOX_FRAME_MODES: tuple[str, ...] = ("on", "off")
+#: icons on the trough; ``on`` ships the iconbox button art as task frames
+#: (``DEFAULT_ICON_BUTTON`` art is seen nowhere else, so it is worth an
+#: opt-in). Off is the default since 2026-09-01: a plate under every icon
+#: on the bottom bar most users keep is E16's own look only by accident.
+ICONBOX_FRAME_MODES: tuple[str, ...] = ("off", "on")
+
+#: OUTPUT-px thickness of the synthesized focus bar. Not scaled: it is a
+#: Plasma affordance (Breeze paints the same 2 px accent), not E16 art.
+TASKS_FOCUS_BAR_PX = 2
+#: How far toward white a synthesized hover/attention plate is blended,
+#: and the alpha of the equivalent white wash in frames-OFF mode.
+TASKS_HOVER_LIGHTEN = 0.12
+TASKS_ATTENTION_LIGHTEN = 0.25
+#: Alpha the synthesized ``minimized-`` plate keeps — E16 has no such
+#: state, and a faded plate reads as "put away" at a glance.
+TASKS_MINIMIZED_ALPHA = 0.55
+
+#: KSvg stylesheet class for the active colour scheme's selection
+#: background (``.ColorScheme-Highlight``; the full class list is built
+#: from ``.ColorScheme-%1{color:%2;}`` in ksvg 6.24 ``imageset.cpp``).
+_HIGHLIGHT_CLASS = "ColorScheme-Highlight"
+
 #: Task-manager prefixes that ship in every ``widgets/tasks.svg``
-#: (per-FILE fallback — a missing prefix would paint nothing).
-_TASKS_PREFIXES: tuple[tuple[str, str], ...] = (
-    ("normal-", "normal"),
-    ("minimized-", "normal"),
-    ("", "normal"),  # launcher frame
-    ("hover-", "hover"),
-    ("attention-", "hover"),
-    ("progress-", "hover"),
-    ("focus-", "pressed"),
+#: (per-FILE fallback — a missing prefix would paint nothing), as
+#: ``(prefix, E16 state, synthesized state)``. The synthesized state
+#: stands in whenever the E16 chain for that prefix falls back to the
+#: NORMAL art — most corpus iconbox buttons declare only ``__NORMAL``,
+#: which used to make all seven sets byte-identical (Aliens, e13,
+#: ShinyMetal): active/minimized/hover were indistinguishable. ``None``
+#: never synthesizes (the normal plate IS the right art there).
+_TASKS_PREFIXES: tuple[tuple[str, str, str | None], ...] = (
+    ("normal-", "normal", None),
+    ("minimized-", "normal", "minimized"),  # no E16 counterpart at all
+    ("", "normal", None),  # launcher frame
+    ("hover-", "hover", "hover"),
+    ("attention-", "hover", "attention"),
+    ("progress-", "hover", "progress"),
+    ("focus-", "pressed", "focus"),
 )
 #: Hover-on-state prefixes, shipped only when the iconbox button has its
 #: own hilited art: a pinned launcher under the mouse reads
 #: ``launcher-hover-`` and never falls back to plain ``hover-``; the
 #: active task under the mouse reads ``focus-hover-`` (clicked chain —
 #: the depressed button stays depressed).
-_TASKS_HOVER_PREFIXES: tuple[tuple[str, str], ...] = (
-    ("launcher-hover-", "hover"),
-    ("focus-hover-", "pressed"),
+_TASKS_HOVER_PREFIXES: tuple[tuple[str, str, str | None], ...] = (
+    ("launcher-hover-", "hover", "hover"),
+    ("focus-hover-", "pressed", "focus"),
 )
+#: (FrameSvg edge prefix, panel-adjacent side) for the focus sets.
+#: ``Task.qml``'s prefix chain is ``["<edge>-<p>", "<p>"]``, so the
+#: UNPREFIXED set is the one a bottom panel gets — the common case — and
+#: its bar sits on the BOTTOM edge; Breeze ships exactly the other three
+#: edge variants, which is why themey ships those names and no ``south-``.
+_TASKS_FOCUS_EDGES: tuple[tuple[str, str], ...] = (
+    ("", "bottom"),
+    ("north-", "top"),
+    ("west-", "left"),
+    ("east-", "right"),
+)
+#: The three 9-patch slices along each edge, outermost cap first — the
+#: focus bar is painted across all three so it spans the whole item.
+_BAR_GRID: dict[str, tuple[str, str, str]] = {
+    "top": ("topleft", "top", "topright"),
+    "bottom": ("bottomleft", "bottom", "bottomright"),
+    "left": ("topleft", "left", "bottomleft"),
+    "right": ("topright", "right", "bottomright"),
+}
+#: White-wash alpha per synthesized state in frames-OFF mode. States not
+#: listed (``focus``, ``minimized``) stay fully transparent — focus wears
+#: the accent bar instead, and a minimized icon is already dimmed by the
+#: task manager itself.
+_TASKS_OFF_ALPHA: dict[str, float] = {
+    "hover": TASKS_HOVER_LIGHTEN,
+    "progress": TASKS_HOVER_LIGHTEN,
+    "attention": TASKS_ATTENTION_LIGHTEN,
+}
 #: Iconbox trough iclasses whose ``__PADDING`` spaces the bare icons in
 #: frames-off mode (E16 ``container.c``: icons sit ``__PADDING`` apart
 #: inside the trough).
@@ -2295,25 +2347,236 @@ def _tasks_source(theme: Theme) -> IClassSpec | None:
     return _iclass_with_art(theme, "DEFAULT_ICON_BUTTON", "DEFAULT_DOCK_BUTTON")
 
 
-def tasks_hover(theme: Theme) -> bool:
-    """Whether the iconbox button has its own hilited art — the value
-    apply writes into the iconbox task manager's ``taskHoverEffect``
-    (``metadata.json`` ``X-Themey-TasksHover``). Without hilited art the
-    hover frame is the normal one and Plasma's hover animation would
-    only invent a highlight E16 never drew."""
-    src = _tasks_source(theme)
-    return src is not None and _hilited_image(src) is not None
+def tasks_hover(theme: Theme, *, iconbox_frames: str = "off") -> bool:
+    """Whether the shipped ``widgets/tasks.svg`` has a hover frame of its
+    own — the value apply writes into the iconbox task manager's
+    ``taskHoverEffect`` (``metadata.json`` ``X-Themey-TasksHover``).
+
+    True whenever a tasks.svg ships at all since 2026-09-01: the hover
+    frame is either the iclass's own hilited art or synthesized from the
+    normal plate (:func:`_synth_task_states` — a 12 % lightened plate, or
+    a 12 %-alpha white wash in frames-OFF mode), so the hover animation
+    always has something of its own to show. It used to require explicit
+    ``__HILITED`` art, which the corpus almost never declares. False only
+    when no file ships (frames ON with no iconbox button art) and Plasma
+    paints Breeze's frames instead.
+    """
+    return iconbox_frames == "off" or _tasks_source(theme) is not None
 
 
-def _emit_blank_set(
-    canvas: _Canvas, prefix: str, padding: tuple[int, int, int, int], scale: float
+def _lighten(img: Image.Image, fraction: float) -> Image.Image:
+    """Blend *img*'s RGB *fraction* of the way to white, alpha untouched."""
+    r, g, b, a = img.split()
+    white = Image.new("L", img.size, 255)
+    return Image.merge(
+        "RGBA",
+        (
+            Image.blend(r, white, fraction),
+            Image.blend(g, white, fraction),
+            Image.blend(b, white, fraction),
+            a,
+        ),
+    )
+
+
+def _fade(img: Image.Image, fraction: float) -> Image.Image:
+    """Multiply *img*'s alpha channel by *fraction*."""
+    r, g, b, a = img.split()
+    return Image.merge("RGBA", (r, g, b, a.point(lambda v: int(v * fraction))))
+
+
+def _synth_task_states(src: Image.Image) -> dict[str, Image.Image]:
+    """The task states E16's iconbox button never authored, derived from
+    the normal plate *src* (already opaque-trimmed and scaled).
+
+    E16's iconbox knows one button look plus optional ``__HILITED`` /
+    ``__CLICKED`` art, and most corpus themes declare neither — so
+    Plasma's seven task prefixes all resolved to the same plate and an
+    active, a minimized and a hovered task were indistinguishable. These
+    are pure pixel ops on the theme's own art, never invented chrome:
+    hover/attention blend toward white (the plate reads "lit", the way
+    E16's own hilited art always did), ``focus`` flips the plate
+    VERTICALLY so a bevel's light and dark edges swap — E16's depressed
+    button in one operation — and ``minimized`` fades it out. ``focus``
+    additionally wears the accent bar :func:`_emit_task_frame` paints.
+    """
+    hover = _lighten(src, TASKS_HOVER_LIGHTEN)
+    return {
+        "hover": hover,
+        "progress": hover,
+        "attention": _lighten(src, TASKS_ATTENTION_LIGHTEN),
+        "minimized": _fade(src, TASKS_MINIMIZED_ALPHA),
+        "focus": ImageOps.flip(src),
+    }
+
+
+def _task_plate(
+    theme: Theme, spec: IClassSpec
+) -> tuple[Image.Image, tuple[int, int, int, int], float] | None:
+    """The scaled normal plate, its OUTPUT-px caps and the scale used —
+    the base every synthesized task state derives from.
+
+    Mirrors :func:`_emit_set`'s art pipeline (opaque trim → cap fit →
+    surface scale → cap shave) without re-emitting its notes:
+    :func:`build_tasks` always emits the ``normal-`` set from this very
+    art through ``_emit_set`` first, so whatever notes it earns are on
+    ``theme.notes`` already.
+    """
+    found = _state_attr(spec, "normal")
+    if found is None:
+        return None
+    state_attr, path = found
+    with Image.open(path) as im:
+        raw = im.convert("RGBA")
+    trimmed = _opaque_trim(raw, spec.edge_for(state_attr))
+    if trimmed is None:
+        return None
+    art, edge, _ = trimmed
+    edge = _fit_caps(edge, art.width, art.height) or edge
+    scale = _surface_scale(theme, spec, edge)
+    img = upscale_part(art, scale)
+    caps = _scaled_caps(edge, art.width, art.height, scale)
+    left, right = _shave_for_center(caps[0], caps[1], img.width)
+    top, bottom = _shave_for_center(caps[2], caps[3], img.height)
+    return img, (left, right, top, bottom), scale
+
+
+def _grow_for_bar(
+    img: Image.Image, caps: tuple[int, int, int, int], edge: str
+) -> tuple[Image.Image, tuple[int, int, int, int]]:
+    """Add a ``TASKS_FOCUS_BAR_PX`` transparent strip on *edge* and widen
+    that cap to cover it, so the bar becomes its own 9-patch row/column
+    and the plate's own bevel cap survives underneath."""
+    bar = TASKS_FOCUS_BAR_PX
+    left, right, top, bottom = caps
+    if edge in ("top", "bottom"):
+        out = Image.new("RGBA", (img.width, img.height + bar), (0, 0, 0, 0))
+        out.paste(img, (0, bar if edge == "top" else 0))
+        top, bottom = (top + bar, bottom) if edge == "top" else (top, bottom + bar)
+    else:
+        out = Image.new("RGBA", (img.width + bar, img.height), (0, 0, 0, 0))
+        out.paste(img, (bar if edge == "left" else 0, 0))
+        left, right = (left + bar, right) if edge == "left" else (left, right + bar)
+    return out, (left, right, top, bottom)
+
+
+def _paint_edge_bar(canvas: _Canvas, prefix: str, edge: str) -> None:
+    """Overlay the highlight bar on the outer ``TASKS_FOCUS_BAR_PX`` of
+    every slice along *edge* of the set just emitted for *prefix*.
+
+    A classed rect inside the border ``<g>`` — exactly how Breeze's own
+    ``widgets/tasks.svg`` paints its focus accent — so KSvg re-tints it
+    from the ACTIVE colour scheme rather than from baked pixels. All
+    three slices are painted (cap, middle, cap) so the bar spans the
+    whole item instead of stopping at the corners.
+    """
+    bar = TASKS_FOCUS_BAR_PX
+    for name in _BAR_GRID[edge]:
+        group = _find_element(canvas, f"{prefix}{name}")
+        if group is None:
+            continue
+        image = group.find(f"{{{SVG_NS}}}image")
+        if image is None:
+            continue
+        x, y = int(image.get("x", "0")), int(image.get("y", "0"))
+        w, h = int(image.get("width", "0")), int(image.get("height", "0"))
+        # min() keeps the rect inside a slice that _shave_for_center made
+        # thinner than the bar; the bar then IS the whole cap.
+        if edge in ("top", "bottom"):
+            thick = min(bar, h)
+            box = (x, y + h - thick if edge == "bottom" else y, w, thick)
+        else:
+            thick = min(bar, w)
+            box = (x + w - thick if edge == "right" else x, y, thick, h)
+        ET.SubElement(
+            group,
+            f"{{{SVG_NS}}}rect",
+            {
+                "x": str(box[0]), "y": str(box[1]),
+                "width": str(box[2]), "height": str(box[3]),
+                "class": _HIGHLIGHT_CLASS,
+                "style": "fill:currentColor",
+            },
+        )
+
+
+def _find_element(canvas: _Canvas, element_id: str) -> ET.Element | None:
+    """The top-level canvas element with *element_id*, or None."""
+    for el in canvas.root:
+        if el.get("id") == element_id:
+            return el
+    return None
+
+
+def _color_stylesheet(root: ET.Element, highlight: RGB) -> None:
+    """Prepend the ``current-color-scheme`` stylesheet KSvg rewrites.
+
+    KSvg looks for an element with exactly this id and, when it is there,
+    swaps the sheet's body for the ACTIVE colour scheme's
+    ``.ColorScheme-*`` classes before handing the file to QSvgRenderer —
+    the mechanism every Breeze widget SVG uses. The authored declaration
+    is only the fallback for renderers that do NOT substitute (plain
+    rsvg, themey's own probe), so it carries the theme's own sampled
+    selection background rather than a Breeze blue.
+    """
+    style = ET.Element(
+        f"{{{SVG_NS}}}style",
+        {"id": "current-color-scheme", "type": "text/css"},
+    )
+    style.text = f".{_HIGHLIGHT_CLASS} {{ color:{_hex(highlight)}; }}"
+    root.insert(0, style)
+
+
+def _emit_task_frame(
+    canvas: _Canvas,
+    prefix: str,
+    img: Image.Image,
+    caps: tuple[int, int, int, int],
+    padding: tuple[int, int, int, int],
+    scale: float,
+    *,
+    bar_edge: str | None = None,
 ) -> None:
-    """A fully transparent 1 px center-only set for *prefix* plus its
-    margin hints from *padding* — the frames-OFF task set. NOT
-    :func:`_emit_set`: its transparent-art refusal must not fire here,
-    the transparency IS the point (E16 drew no plate). FrameSvg needs a
-    ``<prefix>center`` to paint anything at all, and painting a 0-alpha
-    rect is exactly nothing."""
+    """Emit one SYNTHESIZED task set from an in-memory plate.
+
+    Not :func:`_emit_set`: the art has no file path — it is derived from
+    the normal plate by :func:`_synth_task_states`, whose notes and cap
+    math the ``normal-`` set already carried. *bar_edge* adds the focus
+    accent (:func:`_grow_for_bar` + :func:`_paint_edge_bar`).
+    """
+    if bar_edge is not None:
+        img, caps = _grow_for_bar(img, caps, bar_edge)
+    try:
+        _frame_group(canvas, prefix, img, caps)
+    except ValueError:  # last resort — _task_plate already fitted the caps
+        _frame_group(canvas, prefix, img, (0, 0, 0, 0))
+    else:
+        if bar_edge is not None:
+            _paint_edge_bar(canvas, prefix, bar_edge)
+    _margin_hints(canvas, prefix, padding, scale)
+
+
+def _emit_tint_set(
+    canvas: _Canvas,
+    prefix: str,
+    padding: tuple[int, int, int, int],
+    scale: float,
+    *,
+    white_alpha: float = 0.0,
+    bar_edge: str | None = None,
+) -> None:
+    """A 1 px center-only set for *prefix* plus its margin hints from
+    *padding* — the frames-OFF task set.
+
+    NOT :func:`_emit_set`: its transparent-art refusal must not fire
+    here, the transparency IS the point (E16 drew no plate). FrameSvg
+    needs a ``<prefix>center`` to paint anything at all, and painting a
+    0-alpha rect is exactly nothing. *white_alpha* raises that to the
+    synthesized hover/attention wash, and *bar_edge* adds the focus
+    accent as a ``TASKS_FOCUS_BAR_PX``-thick border element on that side
+    — with no side caps there are no corner slices, so the bar already
+    spans the whole item.
+    """
     ET.SubElement(
         canvas.root,
         f"{{{SVG_NS}}}rect",
@@ -2323,10 +2586,32 @@ def _emit_blank_set(
             "y": str(canvas.y),
             "width": "1",
             "height": "1",
-            "style": "opacity:0",
+            "style": (
+                f"fill:#ffffff;opacity:{white_alpha:g}" if white_alpha else "opacity:0"
+            ),
         },
     )
     canvas.advance(1, 1)
+    if bar_edge is not None:
+        w, h = (
+            (1, TASKS_FOCUS_BAR_PX)
+            if bar_edge in ("top", "bottom")
+            else (TASKS_FOCUS_BAR_PX, 1)
+        )
+        ET.SubElement(
+            canvas.root,
+            f"{{{SVG_NS}}}rect",
+            {
+                "id": f"{prefix}{bar_edge}",
+                "x": "0",
+                "y": str(canvas.y),
+                "width": str(w),
+                "height": str(h),
+                "class": _HIGHLIGHT_CLASS,
+                "style": "fill:currentColor",
+            },
+        )
+        canvas.advance(w, h)
     _margin_hints(canvas, prefix, padding, scale)
 
 
@@ -2340,13 +2625,14 @@ def _iconbox_trough_padding(theme: Theme) -> tuple[int, int, int, int]:
     return (2, 2, 2, 2)
 
 
-def build_tasks(theme: Theme, *, iconbox_frames: str = "on") -> ET.Element | None:
+def build_tasks(theme: Theme, *, iconbox_frames: str = "off") -> ET.Element | None:
     """``widgets/tasks.svg`` — task-manager frames from the iconbox button.
 
     themey's own apply creates the iconbox panel with an icons-only task
-    manager, so these frames land exactly where E16's iconbox buttons
-    lived. The taskmanager plasmoid (icontasks shares its Task.qml) reads
-    prefixes ``normal``/``minimized``/``hover``/``focus``/``attention``/
+    manager, and most users keep a stock icons-only bar of their own, so
+    these frames land exactly where E16's iconbox buttons lived. The
+    taskmanager plasmoid (icontasks shares its Task.qml) reads prefixes
+    ``normal``/``minimized``/``hover``/``focus``/``attention``/
     ``progress`` plus the unprefixed launcher set; ALL of them ship
     (per-FILE fallback — a partial set paints nothing for missing
     prefixes). ``focus-`` wears the CLICKED chain — E16's active iconbox
@@ -2357,14 +2643,26 @@ def build_tasks(theme: Theme, *, iconbox_frames: str = "on") -> ET.Element | Non
     four ``ICONBOX_ARROW_*`` when all exist (the ``build_arrows`` census),
     else they are omitted with a note.
 
-    ``iconbox_frames="off"`` (``ICONBOX_FRAME_MODES``) replays E16's own
-    default — ``container.c`` ``draw_icon_base = 0``, no per-icon plate:
-    every prefix ships as a transparent 1 px set
-    (:func:`_emit_blank_set`) with margin hints from the iconbox trough's
-    ``__PADDING`` so the icons keep E16's spacing, and the expanders stay.
-    Skipping the file instead would bring Breeze's plates back — worse
-    than either E16 look. ``on`` (the default) keeps the button art chris
-    has lived with and notes that E16 itself drew none.
+    A prefix whose E16 chain falls back to the NORMAL art is
+    SYNTHESIZED instead (:func:`_synth_task_states`, one
+    ``plasmastyle:`` note listing which) — nearly every corpus iconbox
+    button declares only ``__NORMAL``, which used to make all seven sets
+    byte-identical and left the active, minimized and hovered task
+    indistinguishable. ``focus`` additionally wears a
+    ``TASKS_FOCUS_BAR_PX`` accent bar on the panel-adjacent edge, one
+    set per ``_TASKS_FOCUS_EDGES`` entry, painted through KSvg's
+    ``ColorScheme-Highlight`` class so it tracks the active scheme.
+
+    ``iconbox_frames="off"`` (the DEFAULT, ``ICONBOX_FRAME_MODES``)
+    replays E16's own iconbox — ``container.c`` ``draw_icon_base = 0``,
+    no per-icon plate: every prefix ships as a 1 px center-only set
+    (:func:`_emit_tint_set`) with margin hints from the iconbox trough's
+    ``__PADDING`` so the icons keep E16's spacing, and the expanders
+    stay. Skipping the file instead would bring Breeze's plates back —
+    worse than either E16 look. The synthesized states survive that mode
+    as a white wash (``_TASKS_OFF_ALPHA``) and the same accent bar, so
+    the task states stay readable without a plate. ``on`` ships the
+    button art as per-icon plates.
     """
     if iconbox_frames not in ICONBOX_FRAME_MODES:
         raise PlasmaStyleError(
@@ -2372,29 +2670,68 @@ def build_tasks(theme: Theme, *, iconbox_frames: str = "on") -> ET.Element | Non
         )
     src = _tasks_source(theme)
     canvas = _Canvas()
+    synthesized: list[str] = []
     if iconbox_frames == "off":
         padding = _iconbox_trough_padding(theme)
-        for prefix, _state in _TASKS_PREFIXES + _TASKS_HOVER_PREFIXES:
-            _emit_blank_set(canvas, prefix, padding, theme.scale)
+        for prefix, _state, synth in _TASKS_PREFIXES + _TASKS_HOVER_PREFIXES:
+            alpha = _TASKS_OFF_ALPHA.get(synth or "", 0.0)
+            if synth == "focus":
+                for edge_prefix, edge in _TASKS_FOCUS_EDGES:
+                    _emit_tint_set(
+                        canvas, edge_prefix + prefix, padding, theme.scale,
+                        white_alpha=alpha, bar_edge=edge,
+                    )
+            else:
+                _emit_tint_set(
+                    canvas, prefix, padding, theme.scale, white_alpha=alpha
+                )
+            if synth is not None:
+                synthesized.append(synth)
         from_trough = any(
             (spec := theme.iclasses.get(n)) is not None and spec.padding != (0, 0, 0, 0)
             for n in _ICONBOX_TROUGH_SOURCES
         )
         theme.notes.append(
-            "plasmastyle: task frames OFF (--iconbox-frames off): E16's "
-            "iconbox draws no per-icon plate (container.c draw_icon_base = 0); "
-            f"transparent sets with {padding} __PADDING margins"
+            "plasmastyle: task frames OFF (--iconbox-frames off, the "
+            "default): E16's iconbox draws no per-icon plate (container.c "
+            f"draw_icon_base = 0); transparent sets with {padding} "
+            "__PADDING margins"
             + (" from the iconbox trough" if from_trough else " (E16 default)")
         )
     else:
         if src is None:
             return None
-        for prefix, state in _TASKS_PREFIXES:
-            if _emit_set(theme, canvas, prefix, src, state, hints=True) is None:
-                return None  # transparent button art: the whole file is Breeze's
+        plate = _task_plate(theme, src)
+        normal_art = _state_image(src, "normal")
+        states = _synth_task_states(plate[0]) if plate is not None else {}
+        # `required`: a base prefix that cannot be emitted kills the whole
+        # file (Breeze's per-FILE fallback beats a half-painted one). The
+        # hover-on-state extras ship only with real hilited art and fall
+        # back to the plain hover set, so a failure there is harmless.
+        sets = [(p, s, y, True) for p, s, y in _TASKS_PREFIXES]
         if _hilited_image(src) is not None:
-            for prefix, state in _TASKS_HOVER_PREFIXES:
-                _emit_set(theme, canvas, prefix, src, state, hints=True)
+            sets += [(p, s, y, False) for p, s, y in _TASKS_HOVER_PREFIXES]
+        for prefix, state, synth, required in sets:
+            real = _state_image(src, state)
+            if synth is None or (real is not None and real != normal_art):
+                emitted = _emit_set(theme, canvas, prefix, src, state, hints=True)
+                if emitted is None and required:
+                    return None  # transparent button art: the file is Breeze's
+                continue
+            if plate is None:
+                return None
+            _, caps, scale = plate  # the derived art comes from `states`
+            if synth == "focus":
+                for edge_prefix, edge in _TASKS_FOCUS_EDGES:
+                    _emit_task_frame(
+                        canvas, edge_prefix + prefix, states[synth], caps,
+                        src.padding, scale, bar_edge=edge,
+                    )
+            else:
+                _emit_task_frame(
+                    canvas, prefix, states[synth], caps, src.padding, scale
+                )
+            synthesized.append(synth)
 
     expanders: list[tuple[str, Path]] = []
     for direction, name in _EXPANDER_SOURCES:
@@ -2418,10 +2755,23 @@ def build_tasks(theme: Theme, *, iconbox_frames: str = "on") -> ET.Element | Non
             f"plasmastyle: task frames from iclass {src.name} (E16 iconbox "
             "button; focus wears the clicked art — the active task shows the "
             "depressed button; attention/progress approximate with the "
-            "hilited art; E16's own iconbox default draws NO per-icon plate — "
-            "--iconbox-frames off replays that)"
+            "hilited art; E16's own iconbox default draws NO per-icon plate, "
+            "which --iconbox-frames off — the default — replays)"
         )
-    return canvas.finish()
+    if synthesized:
+        theme.notes.append(
+            "plasmastyle: task states "
+            + "/".join(dict.fromkeys(synthesized))
+            + " synthesized (E16's iconbox button authors no such state, so "
+            "every task frame would otherwise be the normal one); focus "
+            f"wears a {TASKS_FOCUS_BAR_PX} px accent bar on the "
+            "panel-adjacent edge in the active scheme's Highlight colour"
+        )
+    root = canvas.finish()
+    if "focus" in synthesized:  # the accent bar is the only classed element
+        scheme = theme.scheme if theme.scheme is not None else default_scheme()
+        _color_stylesheet(root, scheme.selection.background_normal)
+    return root
 
 
 # --------------------------------------------------------------------- #
@@ -3062,7 +3412,7 @@ def style_scheme(theme: Theme, *, shipped: frozenset[str]) -> ColorScheme:
 # --------------------------------------------------------------------- #
 
 
-def _write_metadata(theme: Theme, out_dir: Path) -> None:
+def _write_metadata(theme: Theme, out_dir: Path, iconbox_frames: str) -> None:
     """``metadata.json``: KPlugin block + top-level ``X-Plasma-API`` "5.0"
     (the shape every theme on the reference machine ships, Plasma-6 Breeze
     included); ``KPackageStructure`` added for symmetry with the
@@ -3083,20 +3433,21 @@ def _write_metadata(theme: Theme, out_dir: Path) -> None:
             "Version": "1.0",
         },
         "X-Plasma-API": "5.0",
-        "X-Themey-TasksHover": tasks_hover(theme),
+        "X-Themey-TasksHover": tasks_hover(theme, iconbox_frames=iconbox_frames),
     }
     (out_dir / "metadata.json").write_text(
         json.dumps(meta, indent=4, sort_keys=True) + "\n"
     )
 
 
-def write(theme: Theme, out_dir: Path, *, iconbox_frames: str = "on") -> PlasmaStyle:
+def write(theme: Theme, out_dir: Path, *, iconbox_frames: str = "off") -> PlasmaStyle:
     """Write the Plasma Style package for *theme* under *out_dir*.
 
     ``out_dir``'s basename MUST be ``slug.plugin_id(theme.name)`` — the
     dir name is the ``plasmarc [Theme] name=`` value Plasma matches on.
-    ``iconbox_frames`` (``ICONBOX_FRAME_MODES``) is threaded into
-    :func:`build_tasks`.
+    ``iconbox_frames`` (``ICONBOX_FRAME_MODES``, default ``"off"``) is
+    threaded into :func:`build_tasks` and ``metadata.json``'s
+    ``X-Themey-TasksHover``.
     A single SVG whose source art cannot be read skips that one file with
     a ``plasmastyle:`` note; an EMPTY SVG set is legitimate (colors-only
     package, like breeze-dark). Any other failure removes ``out_dir`` and
@@ -3118,7 +3469,7 @@ def write(theme: Theme, out_dir: Path, *, iconbox_frames: str = "on") -> PlasmaS
     ]
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
-        _write_metadata(theme, out_dir)
+        _write_metadata(theme, out_dir, iconbox_frames)
         write_desktop(out_dir / "plasmarc", _PACKAGE_PLASMARC)
 
         shipped: list[str] = []
