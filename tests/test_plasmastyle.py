@@ -254,9 +254,11 @@ def test_panel_wordmark_caps_go_to_north_south_sets(tmp_path: Path) -> None:
 
 def test_panel_wordmark_caps_rejected_on_thin_bars(tmp_path: Path) -> None:
     """e13's shape: a 6 px-tall dragbar with 60 px wordmark caps plus an
-    iconbox trough. The panel stretches the bar to its 60 px thickness,
-    smearing the wordmark ten times taller (live 2026-09-01) — so no
-    north-/south- set; the trough backs everything."""
+    iconbox trough. A foreign bottom panel stretches the bar to its 60 px
+    thickness, smearing the wordmark ten times taller (live 2026-09-01) —
+    so no south- set; the trough backs the shared set. (north- is exempt
+    since themey's own dragbar panel is 16 ref px thick — see
+    test_north_wordmark_accepts_thin_strip.)"""
     thin = _png(tmp_path, "dragbar.png", size=(300, 6))
     small = _png(tmp_path, "iconbox.png", color=(20, 90, 20, 255))
     theme = _theme(tmp_path, {
@@ -273,7 +275,7 @@ def test_panel_wordmark_caps_rejected_on_thin_bars(tmp_path: Path) -> None:
     assert reason is not None and "thin" in reason
     svg = plasmastyle.build_panel_background(theme)
     ids = _ids(svg)
-    assert not any(i.startswith(("north-", "south-")) for i in ids)
+    assert not any(i.startswith("south-") for i in ids)
     assert any(
         "panel background from iclass ICONBOX_HORIZONTAL" in n for n in theme.notes
     )
@@ -2409,3 +2411,188 @@ def test_line_vertical_uses_clicked_art(tmp_path: Path) -> None:
             break
     else:
         raise AssertionError("no vertical-line")
+
+
+# ------------------------------------------------------------------ #
+# Furniture applets: pager window rects, dragbar desk buttons
+# ------------------------------------------------------------------ #
+
+
+def test_pager_window_set_from_pager_win(tmp_path: Path) -> None:
+    """``window-`` is PAGER_WIN's normal art — E16's window-rect art in
+    the LIVE pager, painted by themey's own pager applet per window."""
+    sel = _png(tmp_path, "sel.png", size=(12, 12))
+    win = _png(tmp_path, "win.png", size=(10, 8), color=(30, 30, 200, 255))
+    theme = _theme(tmp_path, {
+        "PAGER_SEL": _iclass("PAGER_SEL", edge=(2, 2, 2, 2), normal=sel),
+        "PAGER_WIN": _iclass("PAGER_WIN", edge=(2, 2, 2, 2), normal=win),
+    })
+    svg = plasmastyle.build_pager(theme)
+    assert svg is not None
+    ids = _ids(svg)
+    for cell in _PAGER_CELLS:
+        assert f"window-{cell}" in ids
+    assert "window-active-center" not in ids
+    assert any("pager window rects from iclass PAGER_WIN" in n for n in theme.notes)
+    # No PAGER_WIN art: the applet falls back to the stock-style rects.
+    theme2 = _theme(tmp_path, {
+        "PAGER_SEL": _iclass("PAGER_SEL", edge=(2, 2, 2, 2), normal=sel),
+    })
+    svg2 = plasmastyle.build_pager(theme2)
+    assert svg2 is not None
+    assert not any(i.startswith("window-") for i in _ids(svg2))
+
+
+def test_pager_window_active_only_with_hilited_art(tmp_path: Path) -> None:
+    sel = _png(tmp_path, "sel.png", size=(12, 12))
+    win = _png(tmp_path, "win.png", size=(10, 8))
+    hi = _png(tmp_path, "winhi.png", size=(10, 8), color=(200, 200, 30, 255))
+    theme = _theme(tmp_path, {
+        "PAGER_SEL": _iclass("PAGER_SEL", edge=(2, 2, 2, 2), normal=sel),
+        "PAGER_WIN": _iclass("PAGER_WIN", edge=(0, 0, 0, 0), normal=win, hilited=hi),
+    })
+    svg = plasmastyle.build_pager(theme)
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    assert "window-active-center" in by_id
+    normal = next(iter(by_id["window-center"])).get(XLINK)
+    active = next(iter(by_id["window-active-center"])).get(XLINK)
+    assert normal != active
+    # hilited_active alone is the checked-semantics trap: not a hover.
+    theme2 = _theme(tmp_path, {
+        "PAGER_SEL": _iclass("PAGER_SEL", edge=(2, 2, 2, 2), normal=sel),
+        "PAGER_WIN": _iclass(
+            "PAGER_WIN", edge=(0, 0, 0, 0), normal=win, hilited_active=hi
+        ),
+    })
+    svg2 = plasmastyle.build_pager(theme2)
+    assert svg2 is not None
+    assert "window-active-center" not in _ids(svg2)
+
+
+def test_dragbar_elements_from_raise_lower(tmp_path: Path) -> None:
+    """E16's default dragbar ordering (desktops.c, ordering 1): the RAISE
+    button sits at the LEFT end and runs ``desk next``; the LOWER button
+    at the RIGHT end runs ``desk prev``. Elements are named by ACTION so
+    the deskbutton applet reads ``next-``/``prev-`` directly."""
+    raise_png = _png(tmp_path, "raise.png", size=(16, 16), color=(10, 200, 10, 255))
+    raise_hi = _png(tmp_path, "raise_hi.png", size=(16, 16), color=(40, 230, 40, 255))
+    raise_cl = _png(tmp_path, "raise_cl.png", size=(16, 16), color=(0, 120, 0, 255))
+    lower_png = _png(tmp_path, "lower.png", size=(16, 16), color=(200, 10, 10, 255))
+    theme = _theme(tmp_path, {
+        "DESKTOP_RAISEBUTTON_HORIZ": _iclass(
+            "DESKTOP_RAISEBUTTON_HORIZ", normal=raise_png, hilited=raise_hi,
+            clicked=raise_cl,
+        ),
+        "DESKTOP_LOWERBUTTON_HORIZ": _iclass(
+            "DESKTOP_LOWERBUTTON_HORIZ", normal=lower_png
+        ),
+    }, scale=2)
+    svg = plasmastyle.build_dragbar(theme)
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    for direction in ("next", "prev"):
+        for state in ("normal", "hover", "pressed"):
+            assert f"{direction}-horiz-{state}" in by_id
+    assert not any(i.startswith(("next-vert", "prev-vert")) for i in by_id)
+    hrefs = {
+        s: next(iter(by_id[f"next-horiz-{s}"])).get(XLINK)
+        for s in ("normal", "hover", "pressed")
+    }
+    assert len(set(hrefs.values())) == 3  # three distinct RAISE states
+    # LOWER has normal art only: hover/pressed reuse it (E16 fallback).
+    lower = {
+        s: next(iter(by_id[f"prev-horiz-{s}"])).get(XLINK)
+        for s in ("normal", "hover", "pressed")
+    }
+    assert len(set(lower.values())) == 1
+    img = next(iter(by_id["next-horiz-normal"]))
+    assert img.get("width") == "32" and img.get("height") == "32"  # scale 2
+    assert any(
+        "dragbar desk buttons from iclass DESKTOP_RAISEBUTTON_HORIZ+"
+        "DESKTOP_LOWERBUTTON_HORIZ" in n
+        for n in theme.notes
+    )
+
+
+def test_dragbar_skipped_without_horizontal_art(tmp_path: Path) -> None:
+    theme = _theme(tmp_path, {})
+    assert plasmastyle.build_dragbar(theme) is None
+    assert any("no DESKTOP_RAISEBUTTON_HORIZ/DESKTOP_LOWERBUTTON_HORIZ art" in n
+               for n in theme.notes)
+    # A vertical-only theme still skips: the dragbar panel is horizontal.
+    vert = _png(tmp_path, "rv.png")
+    theme2 = _theme(tmp_path, {
+        "DESKTOP_RAISEBUTTON_VERT": _iclass("DESKTOP_RAISEBUTTON_VERT", normal=vert),
+    })
+    assert plasmastyle.build_dragbar(theme2) is None
+
+
+def test_dragbar_one_horizontal_button_ships_alone(tmp_path: Path) -> None:
+    """Only RAISE has art: ship its trio; the applet's missing-element
+    fallback (widgets/arrows) covers the other end."""
+    raise_png = _png(tmp_path, "raise.png")
+    theme = _theme(tmp_path, {
+        "DESKTOP_RAISEBUTTON_HORIZ": _iclass("DESKTOP_RAISEBUTTON_HORIZ", normal=raise_png),
+    })
+    svg = plasmastyle.build_dragbar(theme)
+    assert svg is not None
+    ids = _ids(svg)
+    assert "next-horiz-normal" in ids
+    assert "prev-horiz-normal" not in ids
+
+
+def test_dragbar_vert_optional(tmp_path: Path) -> None:
+    raise_png = _png(tmp_path, "raise.png")
+    lower_png = _png(tmp_path, "lower.png")
+    raise_v = _png(tmp_path, "raise_v.png", size=(16, 20))
+    lower_v = _png(tmp_path, "lower_v.png", size=(16, 20))
+    theme = _theme(tmp_path, {
+        "DESKTOP_RAISEBUTTON_HORIZ": _iclass("DESKTOP_RAISEBUTTON_HORIZ", normal=raise_png),
+        "DESKTOP_LOWERBUTTON_HORIZ": _iclass("DESKTOP_LOWERBUTTON_HORIZ", normal=lower_png),
+        "DESKTOP_RAISEBUTTON_VERT": _iclass("DESKTOP_RAISEBUTTON_VERT", normal=raise_v),
+        "DESKTOP_LOWERBUTTON_VERT": _iclass("DESKTOP_LOWERBUTTON_VERT", normal=lower_v),
+    })
+    svg = plasmastyle.build_dragbar(theme)
+    assert svg is not None
+    ids = _ids(svg)
+    for direction in ("next", "prev"):
+        for orient in ("horiz", "vert"):
+            for state in ("normal", "hover", "pressed"):
+                assert f"{direction}-{orient}-{state}" in ids
+
+
+def test_dragbar_registered_in_builders() -> None:
+    assert plasmastyle.DRAGBAR_SVG == "widgets/themey-dragbar.svg"
+    assert any(rel == plasmastyle.DRAGBAR_SVG for rel, _ in plasmastyle._BUILDERS)
+
+
+def test_north_wordmark_accepts_thin_strip(tmp_path: Path) -> None:
+    """e13's 6 px dragbar with 60 px wordmark caps: the ``north-`` set now
+    ships it — themey's dragbar panel is exactly ``scale_px(16)`` thick,
+    so the stretch is E16's own — while ``south-`` (foreign bottom bars,
+    stretched to 40-60 px) keeps the thickness guard."""
+    thin = _png(tmp_path, "dragbar.png", size=(300, 6))
+    small = _png(tmp_path, "iconbox.png", color=(20, 90, 20, 255))
+    theme = _theme(tmp_path, {
+        "DESKTOP_DRAGBUTTON_HORIZ": _iclass(
+            "DESKTOP_DRAGBUTTON_HORIZ", edge=(60, 60, 0, 0), normal=thin
+        ),
+        "ICONBOX_HORIZONTAL": _iclass(
+            "ICONBOX_HORIZONTAL", edge=(4, 4, 4, 4), normal=small
+        ),
+    })
+    spec = theme.iclasses["DESKTOP_DRAGBUTTON_HORIZ"]
+    assert plasmastyle._panel_art_guard(spec, wordmark=True, thin_ok=True) is None
+    reason = plasmastyle._panel_art_guard(spec, wordmark=True)
+    assert reason is not None and "thin" in reason
+    svg = plasmastyle.build_panel_background(theme)
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    assert by_id["north-center"].tag.endswith("g")
+    assert by_id["north-hint-left-margin"].get("width") == str(60 - 4)
+    assert not any(i.startswith("south-") for i in by_id)
+    assert by_id["center"].tag.endswith("g")  # shared set = iconbox trough
+    assert any(
+        "top panels wear the DESKTOP_DRAGBUTTON_HORIZ wordmark art (north- set" in n
+        for n in theme.notes
+    )

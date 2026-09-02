@@ -250,6 +250,9 @@ _STYLE_PROBE_CELLS: tuple[tuple[str, str], ...] = (
     ("widgets/tasks", "focus"),
     ("widgets/tasks", "hover"),
     ("widgets/tasks", "minimized"),
+    ("widgets/pager", "normal"),
+    ("widgets/pager", "active"),
+    ("widgets/pager", "window"),
     ("widgets/button", "normal"),
     ("widgets/viewitem", "hover"),
     ("widgets/viewitem", "selected"),
@@ -258,7 +261,7 @@ _STYLE_PROBE_CELLS: tuple[tuple[str, str], ...] = (
 )
 
 _STYLE_PROBE_COLUMNS = 5
-_STYLE_PROBE_ROWS = 3  # ceil(len(_STYLE_PROBE_CELLS) / columns)
+_STYLE_PROBE_ROWS = 4  # ceil(len(_STYLE_PROBE_CELLS) / columns)
 
 #: Per-cell shape hints; cells absent here get the uniform grid cell. The
 #: viewitem pair is deliberately stretched WIDE (hover: a full column, 30
