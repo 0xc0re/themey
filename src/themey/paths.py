@@ -86,6 +86,15 @@ def cursor_themes() -> Path:
     return Path(os.environ.get("HOME", "/")) / ".icons"
 
 
+def icon_themes() -> Path:
+    """XDG icon themes (``$XDG_DATA_HOME/icons/<theme>/``) — the per-app
+    icon theme from ``windowmatches.cfg``. Unlike :func:`cursor_themes`
+    this root IS scanned: KIconLoader/KIconTheme walk
+    ``$XDG_DATA_HOME/icons`` (the third-party icon themes on the
+    reference machine all live there), only libXcursor does not."""
+    return _xdg_data_home() / "icons"
+
+
 def desktop_themes() -> Path:
     """Plasma Style (desktop theme) packages — panel/popup/tooltip chrome."""
     return _xdg_data_home() / "plasma" / "desktoptheme"

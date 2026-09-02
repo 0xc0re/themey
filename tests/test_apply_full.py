@@ -1724,3 +1724,136 @@ def test_top_panels_marker_tampered_entries_never_interpolated(
     assert len(unparks) == 1 and "panelById(1911)" in unparks[0]
     assert all("p.remove()" not in u for u in unparks)
     assert apply_mod._parse_top_panels_marker(evil) == {"1911": ("0", "top", "none")}
+
+
+# --- Phase 5: per-app icon theme ------------------------------------------
+
+
+def _install_fake_icon_theme(name: str = "themey_e13-icons") -> Path:
+    d = paths.icon_themes() / name
+    (d / "48x48" / "apps").mkdir(parents=True, exist_ok=True)
+    (d / "index.theme").write_text("[Icon Theme]\nName=x\nInherits=breeze\n")
+    return d
+
+
+def _install_fake_lnf_with_icons(name: str = "e13", icon_theme: str = "themey_e13-icons") -> Path:
+    lnf = paths.look_and_feel() / plugin_id(name)
+    (lnf / "contents").mkdir(parents=True, exist_ok=True)
+    (lnf / "metadata.json").write_text("{}")
+    write_desktop(lnf / "contents" / "defaults", {
+        "kdeglobals][General": {"ColorScheme": plugin_id(name)},
+        "kdeglobals][Icons": {"Theme": icon_theme},
+        "kwinrc][org.kde.kdecoration2": {
+            "library": "org.kde.kwin.aurorae", "theme": plugin_id(name),
+        },
+    })
+    return lnf
+
+
+def test_apply_full_writes_icon_theme_records_prev_and_broadcasts(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf_with_icons("e13")
+    _install_fake_icon_theme()
+    fake_kconfig.store["Theme"] = "Fluency"  # kdeglobals [Icons] Theme
+    apply_mod.apply_full("e13")
+    assert fake_kconfig.store["PrevIconTheme"] == "Fluency"
+    assert fake_kconfig.store["Theme"] == "themey_e13-icons"
+    i_write = fake_kconfig.index_of("--group", "Icons", "themey_e13-icons")
+    i_dbus = fake_kconfig.index_of("dbus-send", "org.kde.KIconLoader.iconChanged")
+    i_lnf = fake_kconfig.index_of("plasma-apply-lookandfeel")
+    assert i_lnf < i_write < i_dbus
+    cmd = fake_kconfig.calls[i_dbus]
+    assert cmd[1:] == [
+        "--session", "--type=signal", "/KIconLoader",
+        "org.kde.KIconLoader.iconChanged", "int32:0",
+    ]
+    # Record-once: a second apply never clobbers the baseline.
+    fake_kconfig.iconbox_exists_reply = "exists"
+    apply_mod.apply_full("e13")
+    assert fake_kconfig.store["PrevIconTheme"] == "Fluency"
+
+
+def test_apply_full_icon_theme_unset_baseline(fake_kconfig: FakeKConfig) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf_with_icons("e13")
+    _install_fake_icon_theme()
+    apply_mod.apply_full("e13")
+    assert fake_kconfig.store["PrevIconTheme"] == "@unset"
+
+
+def test_apply_full_no_icon_theme_in_bundle_leaves_icons_alone(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["Theme"] = "Fluency"
+    apply_mod.apply_full("e13")
+    assert "PrevIconTheme" not in fake_kconfig.store
+    assert fake_kconfig.store["Theme"] == "Fluency"
+    with pytest.raises(AssertionError):
+        fake_kconfig.index_of("dbus-send")
+
+
+def test_apply_full_icon_theme_named_but_missing_is_skipped(
+    fake_kconfig: FakeKConfig, caplog,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf_with_icons("e13")  # bundle names it, dir absent
+    with caplog.at_level("WARNING"):
+        apply_mod.apply_full("e13")
+    assert "PrevIconTheme" not in fake_kconfig.store
+    assert any("not installed" in r.message for r in caplog.records)
+
+
+def test_apply_full_icon_broadcast_failure_is_warning(
+    fake_kconfig: FakeKConfig, caplog,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf_with_icons("e13")
+    _install_fake_icon_theme()
+    fake_kconfig.fail_on["dbus-send"] = "no bus"
+    with caplog.at_level("WARNING"):
+        apply_mod.apply_full("e13")  # no raise
+    assert fake_kconfig.store["Theme"] == "themey_e13-icons"
+    assert any("relogin" in r.message for r in caplog.records)
+
+
+def test_revert_restores_icon_theme_and_clears_marker(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["PrevIconTheme"] = "Fluency"
+    fake_kconfig.store["Theme"] = "themey_e13-icons"
+    assert apply_mod.revert() is True
+    assert fake_kconfig.store["Theme"] == "Fluency"
+    assert "PrevIconTheme" not in fake_kconfig.store
+    fake_kconfig.index_of("dbus-send", "iconChanged")
+
+
+def test_revert_icon_theme_unset_deletes_key(fake_kconfig: FakeKConfig) -> None:
+    fake_kconfig.store["PrevIconTheme"] = "@unset"
+    fake_kconfig.store["Theme"] = "themey_e13-icons"
+    assert apply_mod.revert() is True
+    assert "Theme" not in fake_kconfig.store
+    assert "PrevIconTheme" not in fake_kconfig.store
+
+
+def test_revert_icon_theme_write_failure_keeps_marker(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["PrevIconTheme"] = "Fluency"
+    fake_kconfig.store["ThemeyPrevDeco"] = "org.kde.breeze|Breeze|@unset"
+    real_run = fake_kconfig.run
+
+    def failing_icons_write(cmd, **kwargs):
+        if Path(cmd[0]).name.startswith("kwriteconfig") and "Icons" in cmd:
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="disk full")
+        return real_run(cmd, **kwargs)
+
+    fake_kconfig.run = failing_icons_write  # type: ignore[method-assign]
+    apply_mod.subprocess.run = failing_icons_write  # type: ignore[assignment]
+    with pytest.raises(apply_mod.ApplyError, match=r"\[Icons\] Theme"):
+        apply_mod.revert()
+    assert fake_kconfig.store["PrevIconTheme"] == "Fluency"
+    assert fake_kconfig.store["theme"] == "Breeze"  # the rest restored

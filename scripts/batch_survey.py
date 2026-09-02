@@ -65,7 +65,8 @@ TOP_NOTE_PATTERNS = 40
 HOME_WATCH = (
     ".local/share/kwin", ".local/share/aurorae", ".local/share/plasma",
     ".local/share/color-schemes", ".local/share/wallpapers",
-    ".local/share/themey", ".icons", ".config/kwinrc", ".config/kdeglobals",
+    ".local/share/themey", ".local/share/icons", ".icons", ".config/kwinrc",
+    ".config/kdeglobals",
     ".config/plasmarc", ".config/kcminputrc", ".cache/plasma_theme",
     ".cache/plasma-svgelements",
 )
@@ -285,6 +286,10 @@ def survey_one(etheme: str, out_dir: str, scale: float, discard: bool) -> dict[s
     stats: dict[str, Any] = {}
     stats["wallpapers"] = len(result.wallpaper_dirs)
     stats["cursors"] = result.cursor_theme_dir is not None
+    stats["icon_theme"] = result.icon_theme_dir is not None
+    stats["icon_rules"] = sum(
+        1 for n in notes if n.startswith("icons: ") and " wears " in n
+    )
     stats["style"] = result.desktop_theme_dir is not None
     if result.desktop_theme_dir is not None:
         stats["style_files"] = sorted(
@@ -476,6 +481,7 @@ def aggregate(records: list[dict[str, Any]]) -> dict[str, Any]:
         "no_style": names(lambda s: not s.get("style")),
         "no_wallpapers": names(lambda s: s.get("wallpapers", 0) == 0),
         "no_cursors": names(lambda s: not s.get("cursors")),
+        "icon_theme": names(lambda s: s.get("icon_theme")),
         "deco_zero_borders": names(lambda s: tj(s).get("present") and tj(s).get("zero_borders")),
         "deco_title_height_odd": [
             {"name": r["name"], "title_height": tj(r["stats"]).get("title_height")}
@@ -560,7 +566,7 @@ def write_summary_md(agg: dict[str, Any], out: Path, compare: dict[str, Any] | N
     for key in (
         "viewitem_absent", "viewitem_invisible", "viewitem_asymmetric",
         "panel_art", "panel_tint", "no_style", "no_wallpapers", "no_cursors",
-        "deco_zero_borders", "deco_zero_parts", "no_qml_package",
+        "icon_theme", "deco_zero_borders", "deco_zero_parts", "no_qml_package",
     ):
         L.append(f"| {key} | {len(o[key])} | {_md_list(o[key])} |")
     for key in (

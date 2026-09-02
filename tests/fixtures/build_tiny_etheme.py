@@ -7,8 +7,11 @@ The archive contains:
   borders/default.cfg   — one __BORDER DEFAULT block with 2 __BORDER_PART children
   imageclasses.cfg      — two __ICLASS blocks (BUTTON_CLOSE, TITLE_BAR_HORIZONTAL)
   textclasses.cfg       — one __TCLASS with __FORGROUND_COLOR (preserved misspelling)
+  windowmatches.cfg     — one USE_ICON_IMAGE_FOR_CLIENT_CLASS rule (bundled
+                          definitions macro) + one hand-written border match
   btn_close.png         — minimal 8×8 transparent PNG
   title.png             — minimal 8×8 transparent PNG
+  icons/tiny_app.png    — 4×4 opaque PNG, the __USE_ICON target
 """
 from __future__ import annotations
 
@@ -81,6 +84,25 @@ __FORGROUND_COLOR 255 255 200
 __END
 """
 
+WINDOWMATCHES_CFG = b"""\
+#include <definitions>
+USE_ICON_IMAGE_FOR_CLIENT_CLASS("TinyApp", "icons/tiny_app.png")
+__MATCH_WINDOW __BGN
+__NAME BORDERLESS_MATCH
+__USE_BORDER BORDERLESS
+__HAS_CLASS TinyBorderless
+__END
+"""
+
+
+def _png_4x4() -> bytes:
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGBA", (4, 4), (200, 40, 40, 255)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
 # Minimal 8×8 transparent PNG, written by Pillow so it decodes cleanly. The
 # earlier hand-rolled byte string carried an empty IDAT that Pillow rejected
 # ("broken data stream"); it went unnoticed only because the lexer of the
@@ -95,6 +117,7 @@ def _png_8x8() -> bytes:
 
 
 PNG_8x8 = _png_8x8()
+PNG_4x4 = _png_4x4()
 
 
 def _add(tar: tarfile.TarFile, name: str, content: bytes) -> None:
@@ -111,6 +134,8 @@ def main() -> None:
         _add(tar, "textclasses.cfg", TEXTCLASSES_CFG)
         _add(tar, "btn_close.png", PNG_8x8)
         _add(tar, "title.png", PNG_8x8)
+        _add(tar, "windowmatches.cfg", WINDOWMATCHES_CFG)
+        _add(tar, "icons/tiny_app.png", PNG_4x4)
     print(f"wrote {OUT} ({OUT.stat().st_size} bytes)")
 
 

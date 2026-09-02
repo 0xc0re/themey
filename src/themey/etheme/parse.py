@@ -129,6 +129,10 @@ def parse_tree(
             # background iclass), in that order.
             "tooltips.cfg",
             "menustyles.cfg",
+            # windowmatches.cfg: __MATCH_WINDOW blocks — the __USE_ICON
+            # rules feed the per-app icon theme (analyze/windowmatches.py);
+            # the bundled definitions expand USE_ICON_IMAGE_FOR_CLIENT_*.
+            "windowmatches.cfg",
         ]
     seen: set[Path] = set()
     defines: _Defines = {}

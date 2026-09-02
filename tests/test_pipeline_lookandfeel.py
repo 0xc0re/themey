@@ -5,6 +5,7 @@ import json
 import shutil
 from pathlib import Path
 
+from themey import paths
 from themey.pipeline import convert
 from themey.slug import cursor_theme_dir, plugin_id
 
@@ -132,3 +133,52 @@ def test_cli_prints_global_theme_line(fake_home, monkeypatch):
     result = CliRunner().invoke(app, [str(FIXTURES / "Aliens.etheme")])
     assert result.exit_code == 0, result.output
     assert f"Global theme: {plugin_id('Aliens')} — apply: themey apply Aliens" in result.output
+
+
+def test_defaults_icons_group_only_when_icon_theme_shipped(
+    fake_home, tmp_path, monkeypatch
+) -> None:
+    """``[kdeglobals][Icons] Theme=`` appears only when a windowmatches rule
+    matched an installed application (the tiny fixture's TinyApp rule)."""
+    import configparser
+
+    from themey.generate import icons
+
+    apps = tmp_path / "applications"
+    apps.mkdir()
+    monkeypatch.setattr(icons, "applications_dirs", lambda: [apps])
+    result = convert(FIXTURES / "tiny.etheme", scale=2, backend="qml")
+    assert result.icon_theme_dir is None
+    cp = configparser.RawConfigParser()
+    cp.optionxform = staticmethod(str)  # type: ignore[assignment]
+    cp.read(result.lnf_dir / "contents" / "defaults")
+    assert not cp.has_section("kdeglobals][Icons")
+
+    (apps / "tinyapp.desktop").write_text(
+        "[Desktop Entry]\nType=Application\nName=Tiny App\nIcon=tinyapp\n"
+        "Exec=tinyapp\nStartupWMClass=TinyApp\n"
+    )
+    result = convert(FIXTURES / "tiny.etheme", scale=2, backend="qml")
+    assert result.icon_theme_dir == paths.icon_themes() / "themey_tiny-icons"
+    assert (result.icon_theme_dir / "48x48" / "apps" / "tinyapp.png").is_file()
+    cp = configparser.RawConfigParser()
+    cp.optionxform = staticmethod(str)  # type: ignore[assignment]
+    cp.read(result.lnf_dir / "contents" / "defaults")
+    assert cp.get("kdeglobals][Icons", "Theme") == "themey_tiny-icons"
+    assert any(n.startswith("icons: ") and "wears tiny_app.png" in n for n in result.notes)
+
+
+def test_output_dir_icon_theme_under_output(fake_home, tmp_path, monkeypatch) -> None:
+    from themey.generate import icons
+
+    apps = tmp_path / "applications"
+    apps.mkdir()
+    (apps / "tinyapp.desktop").write_text(
+        "[Desktop Entry]\nName=Tiny App\nIcon=tinyapp\nExec=tinyapp\nStartupWMClass=TinyApp\n"
+    )
+    monkeypatch.setattr(icons, "applications_dirs", lambda: [apps])
+    out = tmp_path / "out"
+    result = convert(FIXTURES / "tiny.etheme", scale=2, backend="qml", output_dir=out)
+    assert result.icon_theme_dir == out / "themey_tiny-icons"
+    assert (out / "themey_tiny-icons" / "index.theme").is_file()
+    assert not (fake_home / ".local" / "share" / "icons").exists()

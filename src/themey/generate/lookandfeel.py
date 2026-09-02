@@ -9,6 +9,8 @@ Format (byte-verified against an installed Look-and-Feel package):
                                           group per artifact this conversion
                                           actually deployed:
         [kdeglobals][General]  ColorScheme=<.colors stem>
+        [kdeglobals][Icons]    Theme=<icon theme dir name> (only when the
+                                          windowmatches icon theme shipped)
         [kcminputrc][Mouse]    cursorTheme=<XCursor theme dir name>
         [Wallpaper]            Image=<wallpaper package Id, never a path>
         [kwinrc][org.kde.kdecoration2]  library= + theme=
@@ -95,6 +97,7 @@ def build_defaults_sections(
     deco_library: str,
     deco_theme: str,
     desktop_theme_name: str | None = None,
+    icon_theme_name: str | None = None,
 ) -> dict[str, dict[str, str]]:
     """Assemble the ``contents/defaults`` section map.
 
@@ -106,6 +109,8 @@ def build_defaults_sections(
     sections: dict[str, dict[str, str]] = {}
     if color_scheme_stem is not None:
         sections["kdeglobals][General"] = {"ColorScheme": color_scheme_stem}
+    if icon_theme_name is not None:
+        sections["kdeglobals][Icons"] = {"Theme": icon_theme_name}
     if cursor_theme_name is not None:
         sections["kcminputrc][Mouse"] = {"cursorTheme": cursor_theme_name}
     if default_wallpaper_id is not None:
@@ -175,6 +180,7 @@ def write(
     deco_library: str,
     deco_theme: str,
     desktop_theme_name: str | None = None,
+    icon_theme_name: str | None = None,
 ) -> LookAndFeelBundle:
     """Write the Look-and-Feel bundle for *theme* under *out_dir*.
 
@@ -204,6 +210,7 @@ def write(
         deco_library=deco_library,
         deco_theme=deco_theme,
         desktop_theme_name=desktop_theme_name,
+        icon_theme_name=icon_theme_name,
     )
     contents_dir = out_dir / "contents"
     contents_dir.mkdir(parents=True, exist_ok=True)

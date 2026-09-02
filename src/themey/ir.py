@@ -473,6 +473,20 @@ class TooltipSpec:
 
 
 @dataclass(frozen=True)
+class IconMatchSpec:
+    """One usable E16 ``__MATCH_WINDOW`` ``__USE_ICON`` rule
+    (``analyze/windowmatches.py``): *kind* is the criterion — ``class``
+    (WM_CLASS class, ``__HAS_CLASS``), ``name`` (WM_CLASS instance,
+    ``__HAS_NAME``) or ``title`` (``__HAS_TITLE``) — *pattern* its E16
+    ``fnmatch`` glob and *image* the resolved icon file under the
+    archive. Consumed by ``generate/icons.py``."""
+
+    kind: str
+    pattern: str
+    image: Path
+
+
+@dataclass(frozen=True)
 class Theme:
     """Complete analyzed representation of one E16 theme.
 
@@ -512,5 +526,7 @@ class Theme:
     menu_styles: dict[str, MenuStyleSpec] = field(default_factory=dict)
     # __TOOLTIP blocks (tooltips.cfg) keyed by tooltip name.
     tooltips: dict[str, TooltipSpec] = field(default_factory=dict)
+    # __MATCH_WINDOW __USE_ICON rules (windowmatches.cfg), declaration order.
+    icon_matches: tuple[IconMatchSpec, ...] = ()
     notes: list[str] = field(default_factory=list)  # ONLY mutable accumulator
     skipped_borders: tuple[str, ...] = ()
