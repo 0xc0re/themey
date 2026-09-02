@@ -134,6 +134,7 @@ def convert(
     upscale: str = "nearest",
     shade_button: str = "maximize",
     iconbox_frames: str = "on",
+    widget_style: str | None = None,
 ) -> ConvertResult:
     """Convert one .etheme to an installed KWin decoration + preview + report.
 
@@ -164,6 +165,13 @@ def convert(
             ``"on"`` (default — the iconbox button art as per-icon plates)
             or ``"off"`` (E16's own frameless iconbox default, transparent
             sets); ``plasmastyle.ICONBOX_FRAME_MODES``.
+        widget_style: Qt application style for the Global Theme bundle to
+            select — a ``lookandfeel.WIDGET_STYLES`` token
+            (``"windows"``/``"fusion"``/``"breeze"``) — or None (default)
+            to leave the user's application style alone. It names no
+            themey artifact: it rides in the bundle's ``[kdeglobals][KDE]
+            widgetStyle`` group and in the ``X-Themey-WidgetStyle`` stamp
+            ``apply`` writes the user-layer key from.
 
     Returns:
         A :class:`ConvertResult`. ``installed_dir`` is the SVG theme dir
@@ -175,8 +183,8 @@ def convert(
         pointer theme (None when there was nothing to install).
 
     Raises:
-        ValueError: If ``scale``, ``backend``, ``upscale``, ``shade_button``
-            or ``iconbox_frames`` is invalid.
+        ValueError: If ``scale``, ``backend``, ``upscale``, ``shade_button``,
+            ``iconbox_frames`` or ``widget_style`` is invalid.
         UnsafeArchiveError: If the archive fails safe-extract validation.
         InstallError: If the atomic install rename fails.
     """
@@ -212,6 +220,11 @@ def convert(
         raise ValueError(
             f"iconbox_frames must be one of {ICONBOX_FRAME_MODES} "
             f"(got {iconbox_frames!r})"
+        )
+    if widget_style is not None and widget_style not in lookandfeel.WIDGET_STYLES:
+        raise ValueError(
+            f"widget_style must be one of {sorted(lookandfeel.WIDGET_STYLES)} "
+            f"(got {widget_style!r})"
         )
 
     # Theme name comes from the archive filename, never from cfg content.
@@ -367,6 +380,7 @@ def convert(
                 deco_theme=deco_theme,
                 desktop_theme_name=style_id,
                 icon_theme_name=icons_dir.name if icons_dir is not None else None,
+                widget_style=widget_style,
             )
             lnf_dir = bundle.dir
             log.info("wrote Look-and-Feel bundle to %s", lnf_dir)
@@ -509,6 +523,7 @@ def convert(
                     deco_theme=deco_theme,
                     desktop_theme_name=style_id,
                     icon_theme_name=icons_dir.name if icons_dir is not None else None,
+                    widget_style=widget_style,
                 )
                 lnf_dir = install.deploy(
                     pkg_id, stage_lnf_dir, target_root=paths.look_and_feel()

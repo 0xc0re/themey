@@ -16,6 +16,7 @@ import pytest
 from PIL import Image
 
 from themey.generate.lookandfeel import (
+    WIDGET_STYLES,
     LookAndFeelBundle,
     build_defaults_sections,
     deco_defaults,
@@ -386,3 +387,100 @@ def test_metadata_snapshot_no_wallpaper_no_cursor(tmp_path: Path, snapshot) -> N
     out_dir = tmp_path / plugin_id(theme.name)
     write_metadata_json(theme, out_dir)
     assert (out_dir / "metadata.json").read_text() == snapshot
+
+
+# --------------------------------------------------------------------- #
+# --widget-style (WP4)
+# --------------------------------------------------------------------- #
+
+
+def test_widget_styles_map_tokens_to_qt_style_names() -> None:
+    """The CLI's lowercase tokens spell the Qt style names KDE's own
+    Look-and-Feel bundles put in ``[kdeglobals][KDE] widgetStyle``."""
+    assert WIDGET_STYLES == {
+        "windows": "Windows",
+        "fusion": "Fusion",
+        "breeze": "Breeze",
+    }
+
+
+def test_defaults_sections_widget_style_group() -> None:
+    """``[kdeglobals][KDE] widgetStyle`` rides with the other kdeglobals
+    groups, before kcminputrc."""
+    sections = build_defaults_sections(
+        color_scheme_stem="themey_Aliens",
+        cursor_theme_name="themey_Aliens-cursors",
+        default_wallpaper_id=None,
+        deco_library=PLUGINS["legacy"],
+        deco_theme="themey_Aliens",
+        widget_style="windows",
+    )
+    assert list(sections) == [
+        "kdeglobals][General",
+        "kdeglobals][KDE",
+        "kcminputrc][Mouse",
+        "kwinrc][org.kde.kdecoration2",
+    ]
+    assert sections["kdeglobals][KDE"] == {"widgetStyle": "Windows"}
+
+
+def test_defaults_sections_no_widget_style_group_by_default() -> None:
+    """Default None = the application style is left alone, so no key at
+    all (plasma-apply-lookandfeel applies the whole file)."""
+    sections = build_defaults_sections(
+        color_scheme_stem="themey_Aliens",
+        cursor_theme_name=None,
+        default_wallpaper_id=None,
+        deco_library=PLUGINS["legacy"],
+        deco_theme="themey_Aliens",
+    )
+    assert "kdeglobals][KDE" not in sections
+
+
+def test_defaults_sections_widget_style_unknown_token_raises() -> None:
+    with pytest.raises(ValueError, match="widget_style"):
+        build_defaults_sections(
+            color_scheme_stem=None,
+            cursor_theme_name=None,
+            default_wallpaper_id=None,
+            deco_library=PLUGINS["legacy"],
+            deco_theme="themey_X",
+            widget_style="kvantum",
+        )
+
+
+def test_metadata_carries_widget_style_stamp(tmp_path: Path) -> None:
+    """``X-Themey-WidgetStyle`` is the Qt style name apply reads back."""
+    theme = _make_theme()
+    out_dir = tmp_path / plugin_id(theme.name)
+    write_metadata_json(theme, out_dir, widget_style="fusion")
+    meta = json.loads((out_dir / "metadata.json").read_text())
+    assert meta["X-Themey-WidgetStyle"] == "Fusion"
+
+
+def test_metadata_has_no_widget_style_stamp_by_default(tmp_path: Path) -> None:
+    theme = _make_theme()
+    out_dir = tmp_path / plugin_id(theme.name)
+    write_metadata_json(theme, out_dir)
+    meta = json.loads((out_dir / "metadata.json").read_text())
+    assert "X-Themey-WidgetStyle" not in meta
+
+
+def test_write_bundle_threads_widget_style_into_both_files(tmp_path: Path) -> None:
+    theme = _make_theme()
+    out_dir = tmp_path / plugin_id(theme.name)
+    write(
+        theme,
+        out_dir,
+        color_scheme_stem=None,
+        cursor_theme_name=None,
+        default_wallpaper_id=None,
+        default_wallpaper_image=None,
+        deco_library=PLUGINS["legacy"],
+        deco_theme="themey_Aliens",
+        widget_style="breeze",
+    )
+    meta = json.loads((out_dir / "metadata.json").read_text())
+    assert meta["X-Themey-WidgetStyle"] == "Breeze"
+    defaults = (out_dir / "contents" / "defaults").read_text()
+    assert "[kdeglobals][KDE]\nwidgetStyle=Breeze\n" in defaults

@@ -4,13 +4,19 @@ Format (byte-verified against an installed Look-and-Feel package):
 
     <lnf>/metadata.json                  KPackageStructure "Plasma/LookAndFeel",
                                           KPlugin.Id == the directory basename,
-                                          X-Themey-Scale == theme.scale
+                                          X-Themey-Scale == theme.scale,
+                                          X-Themey-WidgetStyle == the chosen Qt
+                                          application style (only with
+                                          ``--widget-style``)
     <lnf>/contents/defaults               double-bracket INI sections, one
                                           group per artifact this conversion
                                           actually deployed:
         [kdeglobals][General]  ColorScheme=<.colors stem>
         [kdeglobals][Icons]    Theme=<icon theme dir name> (only when the
                                           windowmatches icon theme shipped)
+        [kdeglobals][KDE]      widgetStyle=<Qt style name> (only with
+                                          ``--widget-style``; the key KDE's
+                                          own Look-and-Feel bundles use)
         [kcminputrc][Mouse]    cursorTheme=<XCursor theme dir name>
         [Wallpaper]            Image=<wallpaper package Id, never a path>
         [kwinrc][org.kde.kdecoration2]  library= + theme=
@@ -66,6 +72,37 @@ log = logging.getLogger(__name__)
 #: "Keep it simple" per the brief — this is a thumbnail, not art.
 PREVIEW_MAX_DIM = 512
 
+#: ``--widget-style`` token -> the Qt application-style name, spelled the
+#: way KDE's own Look-and-Feel bundles spell it in ``[kdeglobals][KDE]
+#: widgetStyle``. The two built-in Qt styles plus Breeze are the ones
+#: present on a stock Plasma install (Kvantum is a separate package and
+#: needs its own theme, which themey does not generate); E16's flat
+#: 3D-bevelled widgets read closest under ``Windows``. This map is the
+#: single vocabulary: ``cli.WidgetStyle`` mirrors its keys and
+#: ``apply.apply_full`` resolves through it.
+WIDGET_STYLES: dict[str, str] = {
+    "windows": "Windows",
+    "fusion": "Fusion",
+    "breeze": "Breeze",
+}
+
+
+def _qt_widget_style(widget_style: str | None) -> str | None:
+    """Resolve a ``--widget-style`` token to its Qt style name.
+
+    None (the default) means "leave the application style alone" — no
+    stamp, no ``defaults`` key, and nothing for ``apply`` to write.
+    """
+    if widget_style is None:
+        return None
+    try:
+        return WIDGET_STYLES[widget_style]
+    except KeyError:
+        raise ValueError(
+            f"widget_style must be one of {sorted(WIDGET_STYLES)} "
+            f"(got {widget_style!r})"
+        ) from None
+
 
 @dataclass(frozen=True)
 class LookAndFeelBundle:
@@ -98,19 +135,27 @@ def build_defaults_sections(
     deco_theme: str,
     desktop_theme_name: str | None = None,
     icon_theme_name: str | None = None,
+    widget_style: str | None = None,
 ) -> dict[str, dict[str, str]]:
     """Assemble the ``contents/defaults`` section map.
 
     Each conditional group is included only when its artifact argument is
     not None; the deco group is unconditional (some backend always
     installs). Order matches the byte-verified format census, with the
-    Plasma Style group last as in real third-party bundles.
+    Plasma Style group last as in real third-party bundles and the
+    ``--widget-style`` group beside the other ``kdeglobals`` ones.
+
+    Raises:
+        ValueError: If ``widget_style`` is not a :data:`WIDGET_STYLES` key.
     """
+    qt_style = _qt_widget_style(widget_style)
     sections: dict[str, dict[str, str]] = {}
     if color_scheme_stem is not None:
         sections["kdeglobals][General"] = {"ColorScheme": color_scheme_stem}
     if icon_theme_name is not None:
         sections["kdeglobals][Icons"] = {"Theme": icon_theme_name}
+    if qt_style is not None:
+        sections["kdeglobals][KDE"] = {"widgetStyle": qt_style}
     if cursor_theme_name is not None:
         sections["kcminputrc][Mouse"] = {"cursorTheme": cursor_theme_name}
     if default_wallpaper_id is not None:
@@ -124,8 +169,15 @@ def build_defaults_sections(
     return sections
 
 
-def write_metadata_json(theme: Theme, lnf_dir: Path) -> Path:
-    """Write ``metadata.json``; ``lnf_dir``'s basename MUST be its own Id."""
+def write_metadata_json(
+    theme: Theme, lnf_dir: Path, *, widget_style: str | None = None,
+) -> Path:
+    """Write ``metadata.json``; ``lnf_dir``'s basename MUST be its own Id.
+
+    Raises:
+        ValueError: If ``widget_style`` is not a :data:`WIDGET_STYLES` key.
+    """
+    qt_style = _qt_widget_style(widget_style)
     meta = {
         "KPackageStructure": "Plasma/LookAndFeel",
         # themey's own stamp: the conversion scale, read back by
@@ -147,6 +199,14 @@ def write_metadata_json(theme: Theme, lnf_dir: Path) -> Path:
             "Version": "1.0",
         },
     }
+    if qt_style is not None:
+        # themey's second stamp: the Qt application style this conversion
+        # chose, read back by ``apply.py`` (``_read_widget_style``), which
+        # must write the kdeglobals key in the USER layer itself — the
+        # bundle's own [kdeglobals][KDE] group lands in kdedefaults and an
+        # explicit user-layer widgetStyle would shadow it. Absent when
+        # --widget-style was not given: the style is then left alone.
+        meta["X-Themey-WidgetStyle"] = qt_style
     lnf_dir.mkdir(parents=True, exist_ok=True)
     out = lnf_dir / "metadata.json"
     out.write_text(json.dumps(meta, indent=4, sort_keys=True) + "\n")
@@ -181,6 +241,7 @@ def write(
     deco_theme: str,
     desktop_theme_name: str | None = None,
     icon_theme_name: str | None = None,
+    widget_style: str | None = None,
 ) -> LookAndFeelBundle:
     """Write the Look-and-Feel bundle for *theme* under *out_dir*.
 
@@ -200,9 +261,19 @@ def write(
     not to bother). A preview source that fails to open/convert is
     non-fatal: it appends a ``bundle:`` note to ``theme.notes`` and the
     bundle ships without ``contents/previews/``.
+
+    ``widget_style`` is a :data:`WIDGET_STYLES` token (``themey convert
+    --widget-style``) or None to leave the Qt application style alone. It
+    is the one argument here that names no themey-installed artifact — it
+    selects a style Plasma already ships — so it lands in BOTH files: the
+    ``[kdeglobals][KDE]`` defaults group and the ``X-Themey-WidgetStyle``
+    stamp ``apply`` reads.
+
+    Raises:
+        ValueError: If ``widget_style`` is not a :data:`WIDGET_STYLES` key.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    write_metadata_json(theme, out_dir)
+    write_metadata_json(theme, out_dir, widget_style=widget_style)
     sections = build_defaults_sections(
         color_scheme_stem=color_scheme_stem,
         cursor_theme_name=cursor_theme_name,
@@ -211,6 +282,7 @@ def write(
         deco_theme=deco_theme,
         desktop_theme_name=desktop_theme_name,
         icon_theme_name=icon_theme_name,
+        widget_style=widget_style,
     )
     contents_dir = out_dir / "contents"
     contents_dir.mkdir(parents=True, exist_ok=True)
