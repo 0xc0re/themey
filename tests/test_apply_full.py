@@ -2210,3 +2210,173 @@ def test_applet_precheck_only_requires_enabled_applets(
     # Pager on: it is.
     with pytest.raises(apply_mod.ApplyError, match=plasmoids.PAGER_ID):
         apply_mod.apply_full("e13")
+
+
+# --- WP4: application (widget) style --------------------------------------
+
+
+def _install_fake_lnf_with_widget_style(
+    name: str = "e13", widget_style: str = "Windows",
+) -> Path:
+    """A bundle stamped with ``X-Themey-WidgetStyle`` (what
+    ``themey convert --widget-style`` writes)."""
+    lnf = _install_fake_lnf(name)
+    (lnf / "metadata.json").write_text(
+        json.dumps({"X-Themey-WidgetStyle": widget_style})
+    )
+    return lnf
+
+
+def test_read_widget_style_reads_stamp(fake_home: Path) -> None:
+    lnf = paths.look_and_feel() / "themey_e13"
+    lnf.mkdir(parents=True)
+    (lnf / "metadata.json").write_text(json.dumps({"X-Themey-WidgetStyle": "Fusion"}))
+    assert apply_mod._read_widget_style(lnf) == "Fusion"
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["{}", '{"X-Themey-WidgetStyle": ""}', '{"X-Themey-WidgetStyle": 2}',
+     "not json", None],
+)
+def test_read_widget_style_absent_or_bad_is_none(fake_home: Path, content) -> None:
+    """A bundle converted without --widget-style (or with a mangled stamp)
+    leaves the application style alone, never errors."""
+    lnf = paths.look_and_feel() / "themey_e13"
+    lnf.mkdir(parents=True)
+    if content is not None:
+        (lnf / "metadata.json").write_text(content)
+    assert apply_mod._read_widget_style(lnf) is None
+
+
+def test_apply_full_writes_widget_style_records_prev_and_broadcasts(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf_with_widget_style("e13", "Windows")
+    fake_kconfig.store["widgetStyle"] = "Breeze"
+    apply_mod.apply_full("e13")
+    assert fake_kconfig.store["PrevWidgetStyle"] == "Breeze"
+    assert fake_kconfig.store["widgetStyle"] == "Windows"
+    i_write = fake_kconfig.index_of("--group", "KDE", "widgetStyle", "Windows")
+    i_dbus = fake_kconfig.index_of("dbus-send", "KGlobalSettings.notifyChange")
+    i_lnf = fake_kconfig.index_of("plasma-apply-lookandfeel")
+    assert i_lnf < i_write < i_dbus
+    cmd = fake_kconfig.calls[i_dbus]
+    assert cmd[1:] == [
+        "--session", "--type=signal", "/KGlobalSettings",
+        "org.kde.KGlobalSettings.notifyChange", "int32:2", "int32:0",
+    ]
+    # Record-once: a second apply never clobbers the original baseline.
+    fake_kconfig.iconbox_exists_reply = "exists"
+    apply_mod.apply_full("e13")
+    assert fake_kconfig.store["PrevWidgetStyle"] == "Breeze"
+
+
+def test_apply_full_widget_style_unset_baseline(fake_kconfig: FakeKConfig) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf_with_widget_style("e13")
+    apply_mod.apply_full("e13")
+    assert fake_kconfig.store["PrevWidgetStyle"] == "@unset"
+
+
+def test_apply_full_no_widget_style_stamp_leaves_style_alone(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["widgetStyle"] = "Breeze"
+    apply_mod.apply_full("e13")
+    assert "PrevWidgetStyle" not in fake_kconfig.store
+    assert fake_kconfig.store["widgetStyle"] == "Breeze"
+    with pytest.raises(AssertionError):
+        fake_kconfig.index_of("KGlobalSettings.notifyChange")
+
+
+def test_apply_full_widget_style_argument_overrides_the_stamp(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """``themey apply NAME --widget-style fusion`` beats the bundle's own
+    stamp for this one run (the stamp on disk is untouched)."""
+    _install_fake_deco("e13")
+    _install_fake_lnf_with_widget_style("e13", "Windows")
+    apply_mod.apply_full("e13", widget_style="fusion")
+    assert fake_kconfig.store["widgetStyle"] == "Fusion"
+
+
+def test_apply_full_widget_style_argument_without_a_stamp(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    apply_mod.apply_full("e13", widget_style="windows")
+    assert fake_kconfig.store["widgetStyle"] == "Windows"
+
+
+def test_apply_full_unknown_widget_style_raises_before_side_effects(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    with pytest.raises(apply_mod.ApplyError, match="kvantum"):
+        apply_mod.apply_full("e13", widget_style="kvantum")
+    assert fake_kconfig.calls == []
+
+
+def test_apply_full_widget_style_broadcast_failure_is_warning(
+    fake_kconfig: FakeKConfig, caplog,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf_with_widget_style("e13")
+    fake_kconfig.fail_on["dbus-send"] = "no bus"
+    with caplog.at_level("WARNING"):
+        apply_mod.apply_full("e13")  # no raise
+    assert fake_kconfig.store["widgetStyle"] == "Windows"
+    assert any("relogin" in r.message for r in caplog.records)
+
+
+def test_revert_restores_widget_style_and_clears_marker(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["PrevWidgetStyle"] = "Breeze"
+    fake_kconfig.store["widgetStyle"] = "Windows"
+    assert apply_mod.revert() is True
+    assert fake_kconfig.store["widgetStyle"] == "Breeze"
+    assert "PrevWidgetStyle" not in fake_kconfig.store
+    fake_kconfig.index_of("dbus-send", "KGlobalSettings.notifyChange")
+
+
+def test_revert_widget_style_unset_deletes_key(fake_kconfig: FakeKConfig) -> None:
+    fake_kconfig.store["PrevWidgetStyle"] = "@unset"
+    fake_kconfig.store["widgetStyle"] = "Windows"
+    assert apply_mod.revert() is True
+    assert "widgetStyle" not in fake_kconfig.store
+    assert "PrevWidgetStyle" not in fake_kconfig.store
+
+
+def test_revert_with_only_widget_style_marker_is_a_revert(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["PrevWidgetStyle"] = "Breeze"
+    assert apply_mod.revert() is True
+
+
+def test_revert_widget_style_write_failure_keeps_marker(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["PrevWidgetStyle"] = "Breeze"
+    fake_kconfig.store["ThemeyPrevDeco"] = "org.kde.breeze|Breeze|@unset"
+    real_run = fake_kconfig.run
+
+    def failing_style_write(cmd, **kwargs):
+        if Path(cmd[0]).name.startswith("kwriteconfig") and "widgetStyle" in cmd:
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="disk full")
+        return real_run(cmd, **kwargs)
+
+    fake_kconfig.run = failing_style_write  # type: ignore[method-assign]
+    apply_mod.subprocess.run = failing_style_write  # type: ignore[assignment]
+    with pytest.raises(apply_mod.ApplyError, match="widgetStyle"):
+        apply_mod.revert()
+    # ... but the deco half still went back, and the marker survives.
+    assert fake_kconfig.store["PrevWidgetStyle"] == "Breeze"
+    assert "ThemeyPrevDeco" not in fake_kconfig.store

@@ -26,7 +26,13 @@ Two applies live here:
   drew the previous theme's 6 px rule over StarEnli's 3 px art) — ends
   a tiled apply OR a Plasma Style apply with an automatic plasmashell
   restart (:func:`_restart_plasmashell`, opt-out ``restart_shell=False``
-  / CLI ``--no-restart-shell``).
+  / CLI ``--no-restart-shell``). Between the colour/icon writes and the
+  Plasma Style it also writes the Qt APPLICATION style — kdeglobals
+  ``[KDE] widgetStyle``, from the bundle's ``X-Themey-WidgetStyle`` stamp
+  (``themey convert --widget-style``) or the ``widget_style`` argument
+  that overrides it — plus a ``KGlobalSettings`` StyleChanged broadcast
+  (:func:`_notify_style_changed`); no stamp and no argument leaves the
+  application style entirely alone.
 
 Both applies share the decoration-writing logic (``_write_deco``) and the
 button-order snapshot/restore machinery. Button ORDER is global kwinrc
@@ -46,8 +52,10 @@ theme (kdeglobals ``[KDE] LookAndFeelPackage``, marker
 ``[Themey] PrevLookAndFeelPackage``), the pre-themey deco triple
 (kwinrc ``[org.kde.kdecoration2] library|theme|BorderSize``, marker
 ``ThemeyPrevDeco``) and — when the matching artifacts are installed — the
-user-layer color scheme (``PrevColorScheme``) and Plasma Style (plasmarc
-``[Theme] name``, marker ``PrevPlasmaTheme``) — all ``@unset``-sentineled,
+user-layer color scheme (``PrevColorScheme``), Plasma Style (plasmarc
+``[Theme] name``, marker ``PrevPlasmaTheme``) and, when a Qt application
+style is going to be written at all, the user-layer kdeglobals ``[KDE]
+widgetStyle`` (``PrevWidgetStyle``) — all ``@unset``-sentineled,
 all written only once,
 so a second ``themey apply`` never clobbers the ORIGINAL baseline with an
 already-themey'd one. :func:`revert` (CLI ``themey apply --revert``) reads
@@ -135,6 +143,7 @@ from pathlib import Path
 
 from . import paths
 from .generate import plasmoids
+from .generate.lookandfeel import WIDGET_STYLES
 from .generate.qmldeco.resolver import scale_px
 from .install import clear_style_cache
 from .kwin import BORDER_SIZES, PLUGINS, recommended_border_size
@@ -154,6 +163,9 @@ _COLORSCHEME_KEY = "ColorScheme"
 #: kdeglobals group/key of the active icon theme.
 _ICONS_GROUP = "Icons"
 _ICON_THEME_KEY = "Theme"
+#: kdeglobals key of the active Qt application (widget) style, in the
+#: ``[KDE]`` group — the same key KDE's own Look-and-Feel bundles set.
+_WIDGET_STYLE_KEY = "widgetStyle"
 #: themey's own kdeglobals group for its one marker key.
 _THEMEY_GROUP = "Themey"
 #: Vanilla plasmarc location of the active Plasma Style (desktop theme).
@@ -322,6 +334,7 @@ _PREV_DECO_KEY = "ThemeyPrevDeco"
 _PREV_COLORS_KEY = "PrevColorScheme"
 _PREV_PLASMA_KEY = "PrevPlasmaTheme"
 _PREV_ICONS_KEY = "PrevIconTheme"
+_PREV_WIDGET_STYLE_KEY = "PrevWidgetStyle"
 _PREV_PANELS_KEY = "PrevPanelLengthModes"
 _PREV_FLOATING_KEY = "PrevPanelFloating"
 
@@ -530,6 +543,56 @@ def _notify_icons_changed() -> None:
         log.warning(
             "could not broadcast the icon change (%s) — running apps show the "
             "new icons after a relogin", exc,
+        )
+
+
+def _record_prev_widget_style(kw: str, kr: str) -> None:
+    """Snapshot the user-layer kdeglobals ``[KDE] widgetStyle`` once,
+    before the first ``apply_full`` that has a style to write overwrites
+    it — the application-style half of the revert baseline.
+
+    Recorded only when a style will actually be written (the bundle was
+    converted with ``--widget-style``, or one was given on the command
+    line), exactly like :func:`_record_prev_colorscheme`: an apply that
+    leaves the application style alone must leave no marker for
+    :func:`revert` to act on.
+
+    Same user-layer shadowing as the color scheme and icon theme: the
+    bundle's own ``[kdeglobals][KDE]`` group lands in
+    ``~/.config/kdedefaults/``, which an explicit user-layer
+    ``widgetStyle`` would shadow — so ``apply_full`` writes the user layer
+    itself and must record what it is about to overwrite."""
+    if _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_WIDGET_STYLE_KEY) is not None:
+        return
+    prev = _cfg_read(kr, _KDEGLOBALS, _KDE_GROUP, _WIDGET_STYLE_KEY) or _UNSET
+    _cfg_write(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_WIDGET_STYLE_KEY, prev)
+
+
+def _notify_style_changed() -> None:
+    """Broadcast KGlobalSettings' ``StyleChanged`` (change type 2) so
+    running Qt apps re-read ``widgetStyle`` instead of waiting for a
+    relogin. A failure is a warning, not a failed apply: the style is
+    written, only the live refresh is missing — same contract as
+    :func:`_notify_icons_changed`."""
+    dbus_send = shutil.which("dbus-send")
+    if dbus_send is None:
+        log.warning(
+            "dbus-send not found — running apps show the new application "
+            "style after a relogin"
+        )
+        return
+    try:
+        _run_checked(
+            [
+                dbus_send, "--session", "--type=signal", "/KGlobalSettings",
+                "org.kde.KGlobalSettings.notifyChange", "int32:2", "int32:0",
+            ],
+            "KGlobalSettings StyleChanged broadcast",
+        )
+    except ApplyError as exc:
+        log.warning(
+            "could not broadcast the application-style change (%s) — running "
+            "apps show the new style after a relogin", exc,
         )
 
 
@@ -1658,6 +1721,21 @@ def _read_theme_scale(lnf_dir: Path) -> float:
     return float(value)
 
 
+def _read_widget_style(lnf_dir: Path) -> str | None:
+    """The ``X-Themey-WidgetStyle`` stamp from an installed bundle's
+    ``metadata.json`` (``generate/lookandfeel.py``) — the Qt application
+    style ``themey convert --widget-style`` chose — or None when the
+    bundle carries none (the default: leave the user's style alone), the
+    file is unreadable, or the stamp is not a non-empty string."""
+    meta = lnf_dir / "metadata.json"
+    try:
+        data = json.loads(meta.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    value = data.get("X-Themey-WidgetStyle") if isinstance(data, dict) else None
+    return value if isinstance(value, str) and value else None
+
+
 def _read_tasks_hover(style_dir: Path) -> bool:
     """``X-Themey-TasksHover`` from an installed Plasma Style's
     ``metadata.json`` (``generate/plasmastyle._write_metadata``): whether
@@ -1720,9 +1798,15 @@ def apply_full(
     keep_buttons: bool = False,
     restart_shell: bool = True,
     furniture: FurnitureOptions = DEFAULT_FURNITURE,
+    widget_style: str | None = None,
 ) -> None:
     """Apply the whole installed Look-and-Feel bundle for *name* (the CLI
     default), always via the QML deco backend.
+
+    *widget_style* is a ``lookandfeel.WIDGET_STYLES`` token overriding the
+    bundle's own ``X-Themey-WidgetStyle`` stamp for this one run (CLI
+    ``--widget-style``); None (the default) uses the stamp, and a bundle
+    without one leaves the Qt application style untouched.
 
     *furniture* (:class:`FurnitureOptions`) selects and sizes the E16
     panels: any of the three can be left out (an already-created one is
@@ -1739,6 +1823,10 @@ def apply_full(
     ``plasma-apply-colorscheme themey_<slug>`` when the scheme is installed
     (REQUIRED: the LnF apply does not touch an explicit user-layer
     ``[General] ColorScheme`` — see :func:`_record_prev_colorscheme`) →
+    the per-app icon theme and then the Qt application style, both written
+    straight into user-layer kdeglobals for the same reason and each
+    followed by its D-Bus broadcast (:func:`_notify_icons_changed`,
+    :func:`_notify_style_changed`) →
     when the Plasma Style package is installed, clear its Version-keyed SVG
     cache (:func:`themey.install.clear_style_cache`) then ``plasma-apply-desktoptheme
     themey_<slug>`` (explicit for the same user-layer-shadowing reason —
@@ -1790,6 +1878,11 @@ def apply_full(
     # --border-size shouldn't leave those half-done.
     if border_size is not None and border_size not in BORDER_SIZES:
         raise ApplyError(f"unknown border size {border_size!r}; expected one of {BORDER_SIZES}")
+    if widget_style is not None and widget_style not in WIDGET_STYLES:
+        raise ApplyError(
+            f"unknown widget style {widget_style!r}; expected one of "
+            f"{sorted(WIDGET_STYLES)}"
+        )
     kw = _which("kwriteconfig6", "kwriteconfig5")
     kr = _which("kreadconfig6", "kreadconfig5")
 
@@ -1836,6 +1929,12 @@ def apply_full(
     has_style = (style_dir / "metadata.json").is_file()
     theme_scale = _read_theme_scale(lnf_dir)
     tasks_hover = _read_tasks_hover(style_dir) if has_style else True
+    # The command line beats the bundle's stamp; neither = leave the
+    # application style alone (no baseline recorded, nothing written).
+    qt_widget_style = (
+        WIDGET_STYLES[widget_style] if widget_style is not None
+        else _read_widget_style(lnf_dir)
+    )
     icon_theme = _read_default_icon_theme(lnf_dir)
     if icon_theme is not None and not (
         paths.icon_themes() / icon_theme / "index.theme"
@@ -1854,6 +1953,8 @@ def apply_full(
         _record_prev_plasmatheme(kw, kr)
     if icon_theme is not None:
         _record_prev_icontheme(kw, kr)
+    if qt_widget_style is not None:
+        _record_prev_widget_style(kw, kr)
 
     plasma_apply_lnf = _which("plasma-apply-lookandfeel")
     _run_checked([plasma_apply_lnf, "-a", pkg_id], f"plasma-apply-lookandfeel -a {pkg_id}")
@@ -1875,6 +1976,15 @@ def apply_full(
         # KIconLoader broadcast so running apps pick the icons up.
         _cfg_write(kw, _KDEGLOBALS, _ICONS_GROUP, _ICON_THEME_KEY, icon_theme)
         _notify_icons_changed()
+
+    if qt_widget_style is not None:
+        # Third kdeglobals key with the same user-layer shadowing: the
+        # bundle's [kdeglobals][KDE] group lands in kdedefaults, so an
+        # explicit user-layer widgetStyle would keep winning. Written
+        # here, beside the colours and icons, then broadcast so running
+        # apps restyle without a relogin.
+        _cfg_write(kw, _KDEGLOBALS, _KDE_GROUP, _WIDGET_STYLE_KEY, qt_widget_style)
+        _notify_style_changed()
 
     if has_style:
         # Same user-layer shadowing as the color scheme (the reference
@@ -1996,8 +2106,10 @@ def revert() -> bool:
 
     Reads the markers :func:`_record_prev_lookandfeel`/
     :func:`_record_prev_deco`/:func:`_record_prev_colorscheme`/
-    :func:`_record_prev_plasmatheme` left behind
-    (the color scheme and Plasma Style restores mirror the Look-and-Feel
+    :func:`_record_prev_plasmatheme`/:func:`_record_prev_widget_style`
+    left behind
+    (the color scheme, application style and Plasma Style restores mirror
+    the Look-and-Feel
     one: ``@unset`` → delete the user-layer key; a failure keeps the
     marker so a later revert retries it), reapplies the recorded
     Look-and-Feel package (no special-casing here — a real user's baseline
@@ -2038,6 +2150,7 @@ def revert() -> bool:
     prev_colors = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_COLORS_KEY)
     prev_plasma = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PLASMA_KEY)
     prev_icons = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_ICONS_KEY)
+    prev_widget = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_WIDGET_STYLE_KEY)
     prev_panels = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PANELS_KEY)
     prev_floating = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_FLOATING_KEY)
     prev_furniture = {
@@ -2052,6 +2165,7 @@ def revert() -> bool:
         and prev_colors is None
         and prev_plasma is None
         and prev_icons is None
+        and prev_widget is None
         and prev_panels is None
         and prev_floating is None
         and prev_rows is None
@@ -2137,6 +2251,29 @@ def revert() -> bool:
                 "could not restore the previous icon theme %r (%s) — keeping "
                 "the marker so a later `themey apply --revert` can retry it",
                 prev_icons, exc,
+            )
+
+    widget_error: ApplyError | None = None
+    if prev_widget is not None:
+        try:
+            if prev_widget == _UNSET:
+                # No explicit user-layer application style before themey:
+                # delete the key we wrote so the restored Look-and-Feel's
+                # kdedefaults layer takes over again.
+                _cfg_delete(kw, _KDEGLOBALS, _KDE_GROUP, _WIDGET_STYLE_KEY)
+            else:
+                _cfg_write(
+                    kw, _KDEGLOBALS, _KDE_GROUP, _WIDGET_STYLE_KEY, prev_widget
+                )
+            _notify_style_changed()
+            _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_WIDGET_STYLE_KEY)
+        except ApplyError as exc:
+            widget_error = exc
+            log.warning(
+                "could not restore the previous application style %r (%s) — "
+                "keeping the marker so a later `themey apply --revert` can "
+                "retry it",
+                prev_widget, exc,
             )
 
     plasma_error: ApplyError | None = None
@@ -2233,6 +2370,7 @@ def revert() -> bool:
         lnf_error,
         colors_error,
         icons_error,
+        widget_error,
         plasma_error,
         furniture_error,
         top_error,
