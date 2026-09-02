@@ -110,7 +110,9 @@ revert. Both also default to plasmashell's WindowsGoBelow visibility
 pager rather than shrinking every window for it): the scripting engine
 has no string for that mode, so the creation/re-assert scripts leave
 ``hiding`` alone and :func:`_write_furniture_visibility` writes
-``plasmashellrc [PlasmaViews][Panel <id>] panelVisibility = 3`` AFTER
+``plasmashellrc [PlasmaViews][Panel <id>] panelVisibility`` — 3
+(WindowsGoBelow) for those two, 0 (NormalPanel) for the dragbar, which
+keeps its strut — for every live furniture panel AFTER
 every script that touches a panel's ``hiding`` — the furniture ones and
 the dragbar-opt-out unparking alike, since plasmashell flushes a scripted
 ``hiding`` lazily and would rewrite the file over an earlier write. That mode is only read at
@@ -1837,7 +1839,9 @@ def apply_full(
     when the Plasma Style package is installed, clear its Version-keyed SVG
     cache (:func:`themey.install.clear_style_cache`) then ``plasma-apply-desktoptheme
     themey_<slug>`` (explicit for the same user-layer-shadowing reason —
-    see :func:`_record_prev_plasmatheme`) → the
+    see :func:`_record_prev_plasmatheme`) → flush KWin's per-name Aurorae
+    QML component cache (:func:`_flush_aurorae_qml_cache`, after the LnF
+    apply may have re-cached a stale copy through kdedefaults) → the
     same decoration write :func:`apply` uses (REQUIRED even though the LnF
     apply already wrote deco defaults: those land in the
     ``~/.config/kdedefaults/`` layer, and only an explicit user-layer write
