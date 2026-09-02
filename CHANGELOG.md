@@ -41,6 +41,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   comparing emitted SVGs with the rasters blanked. Style art repeats across
   prefixed sets, so `write()` memoizes the expensive modes: e13 goes 71 → 53
   waifu2x launches (57.9 → 39.8 s).
+- **Wallpapers are upscaled too under `--upscale waifu2x`.** E16
+  wallpapers are 512–1024 px and desktops are not, so Plasma has been
+  upsampling them; doubling first means it downsamples instead. Verified
+  against LANCZOS-straight-to-1920x1080 on five corpus wallpapers from
+  512x400 to 1280x1024 — waifu2x won every one, most visibly on text and
+  fine mechanical detail. Only below `WALLPAPER_UPSCALE_MAX_WIDTH`
+  (1920), only under `waifu2x` (hqx on a photograph is the wrong tool),
+  and a scaler failure ships the original with a `wallpaper:` note rather
+  than failing the conversion.
 
 ### Fixed
 

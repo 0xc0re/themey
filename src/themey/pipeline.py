@@ -243,13 +243,14 @@ def convert(
         log.debug("extracted to %s", raw.asset_root)
         ast_nodes = parse_tree(raw.asset_root)
         log.debug("parsed %d top-level AST nodes", len(ast_nodes))
-        # ONE decision point for the whole run: waifu2x is an optional
-        # external binary, so resolve it HERE — before the Theme exists —
-        # and hand the EFFECTIVE mode to every consumer, the Theme itself
-        # included. The scaler, the shipped art and the report line can
-        # then never disagree. The decision needs no Theme; only the note
-        # does, and `notes` is the one mutable field, so it is appended
-        # immediately after construction.
+        # ONE decision point for the whole run: waifu2x is the one mode
+        # that can be unavailable at run time, so resolve it HERE — before
+        # the Theme exists — and hand the EFFECTIVE mode to every
+        # consumer, the Theme itself included (ir.Theme.upscale reaches
+        # plasmastyle's builders and wallpaper.write_package). The scaler,
+        # the shipped art and the report line can then never disagree. The
+        # decision needs no Theme; only the note does, and `notes` is the
+        # one mutable field, so it is appended immediately after.
         effective_upscale = upscale
         fallback_reason: str | None = None
         if upscale == "waifu2x":

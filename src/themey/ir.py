@@ -520,9 +520,12 @@ class Theme:
     # token. It belongs beside `scale` (same kind of thing: a render
     # setting, not parsed E16 data) and only sits down here because the
     # dataclass puts defaulted fields last. It rides on Theme rather than
-    # being a parameter because ``generate/plasmastyle.py``'s builders are a
-    # fixed ``Callable[[Theme], Element | None]``, so a parameter would have
-    # to be threaded through ~35 call sites to arrive. ALWAYS the EFFECTIVE
+    # being a parameter because the generators that need it are reached
+    # through chains that already carry Theme and nothing else:
+    # ``generate/plasmastyle.py``'s builders are a fixed
+    # ``Callable[[Theme], Element | None]`` (a parameter would have to be
+    # threaded through ~35 call sites to arrive), and
+    # ``wallpaper.write_package`` already takes the Theme. ALWAYS the EFFECTIVE
     # mode: ``pipeline.convert`` resolves waifu2x's availability before
     # building the Theme, so nothing downstream can select a scaler that
     # cannot run.
