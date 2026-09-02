@@ -148,6 +148,33 @@ def _install_fake_wallpaper(
     return wp
 
 
+# --- X-Themey-Scale stamp ------------------------------------------------
+
+
+def test_read_theme_scale_reads_stamp(fake_home: Path) -> None:
+    lnf = paths.look_and_feel() / "themey_e13"
+    lnf.mkdir(parents=True)
+    (lnf / "metadata.json").write_text(json.dumps({"X-Themey-Scale": 1.5}))
+    assert apply_mod._read_theme_scale(lnf) == 1.5
+    (lnf / "metadata.json").write_text(json.dumps({"X-Themey-Scale": 3}))
+    assert apply_mod._read_theme_scale(lnf) == 3.0
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["{}", '{"X-Themey-Scale": "2"}', '{"X-Themey-Scale": 0}',
+     '{"X-Themey-Scale": true}', "not json", None],
+)
+def test_read_theme_scale_defaults_to_two(fake_home: Path, content) -> None:
+    """Bundles converted before the stamp existed (or with a bad one)
+    read as the pipeline's default scale, never as an error."""
+    lnf = paths.look_and_feel() / "themey_e13"
+    lnf.mkdir(parents=True)
+    if content is not None:
+        (lnf / "metadata.json").write_text(content)
+    assert apply_mod._read_theme_scale(lnf) == 2.0
+
+
 # --- E2: full apply ----------------------------------------------------
 
 

@@ -989,6 +989,28 @@ def _read_default_wallpaper_id(lnf_dir: Path) -> str | None:
         return None
 
 
+#: Conversion scale assumed for a bundle without an ``X-Themey-Scale``
+#: stamp (bundles written before the stamp existed) — the pipeline's
+#: default ``scale``.
+_DEFAULT_THEME_SCALE = 2.0
+
+
+def _read_theme_scale(lnf_dir: Path) -> float:
+    """The ``X-Themey-Scale`` stamp from an installed bundle's
+    ``metadata.json`` (``generate/lookandfeel.py``), or
+    :data:`_DEFAULT_THEME_SCALE` when absent, unreadable or not a
+    positive number — the dragbar panel is sized from it."""
+    meta = lnf_dir / "metadata.json"
+    try:
+        data = json.loads(meta.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return _DEFAULT_THEME_SCALE
+    value = data.get("X-Themey-Scale") if isinstance(data, dict) else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        return _DEFAULT_THEME_SCALE
+    return float(value)
+
+
 def _wallpaper_metadata(wallpaper_dir: Path) -> dict[str, object]:
     """An installed wallpaper package's ``metadata.json``, or ``{}`` when
     unreadable/absent."""

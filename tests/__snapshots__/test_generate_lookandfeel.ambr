@@ -42,7 +42,8 @@
           "License": "GPL",
           "Name": "Aliens (themey)",
           "Version": "1.0"
-      }
+      },
+      "X-Themey-Scale": 2
   }
   
   '''
@@ -62,7 +63,8 @@
           "License": "GPL",
           "Name": "Synthetic (themey)",
           "Version": "1.0"
-      }
+      },
+      "X-Themey-Scale": 2
   }
   
   '''

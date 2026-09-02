@@ -3,7 +3,8 @@
 Format (byte-verified against an installed Look-and-Feel package):
 
     <lnf>/metadata.json                  KPackageStructure "Plasma/LookAndFeel",
-                                          KPlugin.Id == the directory basename
+                                          KPlugin.Id == the directory basename,
+                                          X-Themey-Scale == theme.scale
     <lnf>/contents/defaults               double-bracket INI sections, one
                                           group per artifact this conversion
                                           actually deployed:
@@ -122,6 +123,12 @@ def write_metadata_json(theme: Theme, lnf_dir: Path) -> Path:
     """Write ``metadata.json``; ``lnf_dir``'s basename MUST be its own Id."""
     meta = {
         "KPackageStructure": "Plasma/LookAndFeel",
+        # themey's own stamp: the conversion scale, read back by
+        # ``apply.py`` (``_read_theme_scale``) to size the E16 dragbar
+        # panel it creates at ``scale_px(16)`` — the bundle is the one
+        # artifact apply already opens, so the scale rides along here
+        # rather than in a new file. Absent (pre-stamp bundles) → 2.
+        "X-Themey-Scale": theme.scale,
         "KPlugin": {
             "Id": plugin_id(theme.name),
             "Name": f"{theme.display_name} (themey)",
