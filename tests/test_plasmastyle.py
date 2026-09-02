@@ -13,7 +13,15 @@ from PIL import Image
 
 from themey.generate import plasmastyle
 from themey.generate.qmldeco.resolver import scale_px
-from themey.ir import BorderSpec, IClassSpec, Palette, TClassSpec, Theme, TooltipSpec
+from themey.ir import (
+    FILL_TILE,
+    BorderSpec,
+    IClassSpec,
+    Palette,
+    TClassSpec,
+    Theme,
+    TooltipSpec,
+)
 
 SVG_NS = "http://www.w3.org/2000/svg"
 XLINK = "{http://www.w3.org/1999/xlink}href"
@@ -584,7 +592,7 @@ def test_tasks_all_prefixes_ship_even_from_normal_only_art(
             "DEFAULT_ICON_BUTTON", normal=png, padding=(2, 2, 2, 2)
         ),
     })
-    svg = plasmastyle.build_tasks(theme)
+    svg = plasmastyle.build_tasks(theme, iconbox_frames="on")
     assert svg is not None
     ids = _ids(svg)
     for prefix in (
@@ -609,7 +617,7 @@ def test_tasks_focus_wears_clicked_art(tmp_path: Path) -> None:
             "DEFAULT_ICON_BUTTON", normal=normal, clicked=clicked
         ),
     })
-    svg = plasmastyle.build_tasks(theme)
+    svg = plasmastyle.build_tasks(theme, iconbox_frames="on")
     assert svg is not None
     by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
     focus_img = next(iter(by_id["focus-center"]))
@@ -644,8 +652,9 @@ def test_tasks_group_expanders_omitted_when_partial(tmp_path: Path) -> None:
 
 
 def test_tasks_skipped_without_iconbox_button_art(tmp_path: Path) -> None:
+    """Frames ON with no button art: no file, so Breeze paints the frames."""
     theme = _theme(tmp_path, {})
-    assert plasmastyle.build_tasks(theme) is None
+    assert plasmastyle.build_tasks(theme, iconbox_frames="on") is None
 
 
 def test_tasks_falls_back_to_dock_button(tmp_path: Path) -> None:
@@ -653,7 +662,7 @@ def test_tasks_falls_back_to_dock_button(tmp_path: Path) -> None:
     theme = _theme(tmp_path, {
         "DEFAULT_DOCK_BUTTON": _iclass("DEFAULT_DOCK_BUTTON", normal=png),
     })
-    svg = plasmastyle.build_tasks(theme)
+    svg = plasmastyle.build_tasks(theme, iconbox_frames="on")
     assert svg is not None
     assert any(
         "task frames from iclass DEFAULT_DOCK_BUTTON" in n for n in theme.notes
@@ -1111,7 +1120,7 @@ def test_tasks_fully_transparent_art_not_shipped(tmp_path: Path) -> None:
         "DEFAULT_ICON_BUTTON": _iclass("DEFAULT_ICON_BUTTON", normal=png),
         **_arrow_iclasses(tmp_path),
     })
-    assert plasmastyle.build_tasks(theme) is None
+    assert plasmastyle.build_tasks(theme, iconbox_frames="on") is None
 
 
 def test_write_skips_fully_transparent_viewitem_and_mirrors(tmp_path: Path) -> None:
@@ -2095,7 +2104,11 @@ def test_write_layout_and_mirrors(tmp_path: Path) -> None:
 
     assert style.id == "themey_TestStyle"
     assert style.dir == out
-    assert set(style.shipped) == {plasmastyle.PANEL_SVG, plasmastyle.DIALOG_SVG}
+    # tasks.svg always ships: frames-OFF (the default) is E16's own
+    # frameless iconbox, and omitting the file restores Breeze's plates.
+    assert set(style.shipped) == {
+        plasmastyle.PANEL_SVG, plasmastyle.DIALOG_SVG, plasmastyle.TASKS_SVG,
+    }
 
     meta = json.loads((out / "metadata.json").read_text())
     assert meta["KPlugin"]["Id"] == "themey_TestStyle"
@@ -2157,7 +2170,7 @@ def test_write_artless_theme_ships_scheme_tint_panel_only(tmp_path: Path) -> Non
     theme = _theme(tmp_path, {})
     out = tmp_path / "out" / "themey_TestStyle"
     style = plasmastyle.write(theme, out)
-    assert style.shipped == (plasmastyle.PANEL_SVG,)
+    assert set(style.shipped) == {plasmastyle.PANEL_SVG, plasmastyle.TASKS_SVG}
     assert (out / "colors").is_file()
     assert (out / "metadata.json").is_file()
 
@@ -2487,13 +2500,77 @@ def _gradient_png(tmp_path: Path, name: str, size=(64, 16)) -> Path:
     return p
 
 
+def _sheen_png(tmp_path: Path, name: str, size=(64, 16)) -> Path:
+    """Smooth LEFT-TO-RIGHT metal sheen — ShinyMetal's bar_horizontal_2/_3.
+
+    Constant down every column, so the within-row spread the pre-residual
+    classifier measured is large while the art carries no grain at all.
+    """
+    im = Image.new("RGBA", size)
+    w = size[0]
+    for x in range(w):
+        v = 70 + int(150 * (1 - abs(2 * x / (w - 1) - 1)))
+        for y in range(size[1]):
+            im.putpixel((x, y), (v, v, v, 255))
+    p = tmp_path / name
+    im.save(p)
+    return p
+
+
 def test_middle_is_textured_grain_vs_gradient(tmp_path: Path) -> None:
+    """Synthetic ends of the range. The one calibration case these cannot
+    reach is art sitting JUST under ``_TEXTURE_MIN_GRAIN`` with every other
+    condition passing — that is Aliens' real MENU_SEL normal art, pinned in
+    ``test_pipeline_plasmastyle.py``."""
     noise = Image.open(_noise_png(tmp_path, "n.png")).convert("RGBA")
     grad = Image.open(_gradient_png(tmp_path, "g.png")).convert("RGBA")
     flat = Image.new("RGBA", (64, 16), (90, 60, 40, 255))
     assert plasmastyle._middle_is_textured(noise, (3, 3, 3, 3)) is True
     assert plasmastyle._middle_is_textured(grad, (3, 3, 3, 3)) is False
     assert plasmastyle._middle_is_textured(flat, (3, 3, 3, 3)) is False
+    # ShinyMetal's bar_horizontal_2/_3: a HORIZONTAL gradient. The band's
+    # within-row spread is huge but it is drift, not grain — repeating it
+    # seams across a wide Kickoff row, and E16 stretched menu-item art
+    # horizontally anyway.
+    sheen = Image.open(_sheen_png(tmp_path, "s.png")).convert("RGBA")
+    assert plasmastyle._middle_is_textured(sheen, (3, 3, 2, 2)) is False
+
+
+def _streaked_png(
+    tmp_path: Path, name: str, streak: float, grain: float, size=(120, 16)
+) -> Path:
+    """Grain over a random per-column offset — texture with visible
+    vertical streaking, as opposed to a smooth left-to-right ramp.
+    Greyscale so *streak* and *grain* land on the luminance measurements
+    unscaled."""
+    import random
+
+    rnd = random.Random(11)
+    im = Image.new("RGBA", size)
+    for x in range(size[0]):
+        offset = rnd.gauss(0, streak)
+        for y in range(size[1]):
+            v = max(0, min(255, int(120 + offset + rnd.gauss(0, grain))))
+            im.putpixel((x, y), (v, v, v, 255))
+    p = tmp_path / name
+    im.save(p)
+    return p
+
+
+def test_middle_is_textured_tolerates_streaky_grain(tmp_path: Path) -> None:
+    """Horizontal drift is only disqualifying when it DOMINATES the grain.
+    OldE's rust strip (grain 10.4, drift_v 4.0, drift_h 10.2) is streaky
+    texture, and chris confirmed live on 2026-09-01 that stretching it
+    smeared it; Metallique's sheen (grain 21, drift_h 33) is a gradient
+    with grain sprinkled on top and still has to stretch."""
+    rust = Image.open(
+        _streaked_png(tmp_path, "rust.png", streak=10, grain=10)
+    ).convert("RGBA")
+    metal = Image.open(
+        _streaked_png(tmp_path, "metal.png", streak=33, grain=18)
+    ).convert("RGBA")
+    assert plasmastyle._middle_is_textured(rust, (3, 3, 3, 3)) is True
+    assert plasmastyle._middle_is_textured(metal, (3, 3, 3, 3)) is False
     # Aliens' glow: heavy grain OVER a strong vertical gradient — repeating
     # it bands, so the absolute drift ceiling keeps it stretching.
     import random
@@ -2532,6 +2609,50 @@ def test_viewitem_textured_strip_repeats_middle(tmp_path: Path) -> None:
     assert "hover-hint-tile-center" not in _ids(svg2)
 
 
+def test_viewitem_horizontal_sheen_stretches(tmp_path: Path) -> None:
+    """ShinyMetal's MENU_SEL is a 64x16 strip whose middle is a smooth
+    left-to-right metal sheen. Tiling it repeated the sweep ~4x down a
+    Kickoff grid cell and seamed across a wide row (chris, 2026-09-01)."""
+    sheen = _sheen_png(tmp_path, "bar_horizontal_2.png")
+    theme = _theme(tmp_path, {
+        "MENU_SEL": _iclass("MENU_SEL", edge=(3, 3, 2, 2), hilited=sheen),
+    })
+    svg = plasmastyle.build_viewitem(theme)
+    assert svg is not None
+    assert "hover-hint-tile-center" not in _ids(svg)
+    assert not any("middle repeated" in n for n in theme.notes)
+
+
+def test_viewitem_selected_plus_hover_lightens_the_clicked_art(tmp_path: Path) -> None:
+    """Kickoff paints ``selected+hover`` only while the mouse is DOWN on a
+    hovered item; ``selected`` alone is the byte-identical fallback E16 had
+    no state for. With real __CLICKED art the pressed-and-hovered set is
+    that art lightened, so the two are told apart."""
+    hi = _png(tmp_path, "hi.png", color=(120, 120, 120, 255))
+    cl = _png(tmp_path, "cl.png", color=(100, 100, 100, 255))
+    theme = _theme(tmp_path, {
+        "MENU_SEL": _iclass("MENU_SEL", hilited=hi, clicked=cl),
+    })
+    svg = plasmastyle.build_viewitem(theme)
+    assert svg is not None
+    sel = _tile_image(svg, "selected-center").convert("RGBA").getpixel((0, 0))
+    both = _tile_image(svg, "selected+hover-center").convert("RGBA").getpixel((0, 0))
+    assert sel[:3] == (100, 100, 100)
+    assert both[:3] > sel[:3]
+    assert both[3] == sel[3] == 255
+    assert any("selected+hover" in n and "lightened" in n for n in theme.notes)
+
+    # No clicked art: nothing to distinguish, the sets stay identical.
+    plain = _theme(tmp_path, {"MENU_SEL": _iclass("MENU_SEL", hilited=hi)})
+    svg2 = plasmastyle.build_viewitem(plain)
+    assert svg2 is not None
+    assert (
+        _tile_image(svg2, "selected-center").convert("RGBA").getpixel((0, 0))
+        == _tile_image(svg2, "selected+hover-center").convert("RGBA").getpixel((0, 0))
+    )
+    assert not any("lightened" in n for n in plain.notes)
+
+
 def test_style_scheme_selection_uses_menu_text_hilited_and_style_tclass(tmp_path: Path) -> None:
     from dataclasses import replace
 
@@ -2557,6 +2678,117 @@ def test_style_scheme_selection_uses_menu_text_hilited_and_style_tclass(tmp_path
     theme2 = replace(theme, menu_styles={"DEFAULT": style})
     scheme2 = plasmastyle.style_scheme(theme2, shipped=shipped)
     assert scheme2.selection.foreground_normal == (5, 5, 5)
+
+
+def test_style_scheme_selection_from_the_pressed_art(tmp_path: Path) -> None:
+    """Kickoff paints Selection ONLY while the mouse is down, and the art it
+    paints then is MENU_SEL's __CLICKED state. Sampling the hover art left
+    ShinyMetal washing a 119-grey pressed plate toward a 137-grey Selection
+    background — a muddy icon under a black label."""
+    hi = _png(tmp_path, "hi.png", color=(220, 220, 200, 255))
+    cl = _png(tmp_path, "cl.png", color=(150, 150, 130, 255))
+    menu_text = TClassSpec(
+        name="MENU_TEXT", fg_normal=(20, 20, 20), fg_active=None,
+        fg_by_state={"normal": (20, 20, 20), "hilited": (9, 9, 9),
+                     "clicked": (4, 4, 4)},
+    )
+    theme = _theme(
+        tmp_path,
+        {"MENU_SEL": _iclass("MENU_SEL", hilited=hi, clicked=cl)},
+        {"MENU_TEXT": menu_text},
+    )
+    scheme = plasmastyle.style_scheme(
+        theme, shipped=frozenset({plasmastyle.VIEWITEM_SVG})
+    )
+    assert scheme.selection.background_normal == (150, 150, 130)
+    assert scheme.selection.foreground_normal == (4, 4, 4)
+    assert any("MENU_SEL clicked art" in n for n in theme.notes)
+
+
+def test_style_scheme_selection_text_never_loses_the_pressed_plate(
+    tmp_path: Path,
+) -> None:
+    """The label is guarded against the hover plate too, but a theme whose
+    two plates sit at opposite ends of the range (near-white hover, near-
+    black clicked) has no colour legible on both. The plate the label is
+    actually painted on wins — Kickoff draws ``selected+hover`` OVER the
+    hover set."""
+    from themey.analyze.colors import MIN_CONTRAST, contrast_ratio
+
+    hi = _png(tmp_path, "hi.png", color=(250, 250, 250, 255))
+    cl = _png(tmp_path, "cl.png", color=(20, 20, 20, 255))
+    menu_text = TClassSpec(
+        name="MENU_TEXT", fg_normal=(128, 128, 128), fg_active=None,
+        fg_by_state={"normal": (128, 128, 128), "clicked": (128, 128, 128)},
+    )
+    theme = _theme(
+        tmp_path,
+        {"MENU_SEL": _iclass("MENU_SEL", hilited=hi, clicked=cl)},
+        {"MENU_TEXT": menu_text},
+    )
+    scheme = plasmastyle.style_scheme(
+        theme, shipped=frozenset({plasmastyle.VIEWITEM_SVG})
+    )
+    assert scheme.selection.background_normal == (20, 20, 20)
+    assert contrast_ratio(
+        scheme.selection.foreground_normal, (20, 20, 20)
+    ) >= MIN_CONTRAST
+
+
+def test_style_scheme_view_follows_the_popup_surface(tmp_path: Path) -> None:
+    """The sampled ladder put View 0.07 away from mid-grey off the BORDER
+    tint, which on ShinyMetal meant a near-black search field inside a
+    148-grey Kickoff. When the popup surface is art-derived, View is one
+    ladder step from THAT."""
+    from themey.analyze.colors import _lightness
+
+    bg = _png(tmp_path, "menubg.png", color=(148, 148, 148, 255))
+    hi = _png(tmp_path, "sel.png", color=(200, 200, 200, 255))
+    theme = _theme(tmp_path, {
+        "MENU_BG": _iclass("MENU_BG", normal=bg),
+        "MENU_SEL": _iclass("MENU_SEL", hilited=hi),
+    })
+    scheme = plasmastyle.style_scheme(
+        theme,
+        shipped=frozenset({plasmastyle.DIALOG_SVG, plasmastyle.VIEWITEM_SVG}),
+    )
+    window = scheme.window.background_normal
+    view = scheme.view.background_normal
+    assert window == (148, 148, 148)
+    assert _lightness(view) > _lightness(window)
+    assert abs(_lightness(view) - _lightness(window)) < 0.12
+    assert any("View from the popup surface" in n for n in theme.notes)
+
+
+def test_style_scheme_focus_rings_follow_selection_on_neutral_themes(
+    tmp_path: Path,
+) -> None:
+    """``analyze/colors`` falls back to Breeze blue when the border art has
+    no saturated cluster; every focus/hover decoration in a grey or brown
+    theme then read as stock Plasma."""
+    from dataclasses import replace
+
+    from themey.analyze.colors import default_scheme
+
+    hi = _png(tmp_path, "hi.png", color=(200, 190, 170, 255))
+    theme = _theme(tmp_path, {"MENU_SEL": _iclass("MENU_SEL", hilited=hi)})
+    shipped = frozenset({plasmastyle.VIEWITEM_SVG})
+    scheme = plasmastyle.style_scheme(theme, shipped=shipped)
+    sel_bg = scheme.selection.background_normal
+    assert sel_bg == (200, 190, 170)
+    for group in (scheme.view, scheme.window, scheme.button, scheme.selection,
+                  scheme.tooltip, scheme.complementary, scheme.header,
+                  scheme.header_inactive):
+        assert group.decoration_focus == sel_bg
+        assert group.decoration_hover == sel_bg
+    assert any("focus rings" in n and "Breeze blue" in n for n in theme.notes)
+
+    # A theme whose art DID yield an accent keeps it.
+    sampled = replace(default_scheme(), accent_fallback=False)
+    kept = replace(theme, scheme=sampled, notes=[])
+    scheme2 = plasmastyle.style_scheme(kept, shipped=shipped)
+    assert scheme2.window.decoration_focus == sampled.window.decoration_focus
+    assert not any("focus rings" in n for n in kept.notes)
 
 
 def test_line_vertical_uses_clicked_art(tmp_path: Path) -> None:
@@ -2837,7 +3069,7 @@ def test_tasks_frames_on_notes_e16_frameless_default(tmp_path: Path) -> None:
     theme = _theme(tmp_path, {
         "DEFAULT_ICON_BUTTON": _iclass("DEFAULT_ICON_BUTTON", normal=png),
     })
-    svg = plasmastyle.build_tasks(theme)
+    svg = plasmastyle.build_tasks(theme, iconbox_frames="on")
     assert svg is not None
     assert any("draws NO per-icon plate" in n for n in theme.notes)
     with pytest.raises(plasmastyle.PlasmaStyleError, match="iconbox_frames"):
@@ -2851,18 +3083,17 @@ def test_tasks_launcher_and_focus_hover_only_with_hilited_art(tmp_path: Path) ->
     plain = _theme(tmp_path, {
         "DEFAULT_ICON_BUTTON": _iclass("DEFAULT_ICON_BUTTON", normal=png),
     })
-    svg = plasmastyle.build_tasks(plain)
+    svg = plasmastyle.build_tasks(plain, iconbox_frames="on")
     assert svg is not None
     ids = _ids(svg)
     assert "launcher-hover-center" not in ids and "focus-hover-center" not in ids
-    assert plasmastyle.tasks_hover(plain) is False
 
     lit = _theme(tmp_path, {
         "DEFAULT_ICON_BUTTON": _iclass(
             "DEFAULT_ICON_BUTTON", normal=png, hilited=hi, clicked=cl
         ),
     })
-    svg2 = plasmastyle.build_tasks(lit)
+    svg2 = plasmastyle.build_tasks(lit, iconbox_frames="on")
     assert svg2 is not None
     by_id = {e.get("id"): e for e in svg2.iter() if e.get("id")}
     assert "launcher-hover-center" in by_id and "focus-hover-center" in by_id
@@ -2873,14 +3104,6 @@ def test_tasks_launcher_and_focus_hover_only_with_hilited_art(tmp_path: Path) ->
     hover = next(iter(by_id["hover-center"])).get(XLINK)
     focus = next(iter(by_id["focus-center"])).get(XLINK)
     assert launcher == hover and focus_hover == focus and launcher != focus_hover
-    assert plasmastyle.tasks_hover(lit) is True
-    # hilited_active alone is not a hover (checked-semantics trap).
-    only_active = _theme(tmp_path, {
-        "DEFAULT_ICON_BUTTON": _iclass(
-            "DEFAULT_ICON_BUTTON", normal=png, hilited_active=hi
-        ),
-    })
-    assert plasmastyle.tasks_hover(only_active) is False
 
 
 def test_write_metadata_carries_tasks_hover_and_iconbox_frames(tmp_path: Path) -> None:
@@ -2905,3 +3128,318 @@ def test_write_metadata_carries_tasks_hover_and_iconbox_frames(tmp_path: Path) -
         ).read_bytes()
     with pytest.raises(plasmastyle.PlasmaStyleError, match="iconbox_frames"):
         plasmastyle.write(theme, out, iconbox_frames="bogus")
+
+
+# ------------------------------------------------------------------ #
+# Tasks — synthesized states (WP2): E16 authors only __NORMAL on most
+# iconbox buttons, so hover/focus/minimized/attention are derived.
+# ------------------------------------------------------------------ #
+
+
+def _bevel_png(tmp_path: Path, name: str, size=(16, 16)) -> Path:
+    """A plate with a light top edge and a dark bottom one — the E16
+    bevel the synthesized ``focus`` state flips."""
+    img = Image.new("RGBA", size, (120, 120, 120, 255))
+    for x in range(size[0]):
+        img.putpixel((x, 0), (220, 220, 220, 255))
+        img.putpixel((x, size[1] - 1), (40, 40, 40, 255))
+    img.save(tmp_path / name, format="PNG")
+    return tmp_path / name
+
+
+def _href(by_id: dict[str, ET.Element], element: str) -> str:
+    """The base64 art of a frame element's embedded image."""
+    return next(iter(by_id[element])).get(XLINK) or ""
+
+
+def _set_art(by_id: dict[str, ET.Element], prefix: str) -> str:
+    """Every slice of one 9-part set, joined — the whole plate, not just
+    the stretched middle (an E16 bevel lives in the caps)."""
+    return "|".join(
+        _href(by_id, f"{prefix}{name}")
+        for name in ("topleft", "top", "topright", "left", "center", "right",
+                     "bottomleft", "bottom", "bottomright")
+        if f"{prefix}{name}" in by_id
+    )
+
+
+def test_tasks_default_mode_is_frames_off(tmp_path: Path) -> None:
+    """E16's own iconbox draws no per-icon plate — that is the default now."""
+    png = _png(tmp_path, "iconbtn.png")
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass("DEFAULT_ICON_BUTTON", normal=png),
+    })
+    svg = plasmastyle.build_tasks(theme)
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    assert by_id["normal-center"].tag.endswith("rect")  # no plate art
+    assert any("task frames OFF" in n for n in theme.notes)
+    assert plasmastyle.ICONBOX_FRAME_MODES[0] == "off"
+
+
+def test_tasks_synthesized_states_are_distinct_frames_on(tmp_path: Path) -> None:
+    """A __NORMAL-only iconbox button used to give seven byte-identical
+    plates; hover/attention/minimized/focus are now derived from it."""
+    png = _bevel_png(tmp_path, "iconbtn.png")
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass(
+            "DEFAULT_ICON_BUTTON", normal=png, padding=(2, 2, 2, 2)
+        ),
+    })
+    svg = plasmastyle.build_tasks(theme, iconbox_frames="on")
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    art = {
+        p: _set_art(by_id, p)
+        for p in ("normal-", "hover-", "attention-", "minimized-", "focus-",
+                  "progress-", "")
+    }
+    assert art["normal-"] == art[""]          # launcher wears the normal plate
+    assert art["hover-"] == art["progress-"]  # progress mirrors hover
+    distinct = {art["normal-"], art["hover-"], art["attention-"],
+                art["minimized-"], art["focus-"]}
+    assert len(distinct) == 5
+    for prefix in ("hover-", "attention-", "minimized-", "focus-"):
+        assert f"{prefix}hint-left-margin" in by_id, prefix
+    assert any(
+        "synthesized" in n and "minimized" in n and "focus" in n
+        for n in theme.notes
+    )
+
+
+def test_tasks_focus_bar_is_a_stylesheet_element(tmp_path: Path) -> None:
+    """The focus accent follows the ACTIVE colour scheme: KSvg rewrites the
+    ``current-color-scheme`` sheet, so the bar is a classed rect, not baked
+    pixels. One set per panel edge, bar on the panel-adjacent side."""
+    png = _png(tmp_path, "iconbtn.png")
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass("DEFAULT_ICON_BUTTON", normal=png),
+    })
+    svg = plasmastyle.build_tasks(theme, iconbox_frames="on")
+    assert svg is not None
+    style = svg.find(f"{{{SVG_NS}}}style")
+    assert style is not None and style.get("id") == "current-color-scheme"
+    assert ".ColorScheme-Highlight" in (style.text or "")
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    for prefix, side in (
+        ("focus-", "bottom"), ("north-focus-", "top"),
+        ("west-focus-", "left"), ("east-focus-", "right"),
+    ):
+        group = by_id[f"{prefix}{side}"]
+        bars = [c for c in group if c.get("class") == "ColorScheme-Highlight"]
+        assert len(bars) == 1, prefix
+        assert bars[0].get("style") == "fill:currentColor"
+        thick = "height" if side in ("top", "bottom") else "width"
+        assert bars[0].get(thick) == str(plasmastyle.TASKS_FOCUS_BAR_PX)
+
+
+def test_tasks_frames_off_synthesizes_tints_and_focus_bar(tmp_path: Path) -> None:
+    """Frames OFF still tells the states apart: a white wash for
+    hover/attention and the highlight bar for the active task."""
+    theme = _theme(tmp_path, {})
+    svg = plasmastyle.build_tasks(theme, iconbox_frames="off")
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    assert by_id["hover-center"].get("style") == "fill:#ffffff;opacity:0.12"
+    assert by_id["progress-center"].get("style") == "fill:#ffffff;opacity:0.12"
+    assert by_id["attention-center"].get("style") == "fill:#ffffff;opacity:0.25"
+    for prefix in ("normal-", "minimized-", ""):
+        assert by_id[f"{prefix}center"].get("style") == "opacity:0"
+    bar = by_id["focus-bottom"]
+    assert bar.get("class") == "ColorScheme-Highlight"
+    assert bar.get("height") == str(plasmastyle.TASKS_FOCUS_BAR_PX)
+    assert by_id["west-focus-left"].get("width") == str(
+        plasmastyle.TASKS_FOCUS_BAR_PX
+    )
+    assert svg.find(f"{{{SVG_NS}}}style") is not None
+
+
+def test_tasks_real_state_art_is_never_synthesized(tmp_path: Path) -> None:
+    """Authored hilited/clicked art wins — synthesis fills gaps only."""
+    png = _png(tmp_path, "n.png", color=(120, 120, 120, 255))
+    hi = _png(tmp_path, "hi.png", color=(90, 200, 90, 255))
+    cl = _png(tmp_path, "cl.png", color=(20, 20, 20, 255))
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass(
+            "DEFAULT_ICON_BUTTON", normal=png, hilited=hi, clicked=cl
+        ),
+    })
+    svg = plasmastyle.build_tasks(theme, iconbox_frames="on")
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    # focus wears the clicked art, so it carries no synthesized accent bar.
+    assert not any(
+        c.get("class") == "ColorScheme-Highlight" for c in by_id["focus-center"]
+    )
+    assert "north-focus-center" not in by_id
+    assert _href(by_id, "hover-center") == _href(by_id, "attention-center")
+    # minimized has no E16 counterpart at all — always synthesized.
+    assert _href(by_id, "minimized-center") != _href(by_id, "normal-center")
+    assert any("minimized" in n and "synthesized" in n for n in theme.notes)
+
+
+def test_tasks_hover_true_once_hover_is_synthesized(tmp_path: Path) -> None:
+    """taskHoverEffect now has something to show even without hilited art."""
+    png = _png(tmp_path, "iconbtn.png")
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass("DEFAULT_ICON_BUTTON", normal=png),
+    })
+    assert plasmastyle.tasks_hover(theme, iconbox_frames="on") is True
+    assert plasmastyle.tasks_hover(theme, iconbox_frames="off") is True
+    # No art and frames ON: no tasks.svg ships, so Breeze paints the frames.
+    assert plasmastyle.tasks_hover(_theme(tmp_path, {}), iconbox_frames="on") is False
+    assert plasmastyle.tasks_hover(_theme(tmp_path, {}), iconbox_frames="off") is True
+
+
+def test_tasks_synthesized_sets_keep_the_e16_fill_rule(tmp_path: Path) -> None:
+    """A `__FILLRULE __TILE*` iclass tiles its center. The synthesized
+    states come from the same art, so they must tile too — a tiled
+    `normal-` beside a stretched `hover-` changes the frame's texture the
+    moment the mouse touches it."""
+    png = _bevel_png(tmp_path, "iconbtn.png")
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass(
+            "DEFAULT_ICON_BUTTON", normal=png,
+            fill_by_state={"normal": FILL_TILE},
+        ),
+    })
+    svg = plasmastyle.build_tasks(theme, iconbox_frames="on")
+    assert svg is not None
+    ids = _ids(svg)
+    for prefix in ("normal-", "hover-", "attention-", "minimized-", "focus-",
+                   "progress-", "", "north-focus-", "west-focus-"):
+        assert f"{prefix}hint-tile-center" in ids, prefix
+    # And a stretched iclass (E16's default) tiles nothing anywhere.
+    plain = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass("DEFAULT_ICON_BUTTON", normal=png),
+    })
+    stretched = plasmastyle.build_tasks(plain, iconbox_frames="on")
+    assert stretched is not None
+    assert not any("tile-center" in i for i in _ids(stretched))
+
+
+def test_tasks_every_set_reports_the_same_margins(tmp_path: Path) -> None:
+    """The focus set's bar edge is 2 px thicker than every other set's, and
+    FrameSvg reads an unhinted side's margin off the border thickness — so
+    a padding-less iclass would inset the active task's icon further than
+    the rest and the icon would jump on focus. Explicit hints pin them."""
+    png = _bevel_png(tmp_path, "iconbtn.png")
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass("DEFAULT_ICON_BUTTON", normal=png),
+    })
+    svg = plasmastyle.build_tasks(theme, iconbox_frames="on")
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+
+    def margins(prefix: str) -> dict[str, tuple[str | None, str | None]]:
+        return {
+            side: (
+                by_id[f"{prefix}hint-{side}-margin"].get("width"),
+                by_id[f"{prefix}hint-{side}-margin"].get("height"),
+            )
+            for side in ("left", "right", "top", "bottom")
+        }
+
+    baseline = margins("normal-")
+    for prefix in ("hover-", "attention-", "minimized-", "progress-", "",
+                   "focus-", "north-focus-", "west-focus-", "east-focus-"):
+        assert margins(prefix) == baseline, prefix
+
+
+def test_tasks_declared_padding_still_drives_the_margins(tmp_path: Path) -> None:
+    """With a real __PADDING the hints come from E16, scaled — the
+    uniform-margin fallback only fills in for a padding-less iclass."""
+    png = _bevel_png(tmp_path, "iconbtn.png")
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass(
+            "DEFAULT_ICON_BUTTON", normal=png, padding=(3, 3, 3, 3)
+        ),
+    }, scale=2)
+    svg = plasmastyle.build_tasks(theme, iconbox_frames="on")
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    for prefix in ("normal-", "hover-", "focus-", "north-focus-"):
+        assert by_id[f"{prefix}hint-left-margin"].get("width") == "6"  # 3 x 2
+
+
+def test_tasks_attention_is_lighter_than_hover(tmp_path: Path) -> None:
+    """attention = the HOVER plate lightened again, not the normal one:
+    25% off normal lands only 13% above hover and the two states read
+    the same on a panel."""
+    plate = Image.new("RGBA", (8, 8), (100, 100, 100, 255))
+    states = plasmastyle._synth_task_states(plate)
+    normal = plate.getpixel((4, 4))
+    hover = states["hover"].getpixel((4, 4))
+    attention = states["attention"].getpixel((4, 4))
+    assert isinstance(normal, tuple) and isinstance(hover, tuple)
+    assert isinstance(attention, tuple)
+    # 100 -> 12% toward white = 118 -> another 25% of what is left = 152.
+    assert (normal[0], hover[0], attention[0]) == (100, 118, 152)
+    # The attention step must be the bigger one, or the two states read
+    # alike on a panel — the whole point of stacking it on hover.
+    assert attention[0] - hover[0] > hover[0] - normal[0]
+    assert states["minimized"].getpixel((4, 4))[3] == round(
+        255 * plasmastyle.TASKS_MINIMIZED_ALPHA
+    )
+
+
+def test_tasks_focus_hover_composes_hover_and_focus_frames_on(
+    tmp_path: Path,
+) -> None:
+    """The active task UNDER THE MOUSE must read as both: synthesizing
+    ``focus-hover-`` as plain ``focus`` gave the depressed plate no hover
+    feedback at all."""
+    png = _bevel_png(tmp_path, "iconbtn.png")
+    hi = _png(tmp_path, "iconbtn_hi.png", color=(90, 200, 90, 255))
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass(
+            "DEFAULT_ICON_BUTTON", normal=png, hilited=hi, padding=(2, 2, 2, 2)
+        ),
+    })
+    svg = plasmastyle.build_tasks(theme, iconbox_frames="on")
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    art = {p: _set_art(by_id, p) for p in ("hover-", "focus-", "focus-hover-")}
+    assert all(art.values())
+    assert art["focus-hover-"] != art["focus-"]
+    assert art["focus-hover-"] != art["hover-"]
+    # It still wears the accent bar, one set per panel edge.
+    for prefix, side in (
+        ("focus-hover-", "bottom"), ("north-focus-hover-", "top"),
+        ("west-focus-hover-", "left"), ("east-focus-hover-", "right"),
+    ):
+        group = by_id[f"{prefix}{side}"]
+        assert [c for c in group if c.get("class") == "ColorScheme-Highlight"]
+
+
+def test_tasks_focus_hover_keeps_real_clicked_art_precedence(
+    tmp_path: Path,
+) -> None:
+    """Real E16 art still wins over every synthesized recipe."""
+    png = _png(tmp_path, "iconbtn.png")
+    hi = _png(tmp_path, "iconbtn_hi.png", color=(90, 200, 90, 255))
+    cl = _png(tmp_path, "iconbtn_cl.png", color=(20, 20, 20, 255))
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass(
+            "DEFAULT_ICON_BUTTON", normal=png, hilited=hi, clicked=cl
+        ),
+    })
+    svg = plasmastyle.build_tasks(theme, iconbox_frames="on")
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    assert _href(by_id, "focus-hover-center") == _href(by_id, "focus-center")
+
+
+def test_tasks_focus_hover_composes_hover_and_focus_frames_off(
+    tmp_path: Path,
+) -> None:
+    """Frames OFF: the hover wash AND the accent bar, not the bar alone."""
+    theme = _theme(tmp_path, {})
+    svg = plasmastyle.build_tasks(theme, iconbox_frames="off")
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    assert by_id["focus-hover-center"].get("style") == "fill:#ffffff;opacity:0.12"
+    assert by_id["focus-center"].get("style") == "opacity:0"
+    bar = by_id["focus-hover-bottom"]
+    assert bar.get("class") == "ColorScheme-Highlight"
+    assert "hover-bottom" not in {k for k in by_id if k == "hover-bottom"}

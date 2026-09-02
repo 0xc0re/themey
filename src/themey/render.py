@@ -30,7 +30,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from . import paths
+from . import apply, paths
 from .kwin import (  # noqa: F401  (re-exported for callers/tests)
     BORDER_SIZE_BRACKETS,
     BORDER_SIZES,
@@ -465,12 +465,18 @@ _PAGER_RENDER_ROWS = 2
 #: plasmoidviewer flags for the pager target: a real PANEL containment
 #: (the desktop containment ignores the applet's Layout hints and gives
 #: it a 96 px box), vertical on the left edge at the width of the pager
-#: panel apply creates (``apply._PAGER_HEIGHT``), so the cells render at
-#: their real size. plasmoidviewer rewrites its appletsrc on start, so
-#: applet config cannot be pre-seeded; the applet itself detects the
-#: viewer's fake screen rect and drops its screen filter (2026-09-01).
+#: panel ``apply`` creates on the common 16:9 screen (E16's 48 px cell
+#: times the screen aspect — ``apply.pager_thickness_px``), so the cells
+#: render at their real size. plasmoidviewer rewrites its appletsrc on
+#: start, so applet config cannot be pre-seeded; the applet itself
+#: detects the viewer's fake screen rect and drops its screen filter
+#: (2026-09-01).
+_PAGER_RENDER_THICKNESS = apply.pager_thickness_px(
+    apply.DEFAULT_FURNITURE.pager_cell_px, 16 / 9
+)
 _PAGER_VIEWER_ARGS: tuple[str, ...] = (
-    "-c", "org.kde.panel", "-f", "vertical", "-l", "leftedge", "-s", "130x420",
+    "-c", "org.kde.panel", "-f", "vertical", "-l", "leftedge",
+    "-s", f"{_PAGER_RENDER_THICKNESS}x420",
 )
 
 

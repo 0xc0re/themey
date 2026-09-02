@@ -87,8 +87,10 @@ Working today:
 - Self-contained HTML preview with an embedded mock-window PNG
 - `report.txt` recording what was preserved, approximated, and skipped
 - `themey apply <name>` — apply the full Global Theme (or `--deco-only` for
-  just the window decoration) to the live KWin session, plus
-  `themey apply --revert`
+  just the window decoration) to the live KWin session, including E16's
+  pager, iconbox and dragbar panels, plus `themey apply --revert`
+- `themey <theme>.etheme --apply` — convert, install and apply in one
+  command
 - `themey render` — screenshot a theme inside a headless nested KWin
 
 Not built: batch conversion (`themey --all <dir>`).
@@ -105,7 +107,9 @@ Not built: batch conversion (`themey --all <dir>`).
   color scheme and Plasma Style are applied explicitly because a
   Look-and-Feel apply does not displace an explicit user-layer setting, and
   the wallpaper tool only runs for a theme whose default background was
-  tiled in E16.
+  tiled in E16. `dbus-send` is used to tell running applications that the
+  icon theme or application style changed; without it they pick the change
+  up at the next login.
 - Optional, for cursor conversion: `xcursorgen` (Debian/Ubuntu: `x11-apps`;
   Fedora: `xorg-x11-apps`). Without it, `themey convert` still runs — it
   just skips the pointer theme and notes why in `report.txt`.
@@ -189,6 +193,11 @@ themey Aliens.etheme --no-open           # skip the browser
 | `--upscale MODE` | Part-art scaler: `nearest` (default, pixel-art sharp, NEAREST resampling) or `quality` (hqx smoothing, then a LANCZOS *downsample* to the fractional target). `quality` is QML-backend-only. |
 | `--backend NAME` | Decoration backend: `qml` (default — the E16-faithful QML KPackage), `svg` (the legacy Aurorae SVG theme), or `both`. |
 | `--shade-button ACTION` | QML-backend-only. KWin removed window shading in Plasma 6, so E16's shade button is dead weight; this remaps it instead. One of `maximize` (default), `keepAbove`, `keepBelow`, `menu`, `hide`, or `none` (today's inert disabled button, which still absorbs clicks). e13, for example, has no maximize button of its own, so the dead shade slot becomes the missing action. |
+| `--iconbox-frames MODE` | Plasma Style task frames on the icon task manager: `off` (default — E16's own frameless iconbox, `container.c` `draw_icon_base = 0`: bare icons on the trough) or `on` (the theme's iconbox button art as a plate under every icon). Either way the task states are told apart: hover, attention, minimized and the active task are synthesized from the theme's own plate when E16 authored no such art, and the active task wears a 2 px accent bar in the color scheme's selection color. |
+| `--widget-style NAME` | Have the Global Theme bundle select a Qt **application** style (`kdeglobals widgetStyle`): `windows`, `fusion`, or `breeze`. Default: leave your application style alone. Qt's built-in `Windows` style is the closest thing to a 2009 widget set that ships with Plasma. |
+| `--apply` | Apply the theme to the live desktop as soon as it is installed — exactly the work a following `themey apply NAME` would do. Rejected with `--output` or `--backend svg`/`both`, and rejected *before* the conversion runs, so a bad combination costs nothing. |
+| `--no-restart-shell` | Only with `--apply`; see the apply flag of the same name. |
+| `--no-pager` / `--no-iconbox` / `--no-dragbar` / `--furniture-strut` / `--pager-cell PX` / `--iconbox-size PX` | Only with `--apply`; the E16 furniture flags, documented in the apply table below. |
 | `--output DIR` | Write the theme tree(s), color scheme, wallpaper packages, cursor theme, Plasma Style, bundle, report, and preview under `DIR` instead of installing. Nothing under `~/.local/share` is touched. |
 | `--no-open` | Do not launch the HTML preview. The preview is also suppressed automatically over SSH and on headless machines. |
 | `-v` / `-vv` / `-q` | `-v` and `-vv` both switch to DEBUG (no extra verbosity between them today); `-q` restricts to WARNING+. |
@@ -196,12 +205,25 @@ themey Aliens.etheme --no-open           # skip the browser
 ### Apply
 
 ```bash
+themey Aliens.etheme --apply        # convert, install, and apply in one command
 themey apply Aliens                 # apply the FULL Global Theme (deco, colors, Plasma Style, wallpaper, cursors, panels)
+themey apply Aliens --no-pager --no-iconbox   # ... but keep your own left edge
 themey apply Aliens --deco-only     # just the window decoration, kwinrc-only
 themey apply Aliens --deco-only --backend svg --border-size Huge  # SVG-backend-only: BorderSize is theme-controlled on QML
 themey apply --revert               # restore whatever was active before the last full `themey apply`
 themey apply Breeze                 # legacy escape hatch: switch the decoration back to Breeze
 ```
+
+| Flag | Meaning |
+|------|---------|
+| `--no-pager` / `--no-iconbox` / `--no-dragbar` | Leave that piece of E16 furniture out. A panel a previous apply already created is removed, and the desktop change made only for it is undone: the stacked desktop grid for the pager, the parking of your own top panels for the dragbar. |
+| `--furniture-strut` | Let the pager and iconbox panels reserve screen space like ordinary Plasma panels. The default is Windows Go Below, so a maximized window keeps the whole screen and slides under them. |
+| `--pager-cell PX` | Pager cell height; the panel ends up one aspect-true cell thick (85 px for the default 48 px cell on a 16:9 screen). Default `48`, E16's own. |
+| `--iconbox-size PX` | Iconbox panel thickness, which is also the task icon size. Default `48`, E16's own. |
+| `--widget-style NAME` | `windows`, `fusion` or `breeze`, overriding the bundle's own `--widget-style` stamp for this run. Full apply only. |
+| `--no-restart-shell` | Skip the automatic plasmashell restart. The config still lands; the repaint waits for your next login. Full apply only. |
+| `--deco-only` / `--backend` / `--border-size` / `--legacy-plugin` / `--keep-buttons` | The decoration-only path and its knobs (see below). |
+| `--revert` | Restore the global theme, decoration, colors, Plasma Style, application style, panels and desktop grid that were active before the first full apply. |
 
 `themey apply <name>` (no flags) applies the whole installed Look-and-Feel
 bundle via `plasma-apply-lookandfeel`, then re-applies the color scheme and
@@ -209,13 +231,17 @@ Plasma Style explicitly (`plasma-apply-colorscheme` /
 `plasma-apply-desktoptheme` — the Look-and-Feel apply lands in the
 `~/.config/kdedefaults/` layer and will not displace an explicit user-layer
 setting), re-asserts the decoration keys in the user-layer `kwinrc` for the
-same reason, resizes your panels (below), adds the iconbox panel (below),
-and finally fixes up a tiled
+same reason, sets the Qt application style if the bundle asks for one
+(`--widget-style`), resizes your panels (below), builds E16's furniture
+panels (below), and finally fixes up a tiled
 default wallpaper if the theme's default background was tiled in E16.
 Because plasmashell (through at least 6.6.6) never repaints a fill-mode
-change made by scripting, a tiled-wallpaper apply ends with an automatic
+change made by scripting, and because applets read some Plasma Style
+metrics only once at load, an apply that installs a Plasma Style or a
+tiled wallpaper ends with an automatic
 `systemctl --user restart plasma-plasmashell` — a brief desktop flicker,
-after which the wallpaper is actually tiled. Pass `--no-restart-shell` to
+after which the wallpaper is actually tiled and the popups actually wear
+the new theme's metrics. Pass `--no-restart-shell` to
 skip it (the config still lands; the repaint then waits for your next
 login). `--deco-only` keeps the original behavior: it writes only
 `kwinrc [org.kde.kdecoration2]` and asks KWin to reconfigure — nothing else
@@ -228,29 +254,54 @@ plasmashell its cached Plasma Style) until an apply flushes them — the
 window frames will not change on their own.
 
 **Panels get resized.** A full apply sets *every* plasmashell panel to
-fit-content length (`lengthMode = fit`), because E16's iconbox and dragbar
-are content-sized and a full-width bar reads as Plasma, not E16. This
+fit-content length (`lengthMode = fit`) and un-floats it, because E16's
+iconbox and dragbar are content-sized docked strips: a full-width bar
+reads as Plasma, not E16, and a floating one adds an 8 px halo. This
 visibly rearranges your desktop. The previous per-panel modes are recorded
-once in `kdeglobals [Themey] PrevPanelLengthModes` and put back by
-`themey apply --revert`.
+once in `kdeglobals [Themey] PrevPanelLengthModes` and `PrevPanelFloating`,
+and put back by `themey apply --revert`.
 
-**You get E16's left-edge furniture.** A full apply also creates two
-content-sized vertical panels on the left screen edge: a pager hugging
-the top-left corner (where E16 kept its pager window, thick enough that
-the cells read the theme's pager art) and, hugging the bottom-left, an
-icons-only task manager that shows *only minimized windows* — E16's
-iconbox: iconify a window and its icon appears there, restore it and the
-icon vanishes. Your existing panels are not touched (beyond the
-fit-content step above). The panel ids are recorded in
-`kdeglobals [Themey] PagerPanel` and `IconboxPanel`; a second apply
-reuses the live panels, and `themey apply --revert` removes them. To give
-the pager tall, readable cells, apply also stacks your virtual desktops
-one per row (desktop switching becomes up/down); the previous grid is
-recorded and put back by `--revert`.
+**You get E16's furniture.** A full apply creates three panels, and each
+can be left out with a flag:
+
+- a **pager** hugging the top-left corner, where E16 kept its pager
+  window, running themey's own pager applet (`--no-pager`);
+- an **iconbox** hugging the bottom-left: an icons-only task manager
+  showing *only minimized windows*, exactly E16's iconbox — iconify a
+  window and its icon appears there, restore it and the icon vanishes
+  (`--no-iconbox`);
+- E16's **dragbar** across the top: a thin full-width panel with a
+  next-desktop button at one end, a previous-desktop button at the other,
+  and the tray and clock between them (`--no-dragbar`). The top edge is
+  the dragbar's alone, so your existing top panels are parked (moved to a
+  screen index that does not exist — their config is kept, they are just
+  never shown) and `--revert` or `--no-dragbar` brings them back.
+
+Both left-edge panels are sized the way E16 sized its own: 48 px pager
+cells, which makes the panel 85 px thick on a 16:9 screen, and a 48 px
+iconbox. Override with `--pager-cell` and `--iconbox-size`. They also let
+maximized windows run underneath rather than reserving screen space,
+because E16's default maximize stepped around the pager instead of
+shrinking every window for it; `--furniture-strut` gives them ordinary
+Plasma struts back. That visibility mode is only read when plasmashell
+starts, so it takes effect at the automatic restart that ends an apply
+carrying a Plasma Style — which every themey conversion has. With
+`--no-restart-shell` the panels keep their struts until your next login,
+and the apply says so.
+
+Your other panels are not touched beyond the fit-content step above. The
+three panel ids are recorded in `kdeglobals [Themey] PagerPanel`,
+`IconboxPanel` and `DragbarPanel`; a second apply reuses the live panels,
+and `themey apply --revert` removes them. To give the pager tall, readable
+cells, apply also stacks your virtual desktops one per row (desktop
+switching becomes up/down); the previous grid is recorded and put back by
+`--revert` or by `--no-pager`.
 
 The first time you run a full `themey apply`, it snapshots your current
-global theme, decoration, color scheme (`[Themey] PrevColorScheme`), Plasma
-Style, and panel lengths (an ordinary `kdeglobals`/`kwinrc`/`plasmarc` read,
+global theme, decoration, color scheme (`[Themey] PrevColorScheme`), icon
+theme, Qt application style, Plasma
+Style, desktop grid, and panel lengths (an ordinary
+`kdeglobals`/`kwinrc`/`plasmarc` read,
 not a guess) so `themey apply --revert` can put them back later — including a
 baseline that is itself a third-party theme, not Breeze. Repeated
 `themey apply` calls never overwrite that original snapshot with an
@@ -385,7 +436,7 @@ being tinted to the theme.
 ## Development
 
 ```bash
-uv run pytest              # 826 passed, 1 skipped
+uv run pytest              # 1327 passed, 3 skipped
 uv run ruff check .        # clean
 uv run pyright src         # basic mode
 ```
@@ -401,13 +452,23 @@ third-party work — provenance and licensing are recorded in
 `tests/snapshots/visual/` guard rendering. A phash diff means the pixels
 moved — regenerate only when the change is intended and verified.
 
-Two review scripts support the visual loop:
+Scripts under `scripts/` support the visual and corpus loops:
 
 - `scripts/render_review.py` — fast mock of Aurorae's layout. An
   approximation; it knows nothing about the QML backend and can disagree
   with KWin on tiling, hint margins, and border clamping.
 - `scripts/visual_review.py` — mock mode, or `--live` to swap the running
   session's decoration, screenshot, and revert.
+- `scripts/batch_survey.py --out DIR [--compare PREV/summary.json]` —
+  convert a whole directory of archives in-process without installing,
+  and diff the result against a previous run. The regression net for any
+  analyze/generate change.
+- `scripts/audit_viewitem.py --out DIR` — per-theme measurements, colors
+  and a contact sheet for the menu-highlight art, used to calibrate the
+  stretch-vs-tile decision across a corpus rather than on one screenshot.
+- `scripts/reconvert_installed.py [--dry-run]` — re-convert every
+  `themey_*` package already installed on this machine, so the themes you
+  eyeball are not stale after a generator change.
 
 `themey render` is the truth — `--plugin qml` for the default backend,
 `legacy`/`v2` for the SVG backend. Use the scripts only when `kwin_wayland`
