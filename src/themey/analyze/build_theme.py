@@ -145,6 +145,16 @@ def build_theme(
     # (the main lexer cannot represent lowercase aliases; see analyze/fonts.py).
     # ------------------------------------------------------------------
     fonts = parse_fonts(asset_root)
+    for source, mapped in sorted({
+        (f.source_family, f.family)
+        for f in fonts.values()
+        if f.source_family is not None and f.family is not None
+    }):
+        notes.append(
+            f"fonts: X11 family {source} has no fontconfig alias on a Plasma "
+            f"system; rendered with {mapped} (falls back to the default family "
+            "if absent)"
+        )
 
     # ------------------------------------------------------------------
     # 4. AURORAE-04 state collapse: log dropped sticky/disabled variants.

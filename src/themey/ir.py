@@ -171,6 +171,8 @@ class FontSpec:
     resolves the unit; the QML runtime uses ``pixel_size * scale``.
     ``bold``/``italic`` come from the XLFD weight/slant fields or xft
     ``:bold``/``:italic`` (XCreateFontSet/XftFontOpenName honour them).
+    ``source_family`` records the authored family when ``family`` was
+    aliased to a fontconfig name for a face no modern system carries.
     """
 
     alias: str  # e.g. "font-default"
@@ -180,6 +182,10 @@ class FontSpec:
     points: bool = False
     bold: bool = False
     italic: bool = False
+    # The XLFD/xft family as written, when ``family`` is an alias for it
+    # (``analyze/fonts.py`` ``XLFD_FAMILY_ALIASES``: lucida → DejaVu Sans);
+    # None when ``family`` is the authored name.
+    source_family: str | None = None
 
     @property
     def pixel_size(self) -> int:
