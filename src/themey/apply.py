@@ -1918,13 +1918,9 @@ def apply_full(
         _undo_desktop_grid_column(kw, kr)
     # Park the pre-themey top panel(s) BEFORE creating the furniture: the
     # dragbar is created last, so it is never itself parked, and after
-    # the fit step, so it never enters PrevPanelLengthModes. Without the
-    # dragbar nothing of themey's claims the top edge, so the parked
-    # panels come back instead.
+    # the fit step, so it never enters PrevPanelLengthModes.
     if furniture.dragbar:
         _park_top_panels(kw, kr)
-    else:
-        _undo_top_panel_parking(kw, kr)
     # Only the pager's thickness depends on the screen shape, so the
     # extra scripting round-trip is skipped when it is opted out.
     screen_aspect = (
@@ -1937,6 +1933,11 @@ def apply_full(
     # AFTER every furniture script — plasmashell flushes a scripted
     # `hiding` lazily and would undo this write.
     visibility_pending = _write_furniture_visibility(kw, live_furniture)
+    # Without the dragbar nothing of themey's claims the top edge, so the
+    # parked panels come back — after the dragbar removal above, like
+    # revert does it, so the edge is free when they reappear.
+    if not furniture.dragbar:
+        _undo_top_panel_parking(kw, kr)
 
     needs_restart = False
     wallpaper_id = _read_default_wallpaper_id(lnf_dir)

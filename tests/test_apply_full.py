@@ -2179,9 +2179,12 @@ def test_no_dragbar_skips_parking_and_unparks(fake_kconfig: FakeKConfig) -> None
     fake_kconfig.top_panels_reply = "1912=0:top:none"
     apply_mod.apply_full("e13", furniture=apply_mod.FurnitureOptions(dragbar=False))
     assert all("'parked'" not in c[-1] for c in fake_kconfig.calls)
-    fake_kconfig.index_of("panelById(1911)", "'unparked'")
+    i_unpark = fake_kconfig.index_of("panelById(1911)", "'unparked'")
     assert "PrevTopPanels" not in fake_kconfig.store
-    fake_kconfig.index_of("panelById(303)", "p.remove()")
+    i_remove = fake_kconfig.index_of("panelById(303)", "p.remove()")
+    # The dragbar goes first, so the top edge is free when the user's own
+    # panel reappears — the order revert uses.
+    assert i_remove < i_unpark
     assert "DragbarPanel" not in fake_kconfig.store
     assert all(
         "org.themey.deskbutton" not in c[-1]
