@@ -2382,11 +2382,17 @@ _TASKS_PREFIXES: tuple[tuple[str, str, str | None], ...] = (
 #: own hilited art: a pinned launcher under the mouse reads
 #: ``launcher-hover-`` and never falls back to plain ``hover-``; the
 #: active task under the mouse reads ``focus-hover-`` (clicked chain —
-#: the depressed button stays depressed).
+#: the depressed button stays depressed) and its synthesized recipe is
+#: BOTH — hover on top of focus, or the depressed plate would give no
+#: hover feedback at all.
 _TASKS_HOVER_PREFIXES: tuple[tuple[str, str, str | None], ...] = (
     ("launcher-hover-", "hover", "hover"),
-    ("focus-hover-", "pressed", "focus"),
+    ("focus-hover-", "pressed", "focus-hover"),
 )
+#: Synthesized states that wear the accent bar, one set per
+#: ``_TASKS_FOCUS_EDGES`` entry — every state that means "this is the
+#: active task".
+_TASKS_BAR_STATES: tuple[str, ...] = ("focus", "focus-hover")
 #: (FrameSvg edge prefix, panel-adjacent side) for the focus sets.
 #: ``Task.qml``'s prefix chain is ``["<edge>-<p>", "<p>"]``, so the
 #: UNPREFIXED set is the one a bottom panel gets — the common case — and
@@ -2414,6 +2420,8 @@ _TASKS_OFF_ALPHA: dict[str, float] = {
     "hover": TASKS_HOVER_LIGHTEN,
     "progress": TASKS_HOVER_LIGHTEN,
     "attention": TASKS_ATTENTION_LIGHTEN,
+    # The active task under the mouse wears the bar AND the hover wash.
+    "focus-hover": TASKS_HOVER_LIGHTEN,
 }
 #: Iconbox trough iclasses whose ``__PADDING`` spaces the bare icons in
 #: frames-off mode (E16 ``container.c``: icons sit ``__PADDING`` apart
@@ -2485,17 +2493,21 @@ def _synth_task_states(src: Image.Image) -> dict[str, Image.Image]:
     hilited art always did), ``attention`` blends the HOVER plate
     further so it stays distinct from a mere hover, ``focus`` flips the
     plate VERTICALLY so a bevel's light and dark edges swap — E16's
-    depressed button in one operation — and ``minimized`` fades it out.
-    ``focus`` additionally wears the accent bar
-    :func:`_emit_task_frame` paints.
+    depressed button in one operation — ``focus-hover`` lightens THAT
+    flipped plate so the active task still answers the mouse (as plain
+    ``focus`` it was byte-identical to the unhovered active task), and
+    ``minimized`` fades it out. Every ``_TASKS_BAR_STATES`` entry
+    additionally wears the accent bar :func:`_emit_task_frame` paints.
     """
     hover = _lighten(src, TASKS_HOVER_LIGHTEN)
+    focus = ImageOps.flip(src)
     return {
         "hover": hover,
         "progress": hover,
         "attention": _lighten(hover, TASKS_ATTENTION_LIGHTEN),
         "minimized": _fade(src, TASKS_MINIMIZED_ALPHA),
-        "focus": ImageOps.flip(src),
+        "focus": focus,
+        "focus-hover": _lighten(focus, TASKS_HOVER_LIGHTEN),
     }
 
 
@@ -2774,7 +2786,9 @@ def build_tasks(theme: Theme, *, iconbox_frames: str = "off") -> ET.Element | No
     button is the depressed one; ``attention-``/``progress-`` approximate
     with the hilited chain (E16 has no such states — noted).
     ``launcher-hover-``/``focus-hover-`` ship only with explicit hilited
-    art (``_TASKS_HOVER_PREFIXES``). ``group-expander-*`` come from the
+    art (``_TASKS_HOVER_PREFIXES``); synthesized, ``focus-hover-``
+    composes both — the hover recipe over the focus one — so the active
+    task still answers the mouse. ``group-expander-*`` come from the
     four ``ICONBOX_ARROW_*`` when all exist (the ``build_arrows`` census),
     else they are omitted with a note.
 
@@ -2810,7 +2824,7 @@ def build_tasks(theme: Theme, *, iconbox_frames: str = "off") -> ET.Element | No
         padding = _iconbox_trough_padding(theme)
         for prefix, _state, synth in _TASKS_PREFIXES + _TASKS_HOVER_PREFIXES:
             alpha = _TASKS_OFF_ALPHA.get(synth or "", 0.0)
-            if synth == "focus":
+            if synth in _TASKS_BAR_STATES:
                 for edge_prefix, edge in _TASKS_FOCUS_EDGES:
                     _emit_tint_set(
                         canvas, edge_prefix + prefix, padding, theme.scale,
@@ -2856,7 +2870,7 @@ def build_tasks(theme: Theme, *, iconbox_frames: str = "off") -> ET.Element | No
                     return None  # transparent button art: the file is Breeze's
             elif plate is None:
                 return None
-            elif synth == "focus":
+            elif synth in _TASKS_BAR_STATES:
                 for edge_prefix, edge in _TASKS_FOCUS_EDGES:
                     _emit_task_frame(
                         canvas, edge_prefix + prefix, states[synth], plate,
@@ -2911,7 +2925,8 @@ def build_tasks(theme: Theme, *, iconbox_frames: str = "off") -> ET.Element | No
             "panel-adjacent edge in the active scheme's Highlight colour"
         )
     root = canvas.finish()
-    if "focus" in synthesized:  # the accent bar is the only classed element
+    # The accent bar is the only classed element.
+    if any(s in _TASKS_BAR_STATES for s in synthesized):
         scheme = theme.scheme if theme.scheme is not None else default_scheme()
         _color_stylesheet(root, scheme.selection.background_normal)
     return root

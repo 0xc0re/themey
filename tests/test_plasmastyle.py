@@ -3381,3 +3381,65 @@ def test_tasks_attention_is_lighter_than_hover(tmp_path: Path) -> None:
     assert states["minimized"].getpixel((4, 4))[3] == round(
         255 * plasmastyle.TASKS_MINIMIZED_ALPHA
     )
+
+
+def test_tasks_focus_hover_composes_hover_and_focus_frames_on(
+    tmp_path: Path,
+) -> None:
+    """The active task UNDER THE MOUSE must read as both: synthesizing
+    ``focus-hover-`` as plain ``focus`` gave the depressed plate no hover
+    feedback at all."""
+    png = _bevel_png(tmp_path, "iconbtn.png")
+    hi = _png(tmp_path, "iconbtn_hi.png", color=(90, 200, 90, 255))
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass(
+            "DEFAULT_ICON_BUTTON", normal=png, hilited=hi, padding=(2, 2, 2, 2)
+        ),
+    })
+    svg = plasmastyle.build_tasks(theme, iconbox_frames="on")
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    art = {p: _set_art(by_id, p) for p in ("hover-", "focus-", "focus-hover-")}
+    assert all(art.values())
+    assert art["focus-hover-"] != art["focus-"]
+    assert art["focus-hover-"] != art["hover-"]
+    # It still wears the accent bar, one set per panel edge.
+    for prefix, side in (
+        ("focus-hover-", "bottom"), ("north-focus-hover-", "top"),
+        ("west-focus-hover-", "left"), ("east-focus-hover-", "right"),
+    ):
+        group = by_id[f"{prefix}{side}"]
+        assert [c for c in group if c.get("class") == "ColorScheme-Highlight"]
+
+
+def test_tasks_focus_hover_keeps_real_clicked_art_precedence(
+    tmp_path: Path,
+) -> None:
+    """Real E16 art still wins over every synthesized recipe."""
+    png = _png(tmp_path, "iconbtn.png")
+    hi = _png(tmp_path, "iconbtn_hi.png", color=(90, 200, 90, 255))
+    cl = _png(tmp_path, "iconbtn_cl.png", color=(20, 20, 20, 255))
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass(
+            "DEFAULT_ICON_BUTTON", normal=png, hilited=hi, clicked=cl
+        ),
+    })
+    svg = plasmastyle.build_tasks(theme, iconbox_frames="on")
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    assert _href(by_id, "focus-hover-center") == _href(by_id, "focus-center")
+
+
+def test_tasks_focus_hover_composes_hover_and_focus_frames_off(
+    tmp_path: Path,
+) -> None:
+    """Frames OFF: the hover wash AND the accent bar, not the bar alone."""
+    theme = _theme(tmp_path, {})
+    svg = plasmastyle.build_tasks(theme, iconbox_frames="off")
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    assert by_id["focus-hover-center"].get("style") == "fill:#ffffff;opacity:0.12"
+    assert by_id["focus-center"].get("style") == "opacity:0"
+    bar = by_id["focus-hover-bottom"]
+    assert bar.get("class") == "ColorScheme-Highlight"
+    assert "hover-bottom" not in {k for k in by_id if k == "hover-bottom"}
