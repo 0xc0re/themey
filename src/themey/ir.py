@@ -68,6 +68,13 @@ class ColorScheme:
     wm_active_foreground: tuple[int, int, int]
     wm_inactive_background: tuple[int, int, int]
     wm_inactive_foreground: tuple[int, int, int]
+    accent_fallback: bool = False
+    """True when no cluster of the border art was saturated enough to serve
+    as the theme's accent and ``analyze/colors.BREEZE_ACCENT`` stood in (a
+    ``colors:`` note says so). Every ``decoration_focus``/
+    ``decoration_hover`` in the scheme is then Breeze blue on what is
+    usually a grey or brown theme, so ``generate/plasmastyle.style_scheme``
+    re-points them at the Selection background it sampled from the art."""
 
 
 #: ``IClassSpec.fill_for`` vocabulary (E16 iclass.h FILL_* → themey names).

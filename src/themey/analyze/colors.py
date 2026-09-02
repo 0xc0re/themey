@@ -422,8 +422,15 @@ def _compose(
     wm_inactive_bg: RGB,
     text_active: RGB | None,
     text_inactive: RGB | None,
+    accent_fallback: bool = False,
 ) -> ColorScheme:
-    """Build the full 8-group scheme + [WM] pair from the sampled inputs."""
+    """Build the full 8-group scheme + [WM] pair from the sampled inputs.
+
+    *accent_fallback* records that *accent* is :data:`BREEZE_ACCENT`
+    standing in for art that had no saturated cluster; it rides on the
+    scheme so ``generate/plasmastyle`` can re-point the focus rings at a
+    colour the theme actually contains.
+    """
     base_light = _lightness(tint)
     # Direction "away from mid-grey": a dark theme's View goes darker still,
     # a light theme's View goes lighter. See _LADDER.
@@ -458,7 +465,27 @@ def _compose(
             text_inactive if text_inactive is not None else (255, 255, 255),
             wm_inactive_bg,
         ),
+        accent_fallback=accent_fallback,
     )
+
+
+def view_from_window(background: RGB, accent: RGB, text: RGB | None) -> ColorGroup:
+    """A Colors:View group one ladder step away from mid-grey from
+    *background* — the surface the window/popup group actually paints.
+
+    ``build_scheme`` puts View on the ladder rung above the sampled BORDER
+    tint, which is right for a scheme sampled end to end. When
+    ``generate/plasmastyle`` overrides Window with a colour read off the
+    popup art instead, that rung no longer relates to the surface View sits
+    inside: ShinyMetal's black-tinted BUTTON art put View at rgb(6,6,6)
+    behind a 148-grey Kickoff, i.e. a near-black search field in a light
+    popup. Re-deriving View from the override keeps the pair one Breeze
+    step apart in the same hue.
+    """
+    light = _lightness(background)
+    away = 1.0 if light >= 0.5 else -1.0
+    target = light + away * (_LADDER["view"] - _LADDER["window"])
+    return _group(background, target, accent, text)
 
 
 def default_scheme() -> ColorScheme:
@@ -470,6 +497,7 @@ def default_scheme() -> ColorScheme:
         wm_inactive_bg=DEFAULT_WM_INACTIVE_BG,
         text_active=None,
         text_inactive=None,
+        accent_fallback=True,
     )
 
 
@@ -554,6 +582,7 @@ def build_scheme(
         )
         return default_scheme()
 
+    accent_fallback = accent is None
     if accent is None:
         accent = BREEZE_ACCENT
         notes.append(
@@ -565,6 +594,7 @@ def build_scheme(
     return _compose(
         tint=tint if tint is not None else DEFAULT_TINT,
         accent=accent,
+        accent_fallback=accent_fallback,
         wm_active_bg=wm_active_bg
         if wm_active_bg is not None
         else (wm_inactive_bg if wm_inactive_bg is not None else DEFAULT_WM_ACTIVE_BG),

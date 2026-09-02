@@ -201,3 +201,55 @@ def test_convert_iconbox_frames_off_ships_blank_tasks(fake_home, tmp_path):
     assert any("task frames OFF" in n for n in result.notes)
     meta = json.loads((result.desktop_theme_dir / "metadata.json").read_text())
     assert isinstance(meta["X-Themey-TasksHover"], bool)
+
+
+def test_aliens_normal_art_sits_just_under_the_texture_grain_floor():
+    """Aliens' MENU_SEL normal art (n_menu.png) is the calibration case for
+    ``_TEXTURE_MIN_GRAIN``, and the ONLY corpus case that constrains it:
+    faint bone texture on a rectangular strip that clears every other
+    texture condition, so the grain floor alone is what keeps its middle
+    stretching. Pin the measurement, not just the verdict — a floor lowered
+    to 6 would tile this art with every other assertion still green.
+
+    The synthetic grain/gradient cases live in ``test_plasmastyle.py``
+    (``test_middle_is_textured_grain_vs_gradient``); this is the real art.
+    """
+    from PIL import Image
+
+    from themey.analyze.build_theme import build_theme
+    from themey.etheme.archive import extract
+    from themey.etheme.parse import parse_tree
+
+    with extract(FIXTURES / "Aliens.etheme") as raw:
+        theme = build_theme(
+            raw.asset_root, parse_tree(raw.asset_root),
+            name="Aliens", display_name="Aliens",
+        )
+        spec = theme.iclasses["MENU_SEL"]
+        found = plasmastyle._state_attr(spec, "normal")
+        assert found is not None
+        state_attr, path = found
+        assert path.name == "n_menu.png"
+        with Image.open(path) as im:
+            trimmed = plasmastyle._opaque_trim(
+                im.convert("RGBA"), spec.edge_for(state_attr)
+            )
+        assert trimmed is not None
+        img, edge, _ = trimmed
+        caps, branch = plasmastyle._viewitem_caps(
+            edge, img.width, img.height, rounded=plasmastyle._is_rounded(img)
+        )
+        # Only the bevel branch can tile at all, so the floor is reachable.
+        assert branch == "bevel"
+        stats = plasmastyle._band_stats(img, caps)
+        assert stats is not None
+        grain, drift_v, drift_h = stats
+
+    # Under the floor — and close to it, not trivially far below.
+    assert grain < plasmastyle._TEXTURE_MIN_GRAIN
+    assert grain > plasmastyle._TEXTURE_MIN_GRAIN - 2
+    # Every OTHER condition passes, which is what makes the floor load-bearing.
+    assert drift_v <= plasmastyle._TEXTURE_MAX_DRIFT_V
+    assert grain > plasmastyle._TEXTURE_GRAIN_OVER_DRIFT_V * drift_v
+    assert drift_h <= plasmastyle._TEXTURE_MAX_DRIFT_H_OVER_GRAIN * grain
+    assert plasmastyle._middle_is_textured(img, caps) is False
