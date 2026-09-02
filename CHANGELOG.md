@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.0] - 2026-09-02
 
 ### Added
 
@@ -87,6 +87,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   weight/slant (38 bold titles) and family as a source-less font entry, and
   their point field is treated as points; `xft:family-size:bold` patterns
   (3 themes) are parsed.
+
+### Fixed (window buttons)
+
+- **Themes that define their own action classes get their buttons back.**
+  A border part's `__ACLASS` was matched against a fixed table of E16's
+  stock action names, so a theme-private one was dropped — Ganymede binds
+  its close button to `ACTION_GANYMEDE_KILL` and converted with no
+  clickable buttons at all. The `__ACLASS` blocks in a theme's
+  `actionclasses.cfg` / `buttons.cfg` / `slideouts.cfg` are now read (E16
+  loads all three before `borders.cfg`) and the part is mapped by the
+  window operation it actually fires. E16's own stock action classes are
+  bundled and layered underneath, so a part naming one the theme never
+  defines — `ACTION_WINDOW_SLIDEOUT` alone accounts for 100 of them —
+  resolves too. Across the corpus this recovers 37 buttons in 31 themes.
+  A slideout becomes the window menu and raise/lower become
+  keep-above/keep-below; every such approximation is recorded in
+  `report.txt`.
+- **`BEGIN_*`/`END_*` blocks are terminated.** `END_SLIDEOUT`,
+  `END_BORDER`, `END_IMAGE`, `END_MENU` and friends are object-like
+  macros, and none of them expanded, so every such block was left open
+  and swallowed whatever followed it. Object-like macros now expand
+  except those named `__*` or `XC_*`, which are E16's own keyword ids,
+  cursor constants and action names and must reach the parser verbatim.
 
 ### Added
 
@@ -266,5 +289,8 @@ installable KDE Plasma 6 Global Theme.
 - Converting a theme means handing its fonts and images to your compositor;
   see the residual-risk section of [SECURITY.md](SECURITY.md).
 
-[Unreleased]: https://github.com/0xc0re/themey/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/0xc0re/themey/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/0xc0re/themey/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/0xc0re/themey/compare/v0.2.0...v0.4.0
+[0.2.0]: https://github.com/0xc0re/themey/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/0xc0re/themey/releases/tag/v0.1.0
