@@ -2183,8 +2183,12 @@ def test_no_dragbar_skips_parking_and_unparks(fake_kconfig: FakeKConfig) -> None
     assert "PrevTopPanels" not in fake_kconfig.store
     i_remove = fake_kconfig.index_of("panelById(303)", "p.remove()")
     # The dragbar goes first, so the top edge is free when the user's own
-    # panel reappears — the order revert uses.
-    assert i_remove < i_unpark
+    # panel reappears — the order revert uses. The unpark then has to come
+    # BEFORE the panelVisibility write: it scripts `p.hiding` on the
+    # user's panels, and plasmashell's lazy flush of that would rewrite
+    # plasmashellrc over the windows-go-below values.
+    i_visibility = fake_kconfig.index_of("plasmashellrc", "panelVisibility")
+    assert i_remove < i_unpark < i_visibility
     assert "DragbarPanel" not in fake_kconfig.store
     assert all(
         "org.themey.deskbutton" not in c[-1]

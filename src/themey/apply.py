@@ -103,8 +103,9 @@ pager rather than shrinking every window for it): the scripting engine
 has no string for that mode, so the creation/re-assert scripts leave
 ``hiding`` alone and :func:`_write_furniture_visibility` writes
 ``plasmashellrc [PlasmaViews][Panel <id>] panelVisibility = 3`` AFTER
-every furniture script (plasmashell flushes a scripted ``hiding``
-lazily and would undo an earlier write). That mode is only read at
+every script that touches a panel's ``hiding`` — the furniture ones and
+the dragbar-opt-out unparking alike, since plasmashell flushes a scripted
+``hiding`` lazily and would rewrite the file over an earlier write. That mode is only read at
 plasmashell start-up, so an apply that does not end in a restart warns.
 ``FurnitureOptions.strut`` puts the panels back to NormalPanel and the
 scripted ``hiding = 'none'``.
@@ -403,9 +404,13 @@ _DESKTOPS_GROUP = "Desktops"
 #: engine has no string for WindowsGoBelow — every spelling
 #: (``windowsgobelow``/``windowsbelow``/``WindowsGoBelow``/``windowscover``)
 #: reads back ``'none'`` on Plasma 6.6.6 and the binary carries no
-#: lowercase token for that enum member (verified live 2026-09-01, where
-#: the config write moved KWin's MaximizeArea from x=130 to x=60). The
-#: mode only takes at the next plasmashell start.
+#: lowercase token for that enum member (verified live 2026-09-01). The
+#: written value SURVIVES a plasmashell restart and is in force
+#: afterwards — the spike measured KWin's MaximizeArea moving from x=130
+#: to x=60 only AFTER ``systemctl --user restart plasma-plasmashell``.
+#: Whether the write takes effect without that restart is untested, so
+#: the mode is treated as landing at the next plasmashell start
+#: (:func:`_write_furniture_visibility`).
 _PLASMASHELLRC = "plasmashellrc"
 _PLASMA_VIEWS_GROUP = "PlasmaViews"
 _PANEL_VISIBILITY_KEY = "panelVisibility"
@@ -980,11 +985,14 @@ def _write_furniture_visibility(
     """Write each live furniture panel's ``panelVisibility`` into
     plasmashellrc; True when any panel was set to a non-strut mode.
 
-    Must run AFTER every furniture script: plasmashell flushes a scripted
-    ``hiding`` to the file lazily, and a flush landing after this write
-    would put the panel back to ``none`` (verified live 2026-09-01). The
-    mode itself only takes at the next plasmashell start, which is why
-    the caller warns when this apply is not ending in one.
+    Must run AFTER every script that assigns a panel's ``hiding`` — the
+    furniture scripts and the ``--no-dragbar`` unparking alike:
+    plasmashell flushes a scripted ``hiding`` to the file lazily, and a
+    flush landing after this write would put the panel back to ``none``
+    (verified live 2026-09-01). The mode itself is only known to take at
+    the next plasmashell start, which is why the caller warns when this
+    apply is not ending in one; the written value does survive that
+    restart.
     """
     pending = False
     for spec, panel_id in live:
@@ -1758,8 +1766,9 @@ def apply_full(
     fix-up for the same survive-a-wallpaper-failure reason), the existing
     top panels parked just before them (:func:`_park_top_panels`) so the
     dragbar — created last — is never itself parked, and their
-    ``panelVisibility`` written just after (:func:`_write_furniture_visibility`,
-    which must follow every furniture script).
+    ``panelVisibility`` written last of the whole panel section
+    (:func:`_write_furniture_visibility`, which must follow every script
+    that touches a panel's ``hiding`` — the unparking included).
 
     ``name == "Breeze"`` (case-insensitive) is the one exception: Breeze
     has no Look-and-Feel bundle to verify or baseline to record — it is
@@ -1930,14 +1939,18 @@ def apply_full(
         kw, kr, scale=theme_scale, tasks_hover=tasks_hover,
         furniture=furniture, screen_aspect=screen_aspect,
     )
-    # AFTER every furniture script — plasmashell flushes a scripted
-    # `hiding` lazily and would undo this write.
-    visibility_pending = _write_furniture_visibility(kw, live_furniture)
     # Without the dragbar nothing of themey's claims the top edge, so the
-    # parked panels come back — after the dragbar removal above, like
-    # revert does it, so the edge is free when they reappear.
+    # parked panels come back — after the dragbar removal inside
+    # _ensure_furniture, like revert does it, so the edge is free when
+    # they reappear, and BEFORE the visibility write below: unparking
+    # assigns `p.hiding` on the user's panels, and plasmashell's lazy
+    # flush of that would rewrite plasmashellrc over the panelVisibility
+    # values.
     if not furniture.dragbar:
         _undo_top_panel_parking(kw, kr)
+    # Dead last of the panel work — plasmashell flushes a scripted
+    # `hiding` lazily and would undo this write.
+    visibility_pending = _write_furniture_visibility(kw, live_furniture)
 
     needs_restart = False
     wallpaper_id = _read_default_wallpaper_id(lnf_dir)
