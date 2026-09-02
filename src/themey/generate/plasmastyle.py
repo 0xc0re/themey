@@ -114,6 +114,8 @@ Fidelity notes append to ``theme.notes`` with the ``plasmastyle:`` prefix;
 """
 from __future__ import annotations
 
+import contextvars
+import hashlib
 import json
 import logging
 import shutil
@@ -653,15 +655,59 @@ class _Canvas:
         return self.root
 
 
-def _load_scaled(path: Path, scale: float) -> Image.Image:
-    """Open *path* as RGBA and upscale it by *scale* (NEAREST).
+# Per-``write()`` memo for the EXPENSIVE scalers. Plasma Style art is
+# reused across prefixed sets and states — e13 makes 50 upscale calls for
+# 30 distinct (image, scale, mode) triples, 40% redundant — and a waifu2x
+# call is a ~0.8 s subprocess, so the duplicates cost more than the rest
+# of the package put together. A ContextVar rather than a parameter for
+# the same reason ``upscale`` rides on Theme: the builders are a fixed
+# ``Callable[[Theme], Element | None]`` and the call sites are ~35 deep.
+# Scoped by ``write()`` with a token reset, so nothing leaks between
+# packages or themes.
+_upscale_memo: contextvars.ContextVar[dict[object, Image.Image] | None] = (
+    contextvars.ContextVar("_upscale_memo", default=None)
+)
+
+
+def _scaled(img: Image.Image, scale: float, mode: str) -> Image.Image:
+    """``upscale_part`` with the per-write memo in front of it.
+
+    NEAREST is left entirely alone — it is far cheaper than hashing the
+    image would be, and keeping the default path byte-for-byte on the
+    original code path is what lets the corpus survey stay comparable.
+    Returns a COPY, because callers composite and transform in place and
+    a shared cached Image would alias across sets.
+    """
+    if mode == "nearest":
+        return upscale_part(img, scale, mode)
+    memo = _upscale_memo.get()
+    if memo is None:
+        return upscale_part(img, scale, mode)
+    key = (hashlib.sha256(img.tobytes()).digest(), img.size, scale, mode)
+    hit = memo.get(key)
+    if hit is None:
+        hit = upscale_part(img, scale, mode)
+        memo[key] = hit
+    return hit.copy()
+
+
+def _load_scaled(
+    path: Path, scale: float, mode: str = "nearest"
+) -> Image.Image:
+    """Open *path* as RGBA and upscale it by *scale* using *mode*.
+
+    *mode* is a ``images.upscale.UPSCALE_MODES`` token — callers pass
+    ``theme.upscale`` so the panel and the popup wear the same scaler the
+    window decoration does. *scale* stays a separate argument because
+    several callers override it below ``theme.scale`` (the viewitem row
+    and menu-frame source-scale rules).
 
     Raises OSError/ValueError on unreadable art — the caller skips the
     whole file with a ``plasmastyle:`` note.
     """
     with Image.open(path) as im:
         rgba = im.convert("RGBA")
-    return upscale_part(rgba, scale)
+    return _scaled(rgba, scale, mode)
 
 
 def _scaled_caps(
@@ -1177,7 +1223,7 @@ def _emit_set(
             if note not in theme.notes:
                 theme.notes.append(note)
             scale = 1.0
-    img = upscale_part(src, scale)
+    img = _scaled(src, scale, theme.upscale)
     caps = _scaled_caps(edge, src_w, src_h, scale)
     if clear_center:
         pad = tuple(
@@ -1564,7 +1610,7 @@ def _emit_composite_frame(
         )
 
     loaded: dict[str, Image.Image] = {
-        side: _load_scaled(p, scale) for side, p in strips.items()
+        side: _load_scaled(p, scale, theme.upscale) for side, p in strips.items()
     }
     for corner, name, hstrip, vstrip in _MENU_CORNER_NAMES:
         path = _state_image(theme.iclasses.get(name), "normal")
@@ -1590,7 +1636,7 @@ def _emit_composite_frame(
                 "thicknesses — FrameSvg ignores a corner's own size)"
             )
             continue
-        loaded[corner] = _load_scaled(path, scale)
+        loaded[corner] = _load_scaled(path, scale, theme.upscale)
 
     resolved = _resolve_dialog_source(theme)
     center_src, center_tiled = resolved if resolved is not None else (None, False)
@@ -1599,7 +1645,7 @@ def _emit_composite_frame(
     )
     center_img: Image.Image | None = None
     if center_path is not None:
-        center_img = _load_scaled(center_path, scale)
+        center_img = _load_scaled(center_path, scale, theme.upscale)
         if center_tiled:
             flat = _flat_center(center_path)
             if flat is not None:
@@ -2195,7 +2241,7 @@ def build_arrows(theme: Theme) -> ET.Element | None:
     x = 0
     row_h = 0
     for element, _ in _ARROW_SOURCES:
-        img = _load_scaled(sources[element], theme.scale)
+        img = _load_scaled(sources[element], theme.scale, theme.upscale)
         g = ET.SubElement(canvas.root, f"{{{SVG_NS}}}g", {"id": element})
         _embed_image(g, img, x, canvas.y)
         x += img.width + _GAP
@@ -2319,7 +2365,10 @@ def build_dragbar(theme: Theme) -> ET.Element | None:
         for state in _DRAGBAR_STATES:
             path = _state_image(spec, state)
             assert path is not None  # normal exists, every chain ends there
-            items.append((f"{direction}-{orient}-{state}", _load_scaled(path, theme.scale)))
+            items.append((
+                f"{direction}-{orient}-{state}",
+                _load_scaled(path, theme.scale, theme.upscale),
+            ))
         _emit_plain_row(canvas, items)
         if orient == "horiz":
             shipped.append(name)
@@ -2549,7 +2598,7 @@ def _task_plate(theme: Theme, spec: IClassSpec) -> _TaskPlate | None:
     art, edge, _ = trimmed
     edge = _fit_caps(edge, art.width, art.height) or edge
     scale = _surface_scale(theme, spec, edge)
-    img = upscale_part(art, scale)
+    img = _scaled(art, scale, theme.upscale)
     caps = _scaled_caps(edge, art.width, art.height, scale)
     left, right = _shave_for_center(caps[0], caps[1], img.width)
     top, bottom = _shave_for_center(caps[2], caps[3], img.height)
@@ -2900,7 +2949,7 @@ def build_tasks(theme: Theme, *, iconbox_frames: str = "off") -> ET.Element | No
     if expanders:
         _emit_plain_row(
             canvas,
-            [(el, _load_scaled(p, theme.scale)) for el, p in expanders],
+            [(el, _load_scaled(p, theme.scale, theme.upscale)) for el, p in expanders],
         )
     else:
         theme.notes.append(
@@ -3004,8 +3053,8 @@ def build_checkmarks(theme: Theme) -> ET.Element | None:
     _emit_plain_row(
         canvas,
         [
-            ("checkbox", _load_scaled(check_path, theme.scale)),
-            ("radiobutton", _load_scaled(radio_path or check_path, theme.scale)),
+            ("checkbox", _load_scaled(check_path, theme.scale, theme.upscale)),
+            ("radiobutton", _load_scaled(radio_path or check_path, theme.scale, theme.upscale)),
         ],
     )
     theme.notes.append(
@@ -3040,14 +3089,14 @@ def build_radiobutton(theme: Theme) -> ET.Element | None:
                 "art; widgets/radiobutton left to the Breeze fallback"
             )
         return None
-    normal_img = _load_scaled(normal_path, theme.scale)
+    normal_img = _load_scaled(normal_path, theme.scale, theme.upscale)
     items = [
         ("normal", normal_img),
-        ("checked", _load_scaled(checked_path, theme.scale)),
+        ("checked", _load_scaled(checked_path, theme.scale, theme.upscale)),
     ]
     hover_path = _hilited_image(spec)
     if hover_path is not None:
-        items.append(("hover", _load_scaled(hover_path, theme.scale)))
+        items.append(("hover", _load_scaled(hover_path, theme.scale, theme.upscale)))
     canvas = _Canvas()
     _emit_plain_row(canvas, items)
     _emit_size_hint(canvas, "hint-size", normal_img.width, normal_img.height)
@@ -3122,10 +3171,10 @@ def build_slider(theme: Theme) -> ET.Element | None:
     h_path = _state_image(h_spec, "normal")
     v_path = _state_image(v_spec, "normal")
     assert h_path is not None and v_path is not None  # _iclass_with_art
-    h_img = _load_scaled(h_path, theme.scale)
+    h_img = _load_scaled(h_path, theme.scale, theme.upscale)
     items = [
         ("horizontal-slider-handle", h_img),
-        ("vertical-slider-handle", _load_scaled(v_path, theme.scale)),
+        ("vertical-slider-handle", _load_scaled(v_path, theme.scale, theme.upscale)),
     ]
     hover_missing = []
     for element, spec in (
@@ -3134,7 +3183,7 @@ def build_slider(theme: Theme) -> ET.Element | None:
     ):
         hover = _hilited_image(spec)
         if hover is not None:
-            items.append((element, _load_scaled(hover, theme.scale)))
+            items.append((element, _load_scaled(hover, theme.scale, theme.upscale)))
         else:
             hover_missing.append(element)
     _emit_plain_row(canvas, items)
@@ -3710,6 +3759,7 @@ def write(theme: Theme, out_dir: Path, *, iconbox_frames: str = "off") -> Plasma
         (rel, partial(build_tasks, iconbox_frames=iconbox_frames) if rel == TASKS_SVG else b)
         for rel, b in _BUILDERS
     ]
+    memo_token = _upscale_memo.set({})
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
         _write_metadata(theme, out_dir, iconbox_frames)
@@ -3771,6 +3821,10 @@ def write(theme: Theme, out_dir: Path, *, iconbox_frames: str = "off") -> Plasma
     except Exception as exc:
         shutil.rmtree(out_dir, ignore_errors=True)
         raise PlasmaStyleError(f"could not write Plasma Style {pkg_id}: {exc}") from exc
+    finally:
+        # The memo holds one scaled Image per distinct source; drop it with
+        # the call so nothing survives into the next package.
+        _upscale_memo.reset(memo_token)
 
     log.info(
         "Plasma Style %s: %d svg(s) shipped (%s)",

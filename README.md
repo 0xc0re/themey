@@ -68,8 +68,8 @@ Working today:
 - `.etheme` parsing (lexer, parser, AST) with hardened archive extraction
 - **QML decoration backend (default)** — an E16-faithful KWin/Decoration
   KPackage: unclamped borders, text-sized title plaques, side-border button
-  stacks, theme TTF fonts, fractional `--scale`, and an opt-in hqx
-  quality-upscale path
+  stacks, theme TTF fonts, fractional `--scale`, and two opt-in smoothing
+  upscalers (in-tree hqx, or waifu2x-ncnn-vulkan when installed)
 - **SVG decoration backend** (`--backend svg`) — the original Aurorae SVG
   theme (`decoration.svg`, `<name>rc`, button SVGs); kept as an escape hatch,
   clamped to the KWin Border-size brackets
@@ -190,7 +190,7 @@ themey Aliens.etheme --no-open           # skip the browser
 | Flag | Meaning |
 |------|---------|
 | `--scale N` | Border/image upscale factor in `[0.5, 3]`. Default `2`. Values below 1 shrink borders below their native E16 size (0.5 is the floor — below that, 1-px pixel-art features vanish). Fractional values (e.g. `1.5` or `0.5`) are accepted only with the QML backend — the SVG backend requires an integer. |
-| `--upscale MODE` | Part-art scaler: `nearest` (default, pixel-art sharp, NEAREST resampling) or `quality` (hqx smoothing, then a LANCZOS *downsample* to the fractional target). `quality` is QML-backend-only. |
+| `--upscale MODE` | Part-art scaler: `nearest` (default, pixel-art sharp, NEAREST resampling), `quality` (in-tree hqx smoothing), or `waifu2x` (waifu2x-ncnn-vulkan, a CNN trained on this task — see below). Both smoothing modes overshoot to a factor they support and LANCZOS *downsample* to the target; both are QML-backend-only. `waifu2x` falls back to `quality` with an `upscale:` note in `report.txt` when the binary or its models are missing, so a conversion never fails for want of it. |
 | `--backend NAME` | Decoration backend: `qml` (default — the E16-faithful QML KPackage), `svg` (the legacy Aurorae SVG theme), or `both`. |
 | `--shade-button ACTION` | QML-backend-only. KWin removed window shading in Plasma 6, so E16's shade button is dead weight; this remaps it instead. One of `maximize` (default), `keepAbove`, `keepBelow`, `menu`, `hide`, or `none` (today's inert disabled button, which still absorbs clicks). e13, for example, has no maximize button of its own, so the dead shade slot becomes the missing action. |
 | `--iconbox-frames MODE` | Plasma Style task frames on the icon task manager: `off` (default — E16's own frameless iconbox, `container.c` `draw_icon_base = 0`: bare icons on the trough) or `on` (the theme's iconbox button art as a plate under every icon). Either way the task states are told apart: hover, attention, minimized and the active task are synthesized from the theme's own plate when E16 authored no such art, and the active task wears a 2 px accent bar in the color scheme's selection color. |
@@ -320,6 +320,59 @@ the System Settings "Border size" bracket; `--deco-only --backend svg` reads
 the installed `<name>rc` and picks the smallest bracket that fits unless
 `--border-size` overrides it. The QML backend (the default) never clamps —
 it draws its own unclamped borders and ignores `--border-size` entirely.
+
+### waifu2x upscaling (optional)
+
+```bash
+themey Aliens.etheme --upscale waifu2x
+```
+
+E16 border art is 13–30 px pixel art. `nearest` keeps it honest and sharp;
+`quality` smooths it with the in-tree hqx port; `waifu2x` runs
+[waifu2x-ncnn-vulkan](https://github.com/nihui/waifu2x-ncnn-vulkan), a CNN
+that reconstructs edges rather than blurring them. It is local, free,
+deterministic and offline — themey makes no network call under any flag.
+
+It needs **two** things, and installs commonly get only the first. Upstream
+ships the executable and its `models-*` directories as flat siblings in one
+folder, and the tool resolves its default `-m models-cunet` against the
+*current directory* — so copying just the binary onto your `PATH` leaves it
+runnable and modelless. themey always passes an explicit `-m`, and looks for
+the weights in this order:
+
+1. `$THEMEY_WAIFU2X_MODELS` (the parent of the `models-*` dirs, or one of them)
+2. the directory the binary is in — upstream's own layout
+3. `/usr/local/share/waifu2x-ncnn-vulkan/models-cunet`
+4. `/usr/share/waifu2x-ncnn-vulkan/models-cunet`
+
+So a working install from the release zip is:
+
+```bash
+sudo cp waifu2x-ncnn-vulkan /usr/local/bin/
+sudo mkdir -p /usr/local/share/waifu2x-ncnn-vulkan
+sudo cp -r models-* /usr/local/share/waifu2x-ncnn-vulkan/
+```
+
+Device selection is waifu2x's own `-g auto`. If it chooses badly on your
+machine, `THEMEY_WAIFU2X_GPU=<index>` pins one — the indices are in the
+banner waifu2x prints to stderr. The first run against a device compiles its
+shader pipelines and is much slower than every run after it (36 s vs 1.7 s
+here), so don't judge the speed by the first conversion.
+
+If either half is missing, the conversion still succeeds: the art is upscaled
+with hqx instead and `report.txt` records an `upscale:` note naming what was
+not found. Scope is the **window decoration only** — the Plasma Style, color
+scheme, wallpapers and cursors are derived from the source art on separate
+code paths and stay NEAREST regardless of this flag. Expect roughly 20 s for
+a theme like e13 on a discrete GPU: the run is one subprocess per *distinct*
+source image (e13: 26, not its 76 manifest entries), each paying ~2.8 s of
+Vulkan startup.
+
+Because waifu2x anti-aliases the alpha channel as well as the colour, a
+shaped part ships a soft silhouette rather than E16's 1-bit mask. That is
+deliberate — a hard cut would re-staircase the edges the CNN was run to
+smooth — and it only reaches the QML backend, which composites RGBA
+correctly.
 
 ### Render
 

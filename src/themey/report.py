@@ -18,11 +18,21 @@ from .generate.decoration_svg import strip_thicknesses
 from .ir import Theme, WallpaperSpec
 from .kwin import recommended_border_size
 
+# Named per --upscale mode so the Approximated line always says which
+# scaler produced the shipped art. Unknown modes read as NEAREST, the
+# baseline every mode falls back to.
+_SCALER_LABELS = {
+    "nearest": "NEAREST",
+    "quality": "hqx (--upscale quality)",
+    "waifu2x": "waifu2x (--upscale waifu2x)",
+}
+
 
 def write(
     theme: Theme,
     out_path: Path,
     backend: str = "svg",
+    upscale: str = "nearest",
     wallpaper_specs: tuple[WallpaperSpec, ...] | None = None,
     cursor_theme: CursorTheme | None = None,
     lnf_id: str | None = None,
@@ -32,7 +42,12 @@ def write(
     """Write report.txt for *theme* to *out_path*.
 
     ``backend`` ("svg" | "qml" | "both") selects which Apply guidance is
-    emitted. ``wallpaper_specs`` is the set of wallpapers *actually
+    emitted. ``upscale`` ("nearest" | "quality" | "waifu2x") names the scaler
+    that actually ran, so the Approximated line cannot claim NEAREST
+    after a ``--upscale quality`` run (it did exactly that until
+    2026-09-02). pipeline.py passes the EFFECTIVE mode, so a waifu2x
+    run that fell back to hqx reports hqx.
+    ``wallpaper_specs`` is the set of wallpapers *actually
     installed* — pipeline.py passes the subset of ``theme.wallpaper_specs``
     that survived ``write_package`` (some may fail: oversized, corrupt,
     unopenable) so the status line below never overstates what's on disk.
@@ -189,7 +204,8 @@ def write(
     # buried past line 20.
     _layout_prefixes = (
         "aurorae_rc:", "bundle:", "colors:", "composite:", "cursors:",
-        "fonts:", "icons:", "plasmastyle:", "qmldeco:", "tooltips:", "wallpaper:",
+        "fonts:", "icons:", "plasmastyle:", "qmldeco:", "tooltips:",
+        "upscale:", "wallpaper:",
     )
     layout_notes = [n for n in theme.notes if n.startswith(_layout_prefixes)]
     state_notes = [n for n in theme.notes if not n.startswith(_layout_prefixes)]
@@ -205,8 +221,9 @@ def write(
         lines.append(f"  - {note}")
     if len(state_notes) > 20:
         lines.append(f"  ... ({len(state_notes) - 20} more)")
+    scaler = _SCALER_LABELS.get(upscale, "NEAREST")
     lines.append(
-        f"- Pixel-art borders upscaled {theme.scale}x with NEAREST. "
+        f"- Pixel-art borders upscaled {theme.scale}x with {scaler}. "
         "Pixel-perfect on 1.0x/2.0x/3.0x display scales; "
         "approximate at fractional 1.25x/1.5x/1.75x."
     )

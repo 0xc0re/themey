@@ -20,6 +20,8 @@ from pathlib import Path
 
 import pytest
 
+from themey import external
+
 RUNTIME = (
     Path(__file__).resolve().parents[1] / "src" / "themey" / "generate" / "qmldeco" / "runtime"
 )
@@ -365,7 +367,20 @@ def test_runtime_passes_qmllint():
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize("mode", ["nearest", "quality"])
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "nearest",
+        "quality",
+        pytest.param(
+            "waifu2x",
+            marks=pytest.mark.skipif(
+                not external.waifu2x_available(),
+                reason="waifu2x-ncnn-vulkan or its model weights not installed",
+            ),
+        ),
+    ],
+)
 def test_exported_image_dims_follow_scale_px_at_fractional_scale(tmp_path, mode):
     """Art dims and BorderImage insets use the SAME rounding (scale_px) —
     mismatched rounding smears the 9-patch caps."""

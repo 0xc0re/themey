@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+from themey import external
 from themey.generate.wallpaper import (
     MAX_IMAGE_PIXELS,
     WallpaperError,
@@ -382,3 +383,122 @@ def test_write_package_metadata_no_solid_key_without_solid(tmp_path: Path) -> No
     write_package(theme, WallpaperSpec(path=src, fill_mode="fit"), pkg_dir)
     meta = json.loads((pkg_dir / "metadata.json").read_text())
     assert "X-Themey-SolidColor" not in meta
+
+
+# --------------------------------------------------------------------- #
+# waifu2x upscaling (--upscale waifu2x only)
+# --------------------------------------------------------------------- #
+
+needs_waifu2x = pytest.mark.skipif(
+    not external.waifu2x_available(),
+    reason="waifu2x-ncnn-vulkan or its model weights not installed",
+)
+
+
+def _jpeg(path: Path, size: tuple[int, int]) -> Path:
+    """A JPEG with real structure — a flat fill compresses to nothing and
+    tells us nothing about re-encode size."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    img = Image.new("RGB", size)
+    px = img.load()
+    assert px is not None
+    for y in range(size[1]):
+        for x in range(size[0]):
+            px[x, y] = ((x * 7) % 256, (y * 5) % 256, ((x + y) * 3) % 256)
+    img.save(path, format="JPEG", quality=85)
+    return path
+
+
+def test_default_mode_leaves_wallpapers_untouched(tmp_path: Path) -> None:
+    """nearest/quality must not touch wallpapers: hqx on a photo is wrong,
+    and this is the behaviour every existing package depends on."""
+    src = _jpeg(tmp_path / "src" / "bg.jpg", (64, 48))
+    theme = _make_theme()
+    spec = WallpaperSpec(path=src, fill_mode="stretch")
+    pkg_dir = tmp_path / wallpaper_id(theme.name, "bg")
+    pkg = write_package(theme, spec, pkg_dir)
+    assert pkg.width == 64 and pkg.height == 48
+    # byte-for-byte passthrough is the documented contract at default
+    shipped = pkg.dir / "contents" / "images" / "64x48.jpg"
+    assert shipped.read_bytes() == src.read_bytes()
+
+
+def test_upscale_only_applies_below_the_threshold(tmp_path: Path) -> None:
+    """A source that already covers a 1080p width ships as-is — 2x-ing a
+    1920-wide image only bloats the package."""
+    from themey.generate.wallpaper import WALLPAPER_UPSCALE_MAX_WIDTH
+
+    big = WALLPAPER_UPSCALE_MAX_WIDTH
+    src = _jpeg(tmp_path / "src" / "wide.jpg", (big, 100))
+    theme = _make_theme()
+    object.__setattr__(theme, "upscale", "waifu2x")
+    spec = WallpaperSpec(path=src, fill_mode="stretch")
+    pkg = write_package(theme, spec, tmp_path / wallpaper_id(theme.name, "wide"))
+    assert (pkg.width, pkg.height) == (big, 100)
+
+
+@needs_waifu2x
+def test_waifu2x_doubles_a_small_wallpaper(tmp_path: Path) -> None:
+    src = _jpeg(tmp_path / "src" / "small.jpg", (64, 48))
+    theme = _make_theme()
+    object.__setattr__(theme, "upscale", "waifu2x")
+    spec = WallpaperSpec(path=src, fill_mode="stretch")
+    pkg = write_package(theme, spec, tmp_path / wallpaper_id(theme.name, "small"))
+    assert (pkg.width, pkg.height) == (128, 96)
+    # Lossless PNG even from a JPEG source: once the byte-for-byte
+    # passthrough is forfeit the format is ours, and a re-encode would
+    # stack a second generation of loss on the CNN's reconstruction.
+    assert (pkg.dir / "contents" / "images" / "128x96.png").is_file()
+    assert not (pkg.dir / "contents" / "images" / "128x96.jpg").exists()
+
+
+@needs_waifu2x
+def test_upscaled_wallpapers_are_lossless_whatever_the_source(
+    tmp_path: Path,
+) -> None:
+    """Both source containers land on PNG — the choice is quality, and a
+    JPEG source is exactly the case where another lossy pass is worst."""
+    theme = _make_theme()
+    object.__setattr__(theme, "upscale", "waifu2x")
+    for stem, maker, ext in (("j", _jpeg, "jpg"), ("p", _png, "png")):
+        src = maker(tmp_path / "src" / f"{stem}.{ext}", (64, 48))
+        spec = WallpaperSpec(path=src, fill_mode="stretch")
+        pkg = write_package(
+            theme, spec, tmp_path / wallpaper_id(theme.name, stem)
+        )
+        images = list((pkg.dir / "contents" / "images").iterdir())
+        assert [i.suffix for i in images] == [".png"], (stem, images)
+
+
+def test_waifu2x_failure_ships_the_original_with_a_note(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A scaler failure must never fail the conversion — same spirit as
+    the hqx fallback in pipeline.convert."""
+    monkeypatch.setattr(
+        "themey.generate.wallpaper.waifu2x",
+        lambda img, factor: (_ for _ in ()).throw(external.Waifu2xError("boom")),
+    )
+    src = _jpeg(tmp_path / "src" / "small.jpg", (64, 48))
+    theme = _make_theme()
+    object.__setattr__(theme, "upscale", "waifu2x")
+    spec = WallpaperSpec(path=src, fill_mode="stretch")
+    pkg = write_package(theme, spec, tmp_path / wallpaper_id(theme.name, "small"))
+    assert (pkg.width, pkg.height) == (64, 48)
+    assert any(n.startswith("wallpaper:") and "boom" in n for n in theme.notes)
+
+
+def test_upscale_never_breaches_the_decompression_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The guard is checked against the POST-upscale size: a source that
+    passes at 1x can be 4x the pixels afterwards."""
+    monkeypatch.setattr(
+        "themey.generate.wallpaper.MAX_IMAGE_PIXELS", 64 * 48 * 2
+    )
+    src = _jpeg(tmp_path / "src" / "small.jpg", (64, 48))
+    theme = _make_theme()
+    object.__setattr__(theme, "upscale", "waifu2x")
+    spec = WallpaperSpec(path=src, fill_mode="stretch")
+    pkg = write_package(theme, spec, tmp_path / wallpaper_id(theme.name, "small"))
+    assert (pkg.width, pkg.height) == (64, 48)

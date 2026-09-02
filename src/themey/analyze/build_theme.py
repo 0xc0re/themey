@@ -85,6 +85,7 @@ def build_theme(
     display_name: str | None = None,
     author: str | None = None,
     scale: float = 2,
+    upscale: str = "nearest",
 ) -> Theme:
     """Compose AST + asset_root into a frozen Theme IR.
 
@@ -95,6 +96,11 @@ def build_theme(
     REFERENCE_WINDOW_WIDTH=800.
     Applies AURORAE-04 state collapse, appending dropped-state notes.
     Falls back to filename-pattern discovery if zero __BORDER blocks were parsed.
+
+    ``upscale`` is the scaler ``scale`` is applied with — stored on the
+    Theme and read by ``generate/plasmastyle.py``. Callers pass the
+    EFFECTIVE mode (``pipeline.convert`` resolves waifu2x availability
+    before building), so no consumer can select a scaler that cannot run.
 
     Returns a Theme. Theme.notes is the only mutable accumulator; it is
     populated during this call and passed into the Theme as-is.
@@ -358,6 +364,7 @@ def build_theme(
         display_name=display_name or name,
         author=author,
         scale=scale,
+        upscale=upscale,
         asset_root=asset_root,
         border=border,
         iclasses=iclasses,

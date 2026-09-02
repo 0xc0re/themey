@@ -5,6 +5,76 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-09-02
+
+### Added
+
+- **`--upscale waifu2x`** — a third part-art scaler, running
+  [waifu2x-ncnn-vulkan](https://github.com/nihui/waifu2x-ncnn-vulkan) on
+  the window-decoration art. Local, free, deterministic and offline; the
+  CNN reconstructs edges where hqx only smooths them. QML-backend-only,
+  like `--upscale quality`.
+
+  The binary needs its `models-*` directories, which most installs miss —
+  upstream ships them as flat siblings of the executable and the tool
+  resolves `-m` against the *current directory*, so copying just the
+  binary onto `PATH` leaves it runnable and modelless. themey passes an
+  explicit `-m`, probing `$THEMEY_WAIFU2X_MODELS`, the binary's own
+  directory, then `/usr/local/share/` and `/usr/share/`. When either half
+  is missing the conversion still succeeds: the art is upscaled with hqx
+  and `report.txt` carries an `upscale:` note naming what was not found.
+
+  `THEMEY_WAIFU2X_GPU=<index>` pins the Vulkan device when the tool's own
+  auto-pick chooses badly. A timeout now quotes the device banner waifu2x
+  printed before it was killed, and the limit is 300 s — a hang guard, not
+  a performance budget, sized to clear the one-off shader-pipeline compile
+  the first run against a device pays (36 s vs 1.7 s warm, measured).
+
+- **`--upscale` now reaches the Plasma Style.** Panels, Kickoff/popup,
+  tooltip, task and pager chrome are scaled with the same scaler as the
+  window decoration; previously all three `plasmastyle.py` call sites took
+  the default, so a themed desktop showed smoothed window frames beside a
+  staircased panel. The mode rides on `ir.Theme.upscale`, beside `scale`.
+
+  Changing the scaler cannot move geometry — classifiers run on source art
+  and caps derive from source dims × scale — and a test pins that by
+  comparing emitted SVGs with the rasters blanked. Style art repeats across
+  prefixed sets, so `write()` memoizes the expensive modes: e13 goes 71 → 53
+  waifu2x launches (57.9 → 39.8 s).
+- **Wallpapers are upscaled too under `--upscale waifu2x`.** E16
+  wallpapers are 512–1024 px and desktops are not, so Plasma has been
+  upsampling them; doubling first means it downsamples instead. Verified
+  against LANCZOS-straight-to-1920x1080 on five corpus wallpapers from
+  512x400 to 1280x1024 — waifu2x won every one, most visibly on text and
+  fine mechanical detail. Only below `WALLPAPER_UPSCALE_MAX_WIDTH`
+  (1920), only under `waifu2x` (hqx on a photograph is the wrong tool),
+  and a scaler failure ships the original with a `wallpaper:` note rather
+  than failing the conversion.
+
+  Upscaled wallpapers are written as **lossless PNG** whatever the source
+  container was: once the byte-for-byte passthrough is forfeit the format
+  is ours to pick, and a JPEG re-encode would stack a second generation of
+  loss on a CNN's reconstruction of an already-lossy source. Measured on a
+  doubled 800x600 corpus wallpaper, q92 costs 0.85 mean / 13 max RGB error
+  to save 1.9 MB. The price is package size — Aliens goes ~3 MB at
+  `nearest` to ~14 MB at `waifu2x`.
+
+### Fixed
+
+- `report.txt`'s Approximated section named the scaler that actually ran.
+  It hardcoded "NEAREST" through every `--upscale quality` run.
+- The SVG backend's rejection of a smoothing `--upscale` mode said
+  "quality" whatever mode you passed.
+- `upscale_part` dispatched by falling through to hqx for anything past
+  the `nearest` early-returns, so a new mode would have silently rendered
+  as hqx. Each mode now has an explicit branch and the fall-through raises.
+
+### Changed
+
+- `generate/qmldeco/package.export_images` scales each *distinct* source
+  image once instead of once per manifest entry (e13: 26 rather than 76).
+  Output is unchanged; the corpus survey is byte-identical.
+
 ## [0.5.0] - 2026-09-02
 
 ### Added
