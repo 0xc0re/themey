@@ -335,3 +335,82 @@ def test_unknown_aclass_logged_in_notes(tmp_path) -> None:
     assert any(
         "ACTION_BLOOP" in n for n in theme.notes
     ), f"unknown ACLASS not logged; notes={theme.notes}"
+
+
+# ---------------------------------------------------------------------------
+# Tier 1b: __ACLASS name resolved through the theme's own __ACLASS blocks
+#
+# E16 loads actionclasses.cfg / buttons.cfg / slideouts.cfg before
+# borders.cfg, so a theme-private name like Ganymede's ACTION_GANYMEDE_KILL
+# is a real, resolvable binding — not an unknown.
+# ---------------------------------------------------------------------------
+
+
+def test_unknown_aclass_resolves_through_its_action_verb() -> None:
+    code, source = classify_button(
+        "ACTION_GANYMEDE_KILL",
+        "BORDER_TOPLEFT",
+        aclass_verbs={"ACTION_GANYMEDE_KILL": "__A_KILL"},
+    )
+    assert (code, source) == ("X", "verb")
+
+
+def test_verb_tier_drops_chrome_verbs() -> None:
+    """__A_MOVE is titlebar drag — KDecoration gives it for free."""
+    code, source = classify_button(
+        "ACTION_MOVE_ONLY",
+        "BORDER_TITLE",
+        aclass_verbs={"ACTION_MOVE_ONLY": "__A_MOVE"},
+    )
+    assert (code, source) == (None, "drop")
+
+
+def test_slideout_verb_maps_to_the_window_menu() -> None:
+    """E16's slideout is 'a bar of more buttons to control the Window with'
+    (Ganymede's own tooltip) — KWin's window menu is the analogue."""
+    code, source = classify_button(
+        "ACTION_WINDOW_SLIDEOUT",
+        "BORDER_MIDDLE",
+        aclass_verbs={"ACTION_WINDOW_SLIDEOUT": "__A_SLIDEOUT"},
+    )
+    assert (code, source) == ("M", "verb")
+
+
+def test_static_name_table_still_wins_over_the_verb_map() -> None:
+    """A stock name keeps its curated mapping even if the theme rebinds it."""
+    code, source = classify_button(
+        "ACTION_CLOSE",
+        "BORDER_TOPLEFT",
+        aclass_verbs={"ACTION_CLOSE": "__A_MOVE"},
+    )
+    assert (code, source) == ("X", "aclass")
+
+
+def test_unresolvable_verb_still_reports_unknown_aclass() -> None:
+    code, source = classify_button(
+        "ACTION_GANYMEDE_KILL",
+        "BORDER_TOPLEFT",
+        aclass_verbs={"ACTION_SOMETHING_ELSE": "__A_KILL"},
+    )
+    assert (code, source) == (None, "unknown_aclass")
+
+
+def test_launcher_verb_drops_silently() -> None:
+    """__A_EXEC on a border part is a launcher — no Aurorae button, and no
+    note either, matching the stock ACTION_EXEC entry in ACLASS_DROP."""
+    code, source = classify_button(
+        "ACTION_EXEC_MUSIC",
+        "BORDER_MIDDLE",
+        aclass_verbs={"ACTION_EXEC_MUSIC": "__A_EXEC"},
+    )
+    assert (code, source) == (None, "drop")
+
+
+def test_resolvable_but_unmapped_verb_reports_unknown_aclass() -> None:
+    """__A_SNAPSHOT is a real window op with no Aurorae button — surface it."""
+    code, source = classify_button(
+        "ACTION_SNAPSHOT",
+        "BORDER_MIDDLE",
+        aclass_verbs={"ACTION_SNAPSHOT": "__A_SNAPSHOT"},
+    )
+    assert (code, source) == (None, "unknown_aclass")

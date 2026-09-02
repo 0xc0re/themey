@@ -315,7 +315,7 @@ def build_theme_data(
     parts: list[dict] = []
 
     for i, part in enumerate(theme.border.parts):
-        orig_kind = button_kind(part)
+        orig_kind = button_kind(part, theme.aclass_verbs)
         kind = orig_kind
         hidden_shade = False
         if orig_kind == "shade":

@@ -31,3 +31,62 @@ def fake_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.delenv("XDG_DATA_HOME", raising=False)
     (tmp_path / ".local" / "share").mkdir(parents=True, exist_ok=True)
     return tmp_path
+
+
+GANYMEDE_SLIDEOUTS = """\
+__ACLASS __BGN
+  __NAME ACTION_GANYMEDE_KILL
+  __TYPE __TYPE_NORMAL
+  __EVENT __MOUSE_RELEASE
+  __BUTTON 1
+  __ACTION __A_KILL
+  __NEXT_ACTION
+  __BUTTON 3
+  __ACTION __A_ICONIFY
+__END
+"""
+
+GANYMEDE_BORDERS = """\
+__BORDER __BGN
+  __NAME DEFAULT
+  __BORDER_SIZE_LEFT 5
+  __BORDER_SIZE_RIGHT 5
+  __BORDER_SIZE_TOP 23
+  __BORDER_SIZE_BOTTOM 5
+  __BORDER_PART __BGN
+    __ICLASS BORDER_TOPLEFT
+    __ACLASS ACTION_GANYMEDE_KILL
+    __TOPLEFT_X_PERCENTAGE 0
+    __TOPLEFT_X_ABSOLUTE 0
+    __TOPLEFT_Y_PERCENTAGE 0
+    __TOPLEFT_Y_ABSOLUTE 0
+    __BOTTOMRIGHT_X_PERCENTAGE 0
+    __BOTTOMRIGHT_X_ABSOLUTE 22
+    __BOTTOMRIGHT_Y_PERCENTAGE 0
+    __BOTTOMRIGHT_Y_ABSOLUTE 23
+  __END
+  __BORDER_PART __BGN
+    __ICLASS BORDER_TITLE
+    __ACLASS ACTION_MOVE
+    __FLAGS __FLAG_TITLE
+    __TOPLEFT_X_PERCENTAGE 0
+    __TOPLEFT_X_ABSOLUTE 22
+    __TOPLEFT_Y_PERCENTAGE 0
+    __TOPLEFT_Y_ABSOLUTE 0
+    __BOTTOMRIGHT_X_PERCENTAGE 1024
+    __BOTTOMRIGHT_X_ABSOLUTE -1
+    __BOTTOMRIGHT_Y_PERCENTAGE 0
+    __BOTTOMRIGHT_Y_ABSOLUTE 23
+  __END
+__END
+"""
+
+
+@pytest.fixture
+def ganymede_tree(tmp_path: Path) -> Path:
+    """A theme tree in Ganymede's shape: a border part bound to a
+    theme-private __ACLASS defined in slideouts.cfg, the way E16's
+    ThemeConfigLoad reads them (config.c:580, slideouts before borders)."""
+    (tmp_path / "borders.cfg").write_text(GANYMEDE_BORDERS)
+    (tmp_path / "slideouts.cfg").write_text(GANYMEDE_SLIDEOUTS)
+    return tmp_path

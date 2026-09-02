@@ -177,14 +177,33 @@ _RE_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 #: Verbatim E16 1.0.31 ``config/definitions`` (see data/README.md).
 _BUNDLED_DEFINITIONS = Path(__file__).parent / "data" / "e16_definitions"
+# Object-like defines in <definitions> that must reach the parser verbatim:
+# E16 keyword ids and __A_* action names (__*), X cursor ids (XC_*).
+_IDENTITY_DEFINE = re.compile(r"(?:__|XC_)")
 _bundled_macros: _Defines | None = None
 
 
 def _bundled_definitions() -> _Defines:
-    """The bundled definitions file's FUNCTION-LIKE macros, parsed once.
+    """The bundled definitions file's usable macros, parsed once.
 
-    Object-like defines are deliberately skipped (module docstring): they
-    are E16's numeric keyword ids and XC_* cursor constants.
+    Every FUNCTION-like macro is registered. Of the object-like ones only
+    those NOT named ``__*`` or ``XC_*`` are (see ``_IDENTITY_DEFINE``):
+    that prefix pair is exactly E16's own vocabulary — the numeric config
+    ids (``__BGN 999``, ``__ON 1``, ``__NORMAL 402``), the ``XC_*`` X
+    cursor constants, and the ``__A_*`` action macros whose bodies are IPC
+    command strings (``__A_KILL`` -> ``wop * close``). Expanding any of
+    those would replace the keyword grammar with numbers and replace an
+    action's identity with a command line (analyze/aclasses.py reads the
+    ``__A_*`` NAME).
+
+    The 36 object-like macros that remain are all block-structure sugar —
+    ``END_SLIDEOUT``/``END_BORDER``/``END_IMAGE`` -> ``__END``,
+    ``BEGIN_FONTS`` -> ``__FONTS __BGN``, ``TEXT_JUSTIFY_CENTER`` ->
+    ``__JUSTIFICATION 512``, the ``__ON`` flag shorthands. Skipping them
+    left every ``BEGIN_*``/``END_*`` pair in the corpus unterminated, so
+    the block swallowed everything after it: Ganymede's ``__ACLASS``
+    blocks ended up inside an unclosed ``__SLIDEOUT`` and its window
+    buttons were dropped.
     """
     global _bundled_macros
     if _bundled_macros is None:
@@ -192,11 +211,17 @@ def _bundled_definitions() -> _Defines:
         text = _BUNDLED_DEFINITIONS.read_text(encoding="utf-8", errors="replace")
         for ln in _join_continuations(_strip_c_comments(text)).split("\n"):
             m = _RE_DEFINE.match(ln)
-            if m and m.group(2) is not None:
-                params = tuple(
+            if m is None:
+                continue
+            if m.group(2) is not None:
+                params: tuple[str, ...] | None = tuple(
                     p.strip() for p in m.group(2)[1:-1].split(",") if p.strip()
                 )
-                macros[m.group(1)] = (params, m.group(3).strip())
+            elif _IDENTITY_DEFINE.match(m.group(1)):
+                continue  # E16's own keyword / cursor / action vocabulary
+            else:
+                params = None
+            macros[m.group(1)] = (params, m.group(3).strip())
         _bundled_macros = macros
     return _bundled_macros
 _RE_BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)

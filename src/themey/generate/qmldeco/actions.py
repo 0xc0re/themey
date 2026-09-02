@@ -7,7 +7,13 @@ fires. The mapping mirrors chris's plan: KILL/CLOSE→close,
 ICONIFY→minimize, MAX→maximizeRestore, SHADE→shade, STICK→onAllDesktops,
 KEEP_ABOVE/BELOW→keepAbove/keepBelow, MENU→menu.
 
-ACTION_MOVE / ACTION_RESIZE* / unknown aclasses are plain chrome —
+An __ACLASS name the stock table doesn't cover is resolved through the
+``__ACLASS __BGN`` block that defined it (analyze/aclasses.py) and mapped
+by its ``__A_*`` verb — the same tier the SVG backend gained, sharing
+analyze/buttons.py's VERB_TO_BUTTON/VERB_DROP tables so both backends
+agree. Ganymede's ACTION_GANYMEDE_KILL is a close button this way.
+
+ACTION_MOVE / ACTION_RESIZE* / unresolvable aclasses are plain chrome —
 KDecoration gives move-drag and edge-resize on non-button decoration area
 for free, so those parts render as passive imagery.
 
@@ -17,7 +23,13 @@ what counts as a button when __ACLASS is absent.
 """
 from __future__ import annotations
 
-from themey.analyze.buttons import ICLASS_PATTERN_TO_BUTTON
+from collections.abc import Mapping
+
+from themey.analyze.buttons import (
+    ICLASS_PATTERN_TO_BUTTON,
+    VERB_DROP,
+    VERB_TO_BUTTON,
+)
 from themey.ir import ButtonPart
 
 # Kind strings are the runtime vocabulary: ThemeyButton.qml maps them onto
@@ -47,12 +59,25 @@ CODE_TO_KIND: dict[str, str] = {
 }
 
 
-def button_kind(part: ButtonPart) -> str | None:
-    """Return the QML button kind for a part, or None for plain chrome."""
+def button_kind(
+    part: ButtonPart,
+    aclass_verbs: Mapping[str, str] | None = None,
+) -> str | None:
+    """Return the QML button kind for a part, or None for plain chrome.
+
+    *aclass_verbs* is ``{action-class name: __A_* verb}`` from
+    analyze/aclasses.py; it resolves names ACLASS_TO_KIND does not cover.
+    """
     if part.aclass is not None:
         kind = ACLASS_TO_KIND.get(part.aclass)
         if kind is not None:
             return kind
+        if aclass_verbs is not None:
+            verb = aclass_verbs.get(part.aclass)
+            if verb is not None and verb not in VERB_DROP:
+                code = VERB_TO_BUTTON.get(verb)
+                if code is not None:
+                    return CODE_TO_KIND.get(code)
         # The theme expressed an action we don't map (move/resize/exec/...):
         # honor that opinion — plain chrome, don't guess from the name.
         if part.aclass.startswith("ACTION_"):
