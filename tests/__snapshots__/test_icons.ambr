@@ -1,0 +1,16 @@
+# serializer version: 1
+# name: test_write_theme_layout_and_index
+  '''
+  [Icon Theme]
+  Name=Tiny (themey)
+  Comment=E16 theme 'Tiny' application icons from windowmatches.cfg, converted by themey
+  Inherits=breeze,hicolor
+  Directories=48x48/apps
+  
+  [48x48/apps]
+  Size=48
+  Context=Applications
+  Type=Fixed
+  
+  '''
+# ---

@@ -33,6 +33,8 @@ from .generate.aurorae import write as write_aurorae
 from .generate.colors import scheme_stem, write_colors
 from .generate.cursors import CursorTheme
 from .generate.cursors import write_theme as write_cursor_theme
+from .generate.icons import IconThemeError
+from .generate.icons import write_theme as write_icon_theme
 from .generate.plasmastyle import ICONBOX_FRAME_MODES, PlasmaStyleError
 from .generate.plasmastyle import write as write_plasma_style
 from .generate.wallpaper import WallpaperError, WallpaperPackage
@@ -42,7 +44,7 @@ from .images.upscale import UPSCALE_MODES
 from .ir import WallpaperSpec
 from .preview import render as render_preview
 from .report import write as write_report
-from .slug import cursor_theme_dir, plugin_id, slugify, wallpaper_id
+from .slug import cursor_theme_dir, icon_theme_dir, plugin_id, slugify, wallpaper_id
 
 log = logging.getLogger(__name__)
 
@@ -76,6 +78,11 @@ class ConvertResult:
     """One installed wallpaper package dir per convertible background image
     (or the copies under ``output_dir``). Images that fail to convert are
     skipped with a ``wallpaper:`` note rather than failing the convert."""
+    icon_theme_dir: Path | None = None
+    """Installed ``themey_<slug>-icons`` XDG icon theme (or the copy under
+    ``output_dir``) from the theme's ``windowmatches.cfg`` ``__USE_ICON``
+    rules; None when no rule matched an installed application (an
+    ``icons:`` note says so)."""
     plasmoid_dirs: tuple[Path, ...] = ()
     """themey's own applet packages (``org.themey.pager``,
     ``org.themey.deskbutton`` — ``generate/plasmoids``), theme-agnostic and
@@ -238,6 +245,8 @@ def convert(
         cursor_dir_name = cursor_theme_dir(theme_name)
         cursor_dir: Path | None = None
         cursor_theme: CursorTheme | None = None
+        icons_dir_name = icon_theme_dir(theme_name)
+        icons_dir: Path | None = None
         style_dir: Path | None = None
         style_id: str | None = None
         lnf_dir: Path | None = None
@@ -297,6 +306,17 @@ def convert(
             if cursor_theme is not None:
                 cursor_dir = cursor_out
                 log.info("wrote cursor theme to %s", cursor_dir)
+            icons_out = output_dir / icons_dir_name
+            if icons_out.exists():
+                shutil.rmtree(icons_out)
+            try:
+                icon_theme = write_icon_theme(theme, icons_out)
+            except IconThemeError as exc:
+                theme.notes.append(f"icons: skipped: {exc}")
+                icon_theme = None
+            if icon_theme is not None:
+                icons_dir = icon_theme.dir
+                log.info("wrote icon theme to %s", icons_dir)
             # The Plasma Style also lives under its own "desktoptheme/"
             # subdir — its dir name is again pkg_id (see the look-and-feel
             # comment below) and would collide with `qml_installed` flat.
@@ -346,6 +366,7 @@ def convert(
                 deco_library=deco_library,
                 deco_theme=deco_theme,
                 desktop_theme_name=style_id,
+                icon_theme_name=icons_dir.name if icons_dir is not None else None,
             )
             lnf_dir = bundle.dir
             log.info("wrote Look-and-Feel bundle to %s", lnf_dir)
@@ -423,6 +444,18 @@ def convert(
                         target_root=paths.cursor_themes(),
                     )
                     log.info("installed cursor theme to %s", cursor_dir)
+                stage_icons_dir = stage / icons_dir_name
+                try:
+                    icon_theme = write_icon_theme(theme, stage_icons_dir)
+                except IconThemeError as exc:
+                    theme.notes.append(f"icons: skipped: {exc}")
+                    icon_theme = None
+                if icon_theme is not None:
+                    icons_dir = install.deploy(
+                        icons_dir_name, stage_icons_dir,
+                        target_root=paths.icon_themes(),
+                    )
+                    log.info("installed icon theme to %s", icons_dir)
                 # Staged under "desktoptheme/" for the same pkg_id
                 # collision reason as "look-and-feel/" below.
                 stage_style_dir = stage / "desktoptheme" / pkg_id
@@ -475,6 +508,7 @@ def convert(
                     deco_library=deco_library,
                     deco_theme=deco_theme,
                     desktop_theme_name=style_id,
+                    icon_theme_name=icons_dir.name if icons_dir is not None else None,
                 )
                 lnf_dir = install.deploy(
                     pkg_id, stage_lnf_dir, target_root=paths.look_and_feel()
@@ -514,6 +548,7 @@ def convert(
         wallpaper_dirs=tuple(wallpaper_dirs),
         plasmoid_dirs=tuple(plasmoid_dirs),
         cursor_theme_dir=cursor_dir,
+        icon_theme_dir=icons_dir,
         desktop_theme_dir=style_dir,
         desktop_theme_id=style_id,
         lnf_dir=lnf_dir,

@@ -60,6 +60,17 @@ def wallpaper_id(name: str, stem: str) -> str:
     return f"themey_{slugify(name)}_{slugify(stem)}"
 
 
+def icon_theme_dir(name: str) -> str:
+    """Directory name for the per-app icon theme: ``themey_<slug>-icons``.
+
+    Like :func:`cursor_theme_dir`, an XDG icon theme has no KPlugin id —
+    the directory name under ``icons/`` IS the kdeglobals ``[Icons]
+    Theme=`` value. The ``-icons`` suffix keeps it apart from the cursor
+    theme, which lives in a different root (``~/.icons``).
+    """
+    return f"themey_{slugify(name)}-icons"
+
+
 def cursor_theme_dir(name: str) -> str:
     """Directory name for the XCursor theme: ``themey_<slug>-cursors``.
 

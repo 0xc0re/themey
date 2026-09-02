@@ -45,6 +45,7 @@ from .states import collapse_image_states
 from .tclasses import build_tclasses
 from .tooltips import build_tooltips
 from .wallpaper import extract_wallpaper_specs
+from .windowmatches import build_icon_matches
 
 
 def _collect_blocks(nodes: list[AstNode], keyword: str) -> list[Block]:
@@ -293,6 +294,9 @@ def build_theme(
     tooltips = build_tooltips(
         _collect_blocks(ast_nodes, "__TOOLTIP"), iclasses=iclasses, notes=notes
     )
+    icon_matches = build_icon_matches(
+        _collect_blocks(ast_nodes, "__MATCH_WINDOW"), asset_root=asset_root, notes=notes
+    )
 
     return Theme(
         name=name,
@@ -316,4 +320,5 @@ def build_theme(
         fonts=fonts,
         menu_styles=menu_styles,
         tooltips=tooltips,
+        icon_matches=icon_matches,
     )

@@ -117,6 +117,9 @@ _KDE_GROUP = "KDE"
 _LOOKANDFEEL_PACKAGE_KEY = "LookAndFeelPackage"
 _GENERAL_GROUP = "General"
 _COLORSCHEME_KEY = "ColorScheme"
+#: kdeglobals group/key of the active icon theme.
+_ICONS_GROUP = "Icons"
+_ICON_THEME_KEY = "Theme"
 #: themey's own kdeglobals group for its one marker key.
 _THEMEY_GROUP = "Themey"
 #: Vanilla plasmarc location of the active Plasma Style (desktop theme).
@@ -284,6 +287,7 @@ _PREV_LNF_KEY = "PrevLookAndFeelPackage"
 _PREV_DECO_KEY = "ThemeyPrevDeco"
 _PREV_COLORS_KEY = "PrevColorScheme"
 _PREV_PLASMA_KEY = "PrevPlasmaTheme"
+_PREV_ICONS_KEY = "PrevIconTheme"
 _PREV_PANELS_KEY = "PrevPanelLengthModes"
 _PREV_FLOATING_KEY = "PrevPanelFloating"
 
@@ -386,6 +390,42 @@ def _record_prev_colorscheme(kw: str, kr: str) -> None:
         return
     prev = _cfg_read(kr, _KDEGLOBALS, _GENERAL_GROUP, _COLORSCHEME_KEY) or _UNSET
     _cfg_write(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_COLORS_KEY, prev)
+
+
+def _record_prev_icontheme(kw: str, kr: str) -> None:
+    """Snapshot the user-layer kdeglobals ``[Icons] Theme`` once, before
+    the first ``apply_full`` overwrites it — same user-layer shadowing as
+    the color scheme: the reference machine's kdeglobals carries an
+    explicit ``Theme=Fluency`` a Look-and-Feel apply would not displace,
+    so ``apply_full`` writes the key itself and must record what it is
+    about to overwrite."""
+    if _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_ICONS_KEY) is not None:
+        return
+    prev = _cfg_read(kr, _KDEGLOBALS, _ICONS_GROUP, _ICON_THEME_KEY) or _UNSET
+    _cfg_write(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_ICONS_KEY, prev)
+
+
+def _notify_icons_changed() -> None:
+    """Broadcast KIconLoader's ``iconChanged(0)`` so running apps reload
+    their icons — KF6 has no icon disk cache to clear. A failure is a
+    warning: the theme is applied, only the live refresh is missing."""
+    dbus_send = shutil.which("dbus-send")
+    if dbus_send is None:
+        log.warning("dbus-send not found — running apps show the new icons after a relogin")
+        return
+    try:
+        _run_checked(
+            [
+                dbus_send, "--session", "--type=signal", "/KIconLoader",
+                "org.kde.KIconLoader.iconChanged", "int32:0",
+            ],
+            "KIconLoader iconChanged broadcast",
+        )
+    except ApplyError as exc:
+        log.warning(
+            "could not broadcast the icon change (%s) — running apps show the "
+            "new icons after a relogin", exc,
+        )
 
 
 def _record_prev_plasmatheme(kw: str, kr: str) -> None:
@@ -1223,10 +1263,9 @@ def apply(
     _reconfigure()
 
 
-def _read_default_wallpaper_id(lnf_dir: Path) -> str | None:
-    """The ``[Wallpaper] Image=`` value from an installed bundle's
-    ``contents/defaults``, or None when the bundle has no wallpaper group
-    (unreadable file, or a theme with no convertible wallpaper)."""
+def _read_defaults_value(lnf_dir: Path, section: str, key: str) -> str | None:
+    """One value from an installed bundle's ``contents/defaults``, or None
+    when the file/section/key is absent (a theme without that artifact)."""
     defaults = lnf_dir / "contents" / "defaults"
     if not defaults.is_file():
         return None
@@ -1234,9 +1273,23 @@ def _read_default_wallpaper_id(lnf_dir: Path) -> str | None:
     cp.optionxform = staticmethod(str)  # type: ignore[assignment]
     try:
         cp.read(defaults, encoding="utf-8")
-        return cp.get("Wallpaper", "Image")
+        return cp.get(section, key)
     except (configparser.Error, KeyError):
         return None
+
+
+def _read_default_wallpaper_id(lnf_dir: Path) -> str | None:
+    """The ``[Wallpaper] Image=`` value from an installed bundle's
+    ``contents/defaults``, or None when the bundle has no wallpaper group
+    (unreadable file, or a theme with no convertible wallpaper)."""
+    return _read_defaults_value(lnf_dir, "Wallpaper", "Image")
+
+
+def _read_default_icon_theme(lnf_dir: Path) -> str | None:
+    """The ``[kdeglobals][Icons] Theme=`` value from an installed bundle
+    (the windowmatches icon theme's dir name), or None when the bundle
+    shipped none."""
+    return _read_defaults_value(lnf_dir, "kdeglobals][Icons", "Theme")
 
 
 def _read_theme_scale(lnf_dir: Path) -> float:
@@ -1411,6 +1464,15 @@ def apply_full(
     has_style = (style_dir / "metadata.json").is_file()
     theme_scale = _read_theme_scale(lnf_dir)
     tasks_hover = _read_tasks_hover(style_dir) if has_style else True
+    icon_theme = _read_default_icon_theme(lnf_dir)
+    if icon_theme is not None and not (
+        paths.icon_themes() / icon_theme / "index.theme"
+    ).is_file():
+        log.warning(
+            "bundle names icon theme %s but it is not installed under %s; "
+            "leaving the icon theme alone", icon_theme, paths.icon_themes(),
+        )
+        icon_theme = None
 
     _record_prev_lookandfeel(kw, kr)
     _record_prev_deco(kw, kr)
@@ -1418,6 +1480,8 @@ def apply_full(
         _record_prev_colorscheme(kw, kr)
     if has_style:
         _record_prev_plasmatheme(kw, kr)
+    if icon_theme is not None:
+        _record_prev_icontheme(kw, kr)
 
     plasma_apply_lnf = _which("plasma-apply-lookandfeel")
     _run_checked([plasma_apply_lnf, "-a", pkg_id], f"plasma-apply-lookandfeel -a {pkg_id}")
@@ -1432,6 +1496,13 @@ def apply_full(
             [plasma_apply_colors, pkg_id],
             f"plasma-apply-colorscheme {pkg_id}",
         )
+
+    if icon_theme is not None:
+        # Same user-layer shadowing as the color scheme (kdeglobals
+        # Theme=Fluency on the reference machine): explicit write, then the
+        # KIconLoader broadcast so running apps pick the icons up.
+        _cfg_write(kw, _KDEGLOBALS, _ICONS_GROUP, _ICON_THEME_KEY, icon_theme)
+        _notify_icons_changed()
 
     if has_style:
         # Same user-layer shadowing as the color scheme (the reference
@@ -1556,6 +1627,7 @@ def revert() -> bool:
     prev_lnf = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_LNF_KEY)
     prev_colors = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_COLORS_KEY)
     prev_plasma = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PLASMA_KEY)
+    prev_icons = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_ICONS_KEY)
     prev_panels = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_PANELS_KEY)
     prev_floating = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, _PREV_FLOATING_KEY)
     prev_furniture = {
@@ -1569,6 +1641,7 @@ def revert() -> bool:
         and prev_lnf is None
         and prev_colors is None
         and prev_plasma is None
+        and prev_icons is None
         and prev_panels is None
         and prev_floating is None
         and prev_rows is None
@@ -1635,6 +1708,26 @@ def revert() -> bool:
                     "can retry it",
                     prev_colors, exc,
                 )
+
+    icons_error: ApplyError | None = None
+    if prev_icons is not None:
+        try:
+            if prev_icons == _UNSET:
+                # No explicit user-layer icon theme before themey: delete
+                # the key we wrote so the restored Look-and-Feel's defaults
+                # take over again.
+                _cfg_delete(kw, _KDEGLOBALS, _ICONS_GROUP, _ICON_THEME_KEY)
+            else:
+                _cfg_write(kw, _KDEGLOBALS, _ICONS_GROUP, _ICON_THEME_KEY, prev_icons)
+            _notify_icons_changed()
+            _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, _PREV_ICONS_KEY)
+        except ApplyError as exc:
+            icons_error = exc
+            log.warning(
+                "could not restore the previous icon theme %r (%s) — keeping "
+                "the marker so a later `themey apply --revert` can retry it",
+                prev_icons, exc,
+            )
 
     plasma_error: ApplyError | None = None
     if prev_plasma is not None:
@@ -1770,6 +1863,7 @@ def revert() -> bool:
     errors = (
         lnf_error,
         colors_error,
+        icons_error,
         plasma_error,
         iconbox_error,
         top_error,
