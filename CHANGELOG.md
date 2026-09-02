@@ -7,8 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`themey <theme>.etheme --apply`** — convert, install and apply in one
+  command. Rejects `--output` and `--backend svg`/`both` before the
+  conversion runs, and takes the same furniture and shell-restart flags
+  as `themey apply`.
+- **`--widget-style windows|fusion|breeze`** on `convert` and `apply` —
+  have the Global Theme bundle select a Qt *application* style
+  (`kdeglobals widgetStyle`), with a record-once `PrevWidgetStyle`
+  baseline that `--revert` puts back. Default: your application style is
+  left alone.
+- **Furniture opt-outs and sizes on `apply`** — `--no-pager`,
+  `--no-iconbox`, `--no-dragbar` (each removes an already-created panel
+  and undoes the desktop change made only for it), `--furniture-strut`,
+  `--pager-cell PX` and `--iconbox-size PX`.
+- **`scripts/reconvert_installed.py`** and **`scripts/audit_viewitem.py`**
+  — maintainer scripts for refreshing every installed `themey_*` package
+  and for calibrating the menu-highlight art decision across a corpus.
+
 ### Changed
 
+- **E16-sized furniture panels that windows go below** — the pager panel
+  is now one aspect-true 48 px E16 cell thick (85 px on a 16:9 screen,
+  was a fixed 130 px) and the iconbox is E16's own 48 px (was 60), both
+  re-asserted on every apply so existing panels shrink without a revert.
+  Both also stop reserving screen space by default — E16's default
+  maximize stepped around the pager rather than shrinking every window —
+  so a maximized window keeps the whole screen. `--furniture-strut`
+  restores the old behaviour.
+- **`--iconbox-frames` now defaults to `off`** — E16's own frameless
+  iconbox (`container.c` `draw_icon_base = 0`), bare icons on the trough.
+  In that mode every conversion now ships `widgets/tasks.svg`, because a
+  missing file brings Breeze's plates back rather than nothing.
+- **Task-manager states are told apart** — nearly every E16 iconbox
+  button declares only `__NORMAL`, which left the active, hovered,
+  minimized and attention-seeking tasks identical. Missing states are now
+  synthesized from the theme's own plate (hover and progress lightened,
+  attention lighter still, minimized faded, the active task flipped so
+  its bevel reads as sunken) and the active task wears a 2 px accent bar
+  that follows the color scheme.
 - **Popup background for item-background menu styles** — NeXTSTEP-style
   themes (`__USE_ITEM_BACKGROUNDS __ON`: OldE, OPENSTEP, NewSTEP, 8 corpus
   themes) now paint the popup/launcher centre flat in the item strip's
@@ -17,6 +55,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   striped texture. E16 never drew a menu background for these styles, so
   the centre is themey's choice either way; the colour is the one the
   Window colour group already samples from the same art.
+
+### Fixed (Plasma Style)
+
+- **The highlighted menu item follows the art Plasma actually paints** —
+  a smooth left-to-right gradient (ShinyMetal's metal sheen and 24 other
+  themes) was classified as texture and repeated across a Kickoff row,
+  which seamed and banded; the classifier now measures residual grain
+  after removing both the row and column means, so gradients stretch and
+  real grain still tiles. The selection color is sampled from the pressed
+  art rather than the hover art, the label is contrast-guarded against
+  the plate it actually sits on, the pressed-and-hovered state is no
+  longer byte-identical to the pressed one, the reading-surface color
+  follows the popup instead of the border tint (a near-black search field
+  inside a light launcher), and a theme with no accent of its own gets
+  focus rings in its own selection color instead of Breeze blue.
 
 ### Fixed (render)
 
