@@ -26,11 +26,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from themey.etheme.ast import AstNode, Block
+from themey.etheme.parse import parse_tree
 from themey.ir import (
     BorderSpec,
     Theme,
 )
 
+from .aclasses import build_aclasses, stock_aclasses
 from .borders import _block_name as _border_block_name
 from .borders import build_border, select_default_border
 from .buttons import bin_left_right, classify_button, title_part
@@ -51,6 +53,28 @@ from .windowmatches import build_icon_matches
 def _collect_blocks(nodes: list[AstNode], keyword: str) -> list[Block]:
     """Collect all top-level Block nodes with the given keyword."""
     return [n for n in nodes if isinstance(n, Block) and n.keyword == keyword]
+
+
+# E16's ThemeConfigLoad order for the files that register action classes,
+# all of which it reads before borders.cfg (config.c:580). Parsed on their
+# own so only their __ACLASS blocks enter the analysis.
+ACLASS_ENTRY_FILES = ["actionclasses.cfg", "buttons.cfg", "slideouts.cfg"]
+
+# Verbs whose Aurorae button is an approximation rather than a match, and
+# what the user actually gets. Reported so report.txt records the swap.
+_VERB_APPROXIMATIONS: dict[str, str] = {
+    "__A_KILL_NASTY": "close (KWin has no force-quit button)",
+    "__A_KILL_NG": "close (KWin has no force-quit button)",
+    "__A_MAX_WIDTH": "maximize (Aurorae has no per-axis maximize)",
+    "__A_MAX_HEIGHT": "maximize (Aurorae has no per-axis maximize)",
+    "__A_ZOOM": "maximize",
+    "__A_FULLSCREEN": "maximize",
+    "__A_RAISE": "keep-above (E16 raises once; the button is a toggle)",
+    "__A_RAISE_NG": "keep-above (E16 raises once; the button is a toggle)",
+    "__A_LOWER": "keep-below (E16 lowers once; the button is a toggle)",
+    "__A_LOWER_NG": "keep-below (E16 lowers once; the button is a toggle)",
+    "__A_SLIDEOUT": "the window menu (E16 slid out a bar of window buttons)",
+}
 
 
 def build_theme(
@@ -193,6 +217,26 @@ def build_theme(
     button_codes: dict[str, str] = {}
     button_positions: list[tuple[str, int]] = []  # (code, x_center)
 
+    # Resolve the action-class table a part's ``__ACLASS <name>`` points at.
+    #
+    # E16's ThemeConfigLoad (config.c:580) reads actionclasses.cfg,
+    # buttons.cfg and slideouts.cfg BEFORE borders.cfg. Those files are
+    # parsed HERE, in their own pass, rather than added to parse_tree's
+    # default entry list: they also carry __ICLASS/__TCLASS/__BUTTON blocks
+    # for desktop furniture, and folding those into *ast_nodes* would change
+    # what every other analyzer sees. Only the __ACLASS blocks are taken.
+    #
+    # E16's stock classes go in first so a theme that defines its own still
+    # overrides them by name (aclass.c:321-332 refills an existing name).
+    aclass_verbs = stock_aclasses()
+    aclass_verbs.update(
+        build_aclasses([
+            n
+            for n in parse_tree(asset_root, ACLASS_ENTRY_FILES)
+            if isinstance(n, Block) and n.keyword == "__ACLASS"
+        ])
+    )
+
     # Resolve titlebar bounds first (needed for spatial fallback tier-3).
     #
     # Canonical E16 grammar: the title-bearing part is the one flagged
@@ -224,9 +268,12 @@ def build_theme(
                 x_center=x_center,
                 titlebar_left=titlebar_min_x,
                 titlebar_right=titlebar_max_x,
+                aclass_verbs=aclass_verbs,
             )
         else:
-            code, source = classify_button(part.aclass, part.iclass_name)
+            code, source = classify_button(
+                part.aclass, part.iclass_name, aclass_verbs=aclass_verbs
+            )
 
         # AURORAE-02: log every tier-3 spatial-fallback decision so the user
         # can audit assignments and drops in the generated report.txt.
@@ -243,6 +290,14 @@ def build_theme(
                     f"dropped via spatial fallback "
                     f"(ambiguous middle third or no geometry — "
                     f"titlebar=[{titlebar_min_x}, {titlebar_max_x}])"
+                )
+        elif source == "verb":
+            approx = _VERB_APPROXIMATIONS.get(aclass_verbs.get(part.aclass or "", ""))
+            if approx is not None:
+                notes.append(
+                    f"button '{part.iclass_name}' fires E16's "
+                    f"{aclass_verbs[part.aclass or '']} via __ACLASS={part.aclass} "
+                    f"-> {approx}"
                 )
         elif source == "unknown_aclass":
             notes.append(
@@ -321,4 +376,5 @@ def build_theme(
         menu_styles=menu_styles,
         tooltips=tooltips,
         icon_matches=icon_matches,
+        aclass_verbs=aclass_verbs,
     )

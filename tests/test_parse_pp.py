@@ -476,3 +476,75 @@ def test_default_entry_files_include_tooltips_cfg(tmp_path: Path) -> None:
     assert _kv(tips[0], "__DISTANCE").values == (64,)
     assert _kv(tips[1], "__NAME").values == ("PAGER",)
     assert _kv(tips[1], "__BUBBLE1_ICLASS") is None
+
+
+# ---------------------------------------------------------------------------
+# Bundled <definitions>: object-like GRAMMAR macros must expand.
+#
+# The file mixes two kinds of object-like define. E16's numeric config ids
+# (``__BGN 999``, ``__ON 1``), the ``XC_*`` X cursor constants and the
+# ``__A_*`` IPC command strings must stay unexpanded — expanding them turns
+# the keyword grammar into numbers. Everything else is block-structure
+# sugar (``END_SLIDEOUT`` -> ``__END``, ``BEGIN_FONTS`` -> ``__FONTS __BGN``,
+# ``TEXT_JUSTIFY_CENTER`` -> ``__JUSTIFICATION 512``) and MUST expand: while
+# it did not, every BEGIN_*/END_* block pair in the corpus was left open and
+# swallowed whatever followed it.
+# ---------------------------------------------------------------------------
+
+
+def test_end_slideout_closes_the_block_it_opened(tmp_path: Path) -> None:
+    """Ganymede's slideouts.cfg shape: the __ACLASS blocks after the
+    slideouts are top-level, not children of an unterminated __SLIDEOUT."""
+    (tmp_path / "slideouts.cfg").write_text(
+        "#include <definitions>\n"
+        'BEGIN_SLIDEOUT("normalslider", __LEFT)\n'
+        '  ADD_BUTTON_TO_SLIDEOUT("SL_STICK")\n'
+        "END_SLIDEOUT\n"
+        "\n"
+        "__ACLASS __BGN\n"
+        "  __NAME ACTION_GANYMEDE_KILL\n"
+        "  __ACTION __A_KILL\n"
+        "__END\n"
+    )
+    nodes = parse_tree(tmp_path, ["slideouts.cfg"])
+    keywords = [n.keyword for n in nodes if isinstance(n, Block)]
+    assert keywords == ["__SLIDEOUT", "__ACLASS"]
+
+
+def test_begin_fonts_opens_a_fonts_block(tmp_path: Path) -> None:
+    (tmp_path / "fonts.cfg").write_text(
+        "#include <definitions>\nBEGIN_FONTS\n  cfg-name /*name*/\nEND_FONTS\n"
+    )
+    nodes = parse_tree(tmp_path, ["fonts.cfg"])
+    assert [n.keyword for n in nodes if isinstance(n, Block)] == ["__FONTS"]
+
+
+def test_action_verbs_stay_unexpanded(tmp_path: Path) -> None:
+    """analyze/aclasses.py reads the __A_* name; the IPC string it expands
+    to ('wop * close') carries no verb identity."""
+    (tmp_path / "actionclasses.cfg").write_text(
+        "#include <definitions>\n"
+        "__ACLASS __BGN\n  __NAME A\n  __ACTION __A_KILL\n__END\n"
+    )
+    nodes = parse_tree(tmp_path, ["actionclasses.cfg"])
+    block = next(n for n in nodes if isinstance(n, Block))
+    action = next(
+        c for c in block.children if isinstance(c, KeyVal) and c.keyword == "__ACTION"
+    )
+    assert action.values == ("__A_KILL",)
+
+
+def test_numeric_keyword_ids_stay_unexpanded(tmp_path: Path) -> None:
+    """__ON is `#define __ON 1`; expanding it would make the flag a number."""
+    (tmp_path / "borders.cfg").write_text(
+        "#include <definitions>\n"
+        "__BORDER __BGN\n  __NAME DEFAULT\n  __CHANGES_SHAPE __ON\n__END\n"
+    )
+    nodes = parse_tree(tmp_path, ["borders.cfg"])
+    block = next(n for n in nodes if isinstance(n, Block))
+    shape = next(
+        c
+        for c in block.children
+        if isinstance(c, KeyVal) and c.keyword == "__CHANGES_SHAPE"
+    )
+    assert shape.values == ("__ON",)

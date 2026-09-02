@@ -535,5 +535,11 @@ class Theme:
     tooltips: dict[str, TooltipSpec] = field(default_factory=dict)
     # __MATCH_WINDOW __USE_ICON rules (windowmatches.cfg), declaration order.
     icon_matches: tuple[IconMatchSpec, ...] = ()
+    # __ACLASS blocks (E16's stock actionclasses.cfg under the theme's own
+    # actionclasses/buttons/slideouts .cfg) keyed by action-class name, valued
+    # by the primary __A_* verb they bind. Resolves a border part's
+    # ``__ACLASS <name>`` reference to an actual window operation; see
+    # analyze/aclasses.py.
+    aclass_verbs: dict[str, str] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)  # ONLY mutable accumulator
     skipped_borders: tuple[str, ...] = ()
