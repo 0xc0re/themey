@@ -2487,6 +2487,23 @@ def _gradient_png(tmp_path: Path, name: str, size=(64, 16)) -> Path:
     return p
 
 
+def _sheen_png(tmp_path: Path, name: str, size=(64, 16)) -> Path:
+    """Smooth LEFT-TO-RIGHT metal sheen — ShinyMetal's bar_horizontal_2/_3.
+
+    Constant down every column, so the within-row spread the pre-residual
+    classifier measured is large while the art carries no grain at all.
+    """
+    im = Image.new("RGBA", size)
+    w = size[0]
+    for x in range(w):
+        v = 70 + int(150 * (1 - abs(2 * x / (w - 1) - 1)))
+        for y in range(size[1]):
+            im.putpixel((x, y), (v, v, v, 255))
+    p = tmp_path / name
+    im.save(p)
+    return p
+
+
 def test_middle_is_textured_grain_vs_gradient(tmp_path: Path) -> None:
     noise = Image.open(_noise_png(tmp_path, "n.png")).convert("RGBA")
     grad = Image.open(_gradient_png(tmp_path, "g.png")).convert("RGBA")
@@ -2494,6 +2511,49 @@ def test_middle_is_textured_grain_vs_gradient(tmp_path: Path) -> None:
     assert plasmastyle._middle_is_textured(noise, (3, 3, 3, 3)) is True
     assert plasmastyle._middle_is_textured(grad, (3, 3, 3, 3)) is False
     assert plasmastyle._middle_is_textured(flat, (3, 3, 3, 3)) is False
+    # ShinyMetal's bar_horizontal_2/_3: a HORIZONTAL gradient. The band's
+    # within-row spread is huge but it is drift, not grain — repeating it
+    # seams across a wide Kickoff row, and E16 stretched menu-item art
+    # horizontally anyway.
+    sheen = Image.open(_sheen_png(tmp_path, "s.png")).convert("RGBA")
+    assert plasmastyle._middle_is_textured(sheen, (3, 3, 2, 2)) is False
+
+
+def _streaked_png(
+    tmp_path: Path, name: str, streak: float, grain: float, size=(120, 16)
+) -> Path:
+    """Grain over a random per-column offset — texture with visible
+    vertical streaking, as opposed to a smooth left-to-right ramp.
+    Greyscale so *streak* and *grain* land on the luminance measurements
+    unscaled."""
+    import random
+
+    rnd = random.Random(11)
+    im = Image.new("RGBA", size)
+    for x in range(size[0]):
+        offset = rnd.gauss(0, streak)
+        for y in range(size[1]):
+            v = max(0, min(255, int(120 + offset + rnd.gauss(0, grain))))
+            im.putpixel((x, y), (v, v, v, 255))
+    p = tmp_path / name
+    im.save(p)
+    return p
+
+
+def test_middle_is_textured_tolerates_streaky_grain(tmp_path: Path) -> None:
+    """Horizontal drift is only disqualifying when it DOMINATES the grain.
+    OldE's rust strip (grain 10.4, drift_v 4.0, drift_h 10.2) is streaky
+    texture, and chris confirmed live on 2026-09-01 that stretching it
+    smeared it; Metallique's sheen (grain 21, drift_h 33) is a gradient
+    with grain sprinkled on top and still has to stretch."""
+    rust = Image.open(
+        _streaked_png(tmp_path, "rust.png", streak=10, grain=10)
+    ).convert("RGBA")
+    metal = Image.open(
+        _streaked_png(tmp_path, "metal.png", streak=33, grain=18)
+    ).convert("RGBA")
+    assert plasmastyle._middle_is_textured(rust, (3, 3, 3, 3)) is True
+    assert plasmastyle._middle_is_textured(metal, (3, 3, 3, 3)) is False
     # Aliens' glow: heavy grain OVER a strong vertical gradient — repeating
     # it bands, so the absolute drift ceiling keeps it stretching.
     import random
@@ -2532,6 +2592,50 @@ def test_viewitem_textured_strip_repeats_middle(tmp_path: Path) -> None:
     assert "hover-hint-tile-center" not in _ids(svg2)
 
 
+def test_viewitem_horizontal_sheen_stretches(tmp_path: Path) -> None:
+    """ShinyMetal's MENU_SEL is a 64x16 strip whose middle is a smooth
+    left-to-right metal sheen. Tiling it repeated the sweep ~4x down a
+    Kickoff grid cell and seamed across a wide row (chris, 2026-09-01)."""
+    sheen = _sheen_png(tmp_path, "bar_horizontal_2.png")
+    theme = _theme(tmp_path, {
+        "MENU_SEL": _iclass("MENU_SEL", edge=(3, 3, 2, 2), hilited=sheen),
+    })
+    svg = plasmastyle.build_viewitem(theme)
+    assert svg is not None
+    assert "hover-hint-tile-center" not in _ids(svg)
+    assert not any("middle repeated" in n for n in theme.notes)
+
+
+def test_viewitem_selected_plus_hover_lightens_the_clicked_art(tmp_path: Path) -> None:
+    """Kickoff paints ``selected+hover`` only while the mouse is DOWN on a
+    hovered item; ``selected`` alone is the byte-identical fallback E16 had
+    no state for. With real __CLICKED art the pressed-and-hovered set is
+    that art lightened, so the two are told apart."""
+    hi = _png(tmp_path, "hi.png", color=(120, 120, 120, 255))
+    cl = _png(tmp_path, "cl.png", color=(100, 100, 100, 255))
+    theme = _theme(tmp_path, {
+        "MENU_SEL": _iclass("MENU_SEL", hilited=hi, clicked=cl),
+    })
+    svg = plasmastyle.build_viewitem(theme)
+    assert svg is not None
+    sel = _tile_image(svg, "selected-center").convert("RGBA").getpixel((0, 0))
+    both = _tile_image(svg, "selected+hover-center").convert("RGBA").getpixel((0, 0))
+    assert sel[:3] == (100, 100, 100)
+    assert both[:3] > sel[:3]
+    assert both[3] == sel[3] == 255
+    assert any("selected+hover" in n and "lightened" in n for n in theme.notes)
+
+    # No clicked art: nothing to distinguish, the sets stay identical.
+    plain = _theme(tmp_path, {"MENU_SEL": _iclass("MENU_SEL", hilited=hi)})
+    svg2 = plasmastyle.build_viewitem(plain)
+    assert svg2 is not None
+    assert (
+        _tile_image(svg2, "selected-center").convert("RGBA").getpixel((0, 0))
+        == _tile_image(svg2, "selected+hover-center").convert("RGBA").getpixel((0, 0))
+    )
+    assert not any("lightened" in n for n in plain.notes)
+
+
 def test_style_scheme_selection_uses_menu_text_hilited_and_style_tclass(tmp_path: Path) -> None:
     from dataclasses import replace
 
@@ -2557,6 +2661,117 @@ def test_style_scheme_selection_uses_menu_text_hilited_and_style_tclass(tmp_path
     theme2 = replace(theme, menu_styles={"DEFAULT": style})
     scheme2 = plasmastyle.style_scheme(theme2, shipped=shipped)
     assert scheme2.selection.foreground_normal == (5, 5, 5)
+
+
+def test_style_scheme_selection_from_the_pressed_art(tmp_path: Path) -> None:
+    """Kickoff paints Selection ONLY while the mouse is down, and the art it
+    paints then is MENU_SEL's __CLICKED state. Sampling the hover art left
+    ShinyMetal washing a 119-grey pressed plate toward a 137-grey Selection
+    background — a muddy icon under a black label."""
+    hi = _png(tmp_path, "hi.png", color=(220, 220, 200, 255))
+    cl = _png(tmp_path, "cl.png", color=(150, 150, 130, 255))
+    menu_text = TClassSpec(
+        name="MENU_TEXT", fg_normal=(20, 20, 20), fg_active=None,
+        fg_by_state={"normal": (20, 20, 20), "hilited": (9, 9, 9),
+                     "clicked": (4, 4, 4)},
+    )
+    theme = _theme(
+        tmp_path,
+        {"MENU_SEL": _iclass("MENU_SEL", hilited=hi, clicked=cl)},
+        {"MENU_TEXT": menu_text},
+    )
+    scheme = plasmastyle.style_scheme(
+        theme, shipped=frozenset({plasmastyle.VIEWITEM_SVG})
+    )
+    assert scheme.selection.background_normal == (150, 150, 130)
+    assert scheme.selection.foreground_normal == (4, 4, 4)
+    assert any("MENU_SEL clicked art" in n for n in theme.notes)
+
+
+def test_style_scheme_selection_text_never_loses_the_pressed_plate(
+    tmp_path: Path,
+) -> None:
+    """The label is guarded against the hover plate too, but a theme whose
+    two plates sit at opposite ends of the range (near-white hover, near-
+    black clicked) has no colour legible on both. The plate the label is
+    actually painted on wins — Kickoff draws ``selected+hover`` OVER the
+    hover set."""
+    from themey.analyze.colors import MIN_CONTRAST, contrast_ratio
+
+    hi = _png(tmp_path, "hi.png", color=(250, 250, 250, 255))
+    cl = _png(tmp_path, "cl.png", color=(20, 20, 20, 255))
+    menu_text = TClassSpec(
+        name="MENU_TEXT", fg_normal=(128, 128, 128), fg_active=None,
+        fg_by_state={"normal": (128, 128, 128), "clicked": (128, 128, 128)},
+    )
+    theme = _theme(
+        tmp_path,
+        {"MENU_SEL": _iclass("MENU_SEL", hilited=hi, clicked=cl)},
+        {"MENU_TEXT": menu_text},
+    )
+    scheme = plasmastyle.style_scheme(
+        theme, shipped=frozenset({plasmastyle.VIEWITEM_SVG})
+    )
+    assert scheme.selection.background_normal == (20, 20, 20)
+    assert contrast_ratio(
+        scheme.selection.foreground_normal, (20, 20, 20)
+    ) >= MIN_CONTRAST
+
+
+def test_style_scheme_view_follows_the_popup_surface(tmp_path: Path) -> None:
+    """The sampled ladder put View 0.07 away from mid-grey off the BORDER
+    tint, which on ShinyMetal meant a near-black search field inside a
+    148-grey Kickoff. When the popup surface is art-derived, View is one
+    ladder step from THAT."""
+    from themey.analyze.colors import _lightness
+
+    bg = _png(tmp_path, "menubg.png", color=(148, 148, 148, 255))
+    hi = _png(tmp_path, "sel.png", color=(200, 200, 200, 255))
+    theme = _theme(tmp_path, {
+        "MENU_BG": _iclass("MENU_BG", normal=bg),
+        "MENU_SEL": _iclass("MENU_SEL", hilited=hi),
+    })
+    scheme = plasmastyle.style_scheme(
+        theme,
+        shipped=frozenset({plasmastyle.DIALOG_SVG, plasmastyle.VIEWITEM_SVG}),
+    )
+    window = scheme.window.background_normal
+    view = scheme.view.background_normal
+    assert window == (148, 148, 148)
+    assert _lightness(view) > _lightness(window)
+    assert abs(_lightness(view) - _lightness(window)) < 0.12
+    assert any("View from the popup surface" in n for n in theme.notes)
+
+
+def test_style_scheme_focus_rings_follow_selection_on_neutral_themes(
+    tmp_path: Path,
+) -> None:
+    """``analyze/colors`` falls back to Breeze blue when the border art has
+    no saturated cluster; every focus/hover decoration in a grey or brown
+    theme then read as stock Plasma."""
+    from dataclasses import replace
+
+    from themey.analyze.colors import default_scheme
+
+    hi = _png(tmp_path, "hi.png", color=(200, 190, 170, 255))
+    theme = _theme(tmp_path, {"MENU_SEL": _iclass("MENU_SEL", hilited=hi)})
+    shipped = frozenset({plasmastyle.VIEWITEM_SVG})
+    scheme = plasmastyle.style_scheme(theme, shipped=shipped)
+    sel_bg = scheme.selection.background_normal
+    assert sel_bg == (200, 190, 170)
+    for group in (scheme.view, scheme.window, scheme.button, scheme.selection,
+                  scheme.tooltip, scheme.complementary, scheme.header,
+                  scheme.header_inactive):
+        assert group.decoration_focus == sel_bg
+        assert group.decoration_hover == sel_bg
+    assert any("focus rings" in n and "Breeze blue" in n for n in theme.notes)
+
+    # A theme whose art DID yield an accent keeps it.
+    sampled = replace(default_scheme(), accent_fallback=False)
+    kept = replace(theme, scheme=sampled, notes=[])
+    scheme2 = plasmastyle.style_scheme(kept, shipped=shipped)
+    assert scheme2.window.decoration_focus == sampled.window.decoration_focus
+    assert not any("focus rings" in n for n in kept.notes)
 
 
 def test_line_vertical_uses_clicked_art(tmp_path: Path) -> None:

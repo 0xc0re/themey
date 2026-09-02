@@ -123,7 +123,7 @@ from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageEnhance, ImageOps
 
 from themey.analyze.colors import (
     MIN_CONTRAST,
@@ -132,6 +132,7 @@ from themey.analyze.colors import (
     contrast_ratio,
     default_scheme,
     extract_dominant,
+    view_from_window,
 )
 from themey.generate.colors import build_sections
 from themey.generate.desktop_writer import write_desktop
@@ -1076,6 +1077,7 @@ def _emit_set(
     flat_center: RGB | None = None,
     max_v_chrome_px: int | None = None,
     clear_center: bool = False,
+    transform: Callable[[Image.Image], Image.Image] | None = None,
 ) -> tuple[int, int, int, int] | None:
     """One prefixed 9-part set (+ optional margin hints) for *spec*/*state*.
 
@@ -1107,7 +1109,9 @@ def _emit_set(
     transparent, the way E16's ``DITEM_AREA`` covers the interior with
     its area window; the ring caps grow to the padding so the ``center``
     element (which must exist — a center-less set paints nothing) is
-    entirely transparent.
+    entirely transparent. ``transform`` recolors the trimmed RGBA art
+    before any of that (the viewitem builder's :func:`_lighten`); it must
+    not resize — every cap and hint below is measured on its result.
     """
     found = _state_attr(spec, state)
     if found is None:
@@ -1125,6 +1129,8 @@ def _emit_set(
             theme.notes.append(note)
         return None
     src, edge, trims = trimmed
+    if transform is not None:
+        src = transform(src)
     if trims is not None:
         note = (
             f"plasmastyle: {spec.name} {path.name} trimmed by "
@@ -1846,24 +1852,42 @@ def _is_rounded(img: Image.Image) -> bool:
     )
 
 
-#: Luminance std (0-255) a strip's middle band must show WITHIN its rows
-#: to count as textured, the factor by which that grain must exceed the
-#: band's row-to-row drift, and the absolute drift ceiling (a vertical
-#: gradient drifts, grain does not; repeating a gradient shows bands even
-#: under heavy grain — Aliens' bone-textured glow, drift 13.5, banded in
-#: the tall selected cell, live render 2026-09-01). OldE's rust strip:
-#: grain 14.6, drift 4.0; Aliens' hover glow: grain 22.8, drift 13.5;
-#: Aliens' normal art: grain 7.6, drift 0.5; flat fills: 0/0.
+#: Luminance std (0-255) a strip's middle band must show as RESIDUAL
+#: grain to count as textured, and the three ways a gradient disqualifies
+#: it. VERTICAL drift is capped twice — absolutely, and relative to the
+#: grain — because repeating a vertical gradient bands even under heavy
+#: grain (Aliens' bone-textured glow, drift_v 13.5, banded in the tall
+#: selected cell, live render 2026-09-01). HORIZONTAL drift is capped only
+#: RELATIVE to the grain: it disqualifies art whose sweep dominates
+#: (Metallique's 21/2.4/33 sheen, ShinyMetal's 3.8/2.6/36.9 — tiled ~4x
+#: down a Kickoff grid cell and seamed across a wide row, chris
+#: 2026-09-01) but not merely streaky texture, since real grain is
+#: directional (OldE's rust strip 10.4/4.0/10.2, whose smearing under a
+#: stretch chris confirmed live the same day). Further calibration, as
+#: grain/drift_v/drift_h: Luddite 32.1/5.0/28.7 and OldE-Black
+#: 14.6/5.8/14.5 stay tiled; Hazard 0/0/8.5, LW2 0/0/30.7 and Mac3D
+#: 0.5/4.0/22.4 are bevels with no grain at all and stretch.
 _TEXTURE_MIN_GRAIN = 8.0
-_TEXTURE_GRAIN_OVER_DRIFT = 1.5
-_TEXTURE_MAX_DRIFT = 8.0
+_TEXTURE_GRAIN_OVER_DRIFT_V = 1.5
+_TEXTURE_MAX_DRIFT_V = 8.0
+_TEXTURE_MAX_DRIFT_H_OVER_GRAIN = 1.5
 
 
-def _middle_is_textured(img: Image.Image, caps: tuple[int, int, int, int]) -> bool:
-    """True when the band between the top/bottom caps is grain (per-row
-    pixel variance) rather than a gradient (row-mean drift) or a flat
-    fill — the case where repeating the middle keeps the art's look and
-    stretching it smears it."""
+def _band_stats(
+    img: Image.Image, caps: tuple[int, int, int, int]
+) -> tuple[float, float, float] | None:
+    """``(grain, drift_v, drift_h)`` for the band inside *caps*, or None
+    when that band is smaller than 2x2.
+
+    All three are luminance standard deviations in 0-255. ``drift_v`` is
+    the spread of the band's ROW means (a vertical gradient), ``drift_h``
+    the spread of its COLUMN means (a horizontal one). ``grain`` is the
+    mean per-row spread of the RESIDUAL — pixel minus its column mean
+    minus its row mean plus the band mean — so a smooth gradient along
+    EITHER axis leaves no grain behind. Measuring the raw within-row
+    spread instead (the pre-2026-09-01 form) read ShinyMetal's
+    left-to-right sheen as heavy grain.
+    """
     import statistics
 
     left, right, top, bottom = caps
@@ -1871,21 +1895,64 @@ def _middle_is_textured(img: Image.Image, caps: tuple[int, int, int, int]) -> bo
     w, h = lum.size
     bw, bh = w - left - right, h - top - bottom
     if bw < 2 or bh < 2:
-        return False
+        return None
     data = lum.crop((left, top, w - right, h - bottom)).tobytes()
-    row_means: list[float] = []
-    grains: list[float] = []
-    for y in range(bh):
-        vals = list(data[y * bw:(y + 1) * bw])
-        row_means.append(statistics.fmean(vals))
-        grains.append(statistics.pstdev(vals))
-    grain = statistics.fmean(grains)
-    drift = statistics.pstdev(row_means)
+    rows = [list(data[y * bw:(y + 1) * bw]) for y in range(bh)]
+    row_means = [statistics.fmean(r) for r in rows]
+    col_means = [statistics.fmean([row[x] for row in rows]) for x in range(bw)]
+    mean = statistics.fmean(row_means)
+    grains = [
+        statistics.pstdev(
+            [row[x] - col_means[x] - row_mean + mean for x in range(bw)]
+        )
+        for row, row_mean in zip(rows, row_means, strict=True)
+    ]
+    return (
+        statistics.fmean(grains),
+        statistics.pstdev(row_means),
+        statistics.pstdev(col_means),
+    )
+
+
+def _middle_is_textured(img: Image.Image, caps: tuple[int, int, int, int]) -> bool:
+    """True when the band between the caps is grain rather than a gradient
+    on either axis or a flat fill — the case where repeating the middle
+    keeps the art's look and stretching it smears it. See
+    :func:`_band_stats` for the three measurements."""
+    stats = _band_stats(img, caps)
+    if stats is None:
+        return False
+    grain, drift_v, drift_h = stats
     return (
         grain >= _TEXTURE_MIN_GRAIN
-        and drift <= _TEXTURE_MAX_DRIFT
-        and grain > _TEXTURE_GRAIN_OVER_DRIFT * drift
+        and drift_v <= _TEXTURE_MAX_DRIFT_V
+        and grain > _TEXTURE_GRAIN_OVER_DRIFT_V * drift_v
+        and drift_h <= _TEXTURE_MAX_DRIFT_H_OVER_GRAIN * grain
     )
+
+
+#: How much brighter ``selected+hover-`` is than ``selected-``. Kickoff
+#: paints the combined prefix ONLY while the mouse is held down on a
+#: hovered item; E16 had no such state, so a byte-identical set left the
+#: two indistinguishable. 8% is enough to read as "pressed under the
+#: cursor" without inventing art the theme does not have.
+VIEWITEM_PRESSED_HOVER_BRIGHTNESS = 1.08
+
+
+def _lighten(img: Image.Image) -> Image.Image:
+    """*img* brightened by :data:`VIEWITEM_PRESSED_HOVER_BRIGHTNESS`.
+
+    A per-pixel channel multiply on the RGB planes with the alpha plane
+    put back untouched — E16's shape mask must survive verbatim, and
+    nothing is resampled, so this stays clear of the NEAREST-only rule for
+    pixel art.
+    """
+    rgba = img.convert("RGBA")
+    out = ImageEnhance.Brightness(rgba.convert("RGB")).enhance(
+        VIEWITEM_PRESSED_HOVER_BRIGHTNESS
+    ).convert("RGBA")
+    out.putalpha(rgba.getchannel("A"))
+    return out
 
 
 def _viewitem_caps(
@@ -1995,18 +2062,32 @@ def build_viewitem(theme: Theme) -> ET.Element | None:
         caps, branch = _viewitem_caps(edge, img.width, img.height, rounded=_is_rounded(img))
         return True if branch == "bevel" and _middle_is_textured(img, caps) else None
 
-    sets = [("hover-", "hover"), ("selected-", "selected"),
+    # ``selected+hover-`` is the same art lightened when the theme HAS
+    # clicked art to press; without it the "selected" chain has already
+    # fallen back to the hover art and lightening would invent a state.
+    pressed = _state_attr(src, "selected")
+    lit = pressed is not None and pressed[0].startswith("clicked")
+    sets = [("hover-", "hover", None), ("selected-", "selected", None),
             # Literal "+" in the id — FrameSvg's combined-state prefix.
-            ("selected+hover-", "selected")]
-    for prefix, state in sets:
+            ("selected+hover-", "selected", _lighten if lit else None)]
+    for prefix, state, transform in sets:
         _emit_set(
             theme, canvas, prefix, src, state,
             edge_override=caps_override, close_open_edges=True,
             tile_center=repeats_middle(state),
             max_v_chrome_px=VIEWITEM_MAX_ROW_CHROME_PX,
+            transform=transform,
         )
     if canvas.is_empty:
         return None
+    if lit:
+        theme.notes.append(
+            f"plasmastyle: selected+hover from {src.name}'s clicked art "
+            f"lightened {(VIEWITEM_PRESSED_HOVER_BRIGHTNESS - 1) * 100:.0f}% "
+            "(Kickoff paints that prefix only while the mouse is held down on "
+            "a hovered item; E16 had no such state and an identical set left "
+            "it indistinguishable from the pressed one)"
+        )
     for branch, caps, tiled in decisions:
         if branch == "pill":
             why = (
@@ -2909,6 +2990,29 @@ def _menu_hover_fg(theme: Theme) -> RGB | None:
     return fg if fg is not None else t.fg_normal
 
 
+def _menu_pressed_fg(theme: Theme) -> RGB | None:
+    """The menu tclass's CLICKED colour — what Kickoff's pressed row wants.
+
+    Only an EXPLICIT clicked state counts: ``TextclassPopulate`` resolves
+    an absent one to that group's normal, which is the colour of an
+    untouched row, so a theme that declares no clicked text keeps the
+    hilited pick (:func:`_menu_hover_fg`) instead.
+    """
+    t = theme.tclasses.get(_menu_tclass_name(theme))
+    if t is not None:
+        fg = t.fg_by_state.get("clicked")
+        if fg is not None:
+            return fg
+    return _menu_hover_fg(theme)
+
+
+#: ``ColorScheme`` field names of the eight ``[Colors:*]`` groups.
+_COLOR_GROUPS: tuple[str, ...] = (
+    "view", "window", "button", "selection", "tooltip", "complementary",
+    "header", "header_inactive",
+)
+
+
 def style_scheme(theme: Theme, *, shipped: frozenset[str]) -> ColorScheme:
     """``theme.scheme`` with the panel-facing groups re-anchored to the art
     this package actually ships.
@@ -2987,7 +3091,23 @@ def style_scheme(theme: Theme, *, shipped: frozenset[str]) -> ColorScheme:
             )
         )
 
-    # Colors:View — reading surfaces behind menus/lists.
+    # Colors:View — reading surfaces behind menus/lists. When the popup
+    # surface itself came from art, View is re-derived one ladder step from
+    # THAT rather than from the sampled border tint: ShinyMetal's black
+    # BUTTON tint put View at rgb(6,6,6) behind a 148-grey Kickoff, i.e. a
+    # near-black search field inside a light popup.
+    if dialog_bg is not None:
+        scheme = replace(scheme, view=view_from_window(
+            scheme.window.background_normal,
+            scheme.view.decoration_focus,
+            scheme.view.foreground_normal,
+        ))
+        theme.notes.append(
+            "plasmastyle: colors View from the popup surface — "
+            f"rgb{scheme.view.background_normal}, one ladder step from the "
+            f"Window override rgb{scheme.window.background_normal}"
+        )
+
     menu_fg = _tclass_fg(theme, "MENU_TEXT")
     if menu_fg is not None:
         fg = _legible(menu_fg, scheme.view.background_normal)
@@ -3019,22 +3139,48 @@ def style_scheme(theme: Theme, *, shipped: frozenset[str]) -> ColorScheme:
                 )
             )
 
-    # Colors:Selection — MENU_SEL hover art; the text is what E16 drew on a
-    # hovered menu item: the menu tclass's hilited state (→ normal).
+    # Colors:Selection — the art Kickoff paints while the mouse is DOWN.
+    # Kickoff's Highlight shows the `hover` viewitem prefix for the current
+    # item and switches to Selection's colours only on press, at which
+    # point the plate under them is MENU_SEL's clicked art and the icon is
+    # washed toward this background (Kirigami.Icon.selected). Sampling the
+    # hover art instead left ShinyMetal washing a 119-grey pressed plate
+    # toward a 137-grey Selection: a muddy icon under a black label. The
+    # text is guarded against BOTH plates, since the hover prefix stays
+    # painted underneath.
+    selection_bg: RGB | None = None
     if VIEWITEM_SVG in shipped:
         sel = theme.iclasses.get("MENU_SEL")
-        path = _state_image(sel, "hover")
-        bg = extract_dominant(path) if path is not None else None
-        if bg is not None:
-            fg, forced = _fg_for(
-                _menu_hover_fg(theme),
-                scheme.selection.foreground_normal, (bg,),
-            )
+        found = _state_attr(sel, "selected")
+        bg = extract_dominant(found[1]) if found is not None else None
+        hover_path = _state_image(sel, "hover")
+        hover_bg = extract_dominant(hover_path) if hover_path is not None else None
+        if bg is not None and found is not None:
+            guards = tuple(c for c in (bg, hover_bg) if c is not None)
+            fallback = scheme.selection.foreground_normal
+            candidate = _menu_pressed_fg(theme)
+            fg, forced = _fg_for(candidate, fallback, guards)
+            both_plates = all(contrast_ratio(fg, b) >= MIN_CONTRAST for b in guards)
+            if not both_plates:
+                # Plates at opposite ends of the range (a near-white hover
+                # over a near-black clicked, 8 corpus themes) admit no
+                # colour legible on both. The pressed plate wins — Kickoff
+                # paints `selected+hover` OVER the hover set, so that is
+                # what is actually behind the label.
+                fg, forced = _fg_for(candidate, fallback, (bg,))
             scheme = replace(scheme, selection=_regroup(scheme.selection, bg, fg))
+            selection_bg = bg
             theme.notes.append(
-                "plasmastyle: colors Selection from MENU_SEL hover art; text "
-                f"from tclass {_menu_tclass_name(theme)}'s hilited state"
+                f"plasmastyle: colors Selection from MENU_SEL {found[0]} art "
+                "(what Kickoff paints while the mouse is held down, not the "
+                f"hover art); text from tclass {_menu_tclass_name(theme)}"
                 + (f", forced to rgb{fg} for contrast" if forced else "")
+                + (
+                    ""
+                    if both_plates
+                    else "; no color clears AA on both the pressed and the "
+                    "hover plate, so only the pressed one is guaranteed"
+                )
             )
 
     # Colors:Button.
@@ -3053,6 +3199,26 @@ def style_scheme(theme: Theme, *, shipped: frozenset[str]) -> ColorScheme:
                 f"plasmastyle: colors Button from {src.name} art"
                 + (f"; text forced to rgb{fg} for contrast" if forced else "")
             )
+
+    # decoration_focus/hover across every group: analyze/colors falls back
+    # to Breeze blue when no cluster of the border art is saturated enough
+    # to be an accent, which paints stock-Plasma focus rings all over a
+    # grey or brown theme. The Selection background above is a colour the
+    # theme actually contains.
+    if scheme.accent_fallback and selection_bg is not None:
+        scheme = replace(scheme, **{
+            name: replace(
+                getattr(scheme, name),
+                decoration_focus=selection_bg,
+                decoration_hover=selection_bg,
+            )
+            for name in _COLOR_GROUPS
+        })
+        theme.notes.append(
+            f"plasmastyle: colors focus rings from rgb{selection_bg} (the "
+            "Selection background) — the border art had no saturated cluster "
+            "and the sampled scheme fell back to Breeze blue"
+        )
 
     return scheme
 
