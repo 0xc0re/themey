@@ -279,9 +279,10 @@ def render_cmd(
         typer.Option(
             "--target",
             help=(
-                "'deco' (default: window decoration via a kdialog client) or "
+                "'deco' (default: window decoration via a kdialog client), "
                 "'style' (the Plasma Style's FrameSvg sets — panel/popup/"
-                "tooltip/tasks — via a plasmoidviewer probe applet)"
+                "tooltip/tasks/pager — via a plasmoidviewer probe applet) or "
+                "'pager' (themey's own E16 pager applet in the same harness)"
             ),
         ),
     ] = "deco",
@@ -338,6 +339,10 @@ def render_cmd(
             png = render.render_style(
                 theme, out=out, scale=scale, upscale=upscale
             )
+        elif target == "pager":
+            png = render.render_pager(
+                theme, out=out, scale=scale, upscale=upscale
+            )
         elif target == "deco":
             png = render.render(
                 theme,
@@ -350,7 +355,7 @@ def render_cmd(
             )
         else:
             raise render.RenderError(
-                f"unknown --target {target!r}; expected 'deco' or 'style'"
+                f"unknown --target {target!r}; expected 'deco', 'style' or 'pager'"
             )
     except render.RenderError as exc:
         logging.getLogger(__name__).error("render failed: %s", exc)

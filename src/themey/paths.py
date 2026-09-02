@@ -96,6 +96,14 @@ def look_and_feel() -> Path:
     return _xdg_data_home() / "plasma" / "look-and-feel"
 
 
+def plasmoids() -> Path:
+    """Plasma applet (``Plasma/Applet``) packages — themey's own pager and
+    desk-button applets (``generate/plasmoids``); scanned by plasmashell
+    and ``kpackagetool6 --type Plasma/Applet --list`` (verified live
+    2026-09-01)."""
+    return _xdg_data_home() / "plasma" / "plasmoids"
+
+
 def themey_previews() -> Path:
     return _xdg_data_home() / "themey" / "previews"
 

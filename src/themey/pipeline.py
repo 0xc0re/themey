@@ -28,7 +28,7 @@ from . import install, paths
 from .analyze.build_theme import build_theme
 from .etheme.archive import extract
 from .etheme.parse import parse_tree
-from .generate import lookandfeel, qmldeco
+from .generate import lookandfeel, plasmoids, qmldeco
 from .generate.aurorae import write as write_aurorae
 from .generate.colors import scheme_stem, write_colors
 from .generate.cursors import CursorTheme
@@ -76,6 +76,11 @@ class ConvertResult:
     """One installed wallpaper package dir per convertible background image
     (or the copies under ``output_dir``). Images that fail to convert are
     skipped with a ``wallpaper:`` note rather than failing the convert."""
+    plasmoid_dirs: tuple[Path, ...] = ()
+    """themey's own applet packages (``org.themey.pager``,
+    ``org.themey.deskbutton`` — ``generate/plasmoids``), theme-agnostic and
+    rewritten on every convert; under ``output_dir/plasmoids/`` in
+    non-installing mode."""
     cursor_theme_dir: Path | None = None
     """Installed ``themey_<slug>-cursors`` XCursor theme (or the copy under
     ``output_dir``). None when the theme declares no ``__CURSOR`` blocks,
@@ -225,6 +230,7 @@ def convert(
         style_dir: Path | None = None
         style_id: str | None = None
         lnf_dir: Path | None = None
+        plasmoid_dirs: list[Path] = []
         wallpaper_dirs: list[Path] = []
         # One WallpaperPackage per installed wallpaper_dirs entry (same
         # order), with `.dir` rebased to the FINAL installed/output
@@ -294,6 +300,16 @@ def convert(
                 style_dir = style.dir
                 style_id = style.id
                 log.info("wrote Plasma Style to %s", style_dir)
+            # themey's applets: theme-agnostic, so the same bytes every
+            # time; their own "plasmoids/" subdir keeps the survey's
+            # home-check tree shape identical to the install layout.
+            plasmoids_out = output_dir / "plasmoids"
+            for pkg_id_applet in plasmoids.PLASMOID_IDS:
+                if (plasmoids_out / pkg_id_applet).exists():
+                    shutil.rmtree(plasmoids_out / pkg_id_applet)
+            for applet in plasmoids.write_all(plasmoids_out):
+                plasmoid_dirs.append(applet.dir)
+                log.info("wrote applet package to %s", applet.dir)
 
             # LAST: assemble the Global Theme bundle from the ids that
             # actually deployed above, never from theme analysis — a
@@ -415,6 +431,16 @@ def convert(
                     install.clear_style_cache(pkg_id)
                     style_id = style.id
                     log.info("installed Plasma Style to %s", style_dir)
+                # themey's own applets, right after the style they read
+                # their art from; overwritten atomically on every convert
+                # (theme-agnostic, so a re-convert of ANY theme refreshes
+                # the runtime for the panels apply created).
+                for applet in plasmoids.write_all(stage / "plasmoids"):
+                    installed_applet = install.deploy(
+                        applet.id, applet.dir, target_root=paths.plasmoids()
+                    )
+                    plasmoid_dirs.append(installed_applet)
+                    log.info("installed applet package to %s", installed_applet)
 
                 # LAST: assemble + install the Global Theme bundle from the
                 # ids that actually deployed above (see the output_dir
@@ -473,6 +499,7 @@ def convert(
         qml_plugin_id=pkg_id if want_qml else None,
         color_scheme_path=colors_path,
         wallpaper_dirs=tuple(wallpaper_dirs),
+        plasmoid_dirs=tuple(plasmoid_dirs),
         cursor_theme_dir=cursor_dir,
         desktop_theme_dir=style_dir,
         desktop_theme_id=style_id,
