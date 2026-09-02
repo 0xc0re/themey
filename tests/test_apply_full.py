@@ -1466,6 +1466,36 @@ def test_apply_full_no_restart_shell_opt_out(fake_kconfig: FakeKConfig) -> None:
         fake_kconfig.index_of("systemctl")
 
 
+def test_apply_full_style_apply_restarts_plasmashell_last(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """Applets compute some KSvg metrics once at load (Kickoff's
+    horLineHeight/listItemMetrics), so a Plasma Style apply keeps the
+    previous theme's separator thickness until plasmashell restarts
+    (live 2026-09-01) — restart, dead last, even with a stretch wallpaper
+    that needs none itself."""
+    _install_fake_deco("e13")
+    _install_fake_style("e13")
+    _install_fake_wallpaper("themey_e13_tanbg", fill_mode="stretch")
+    _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
+    apply_mod.apply_full("e13")
+    i_restart = fake_kconfig.index_of("systemctl", "restart")
+    assert fake_kconfig.calls[i_restart][1:] == ["--user", "restart", "plasma-plasmashell"]
+    assert i_restart == len(fake_kconfig.calls) - 1
+    assert fake_kconfig.index_of("plasma-apply-desktoptheme", "themey_e13") < i_restart
+
+
+def test_apply_full_style_apply_no_restart_shell_opt_out(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_style("e13")
+    _install_fake_lnf("e13")
+    apply_mod.apply_full("e13", restart_shell=False)
+    with pytest.raises(AssertionError):
+        fake_kconfig.index_of("systemctl")
+
+
 def test_apply_full_restart_failure_only_warns(
     fake_kconfig: FakeKConfig, caplog,
 ) -> None:

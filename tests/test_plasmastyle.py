@@ -719,7 +719,12 @@ def test_viewitem_selected_plus_hover_and_normal_omission(tmp_path: Path) -> Non
     assert "normal-center" not in ids
 
 
-def test_viewitem_normal_set_when_normal_art_exists(tmp_path: Path) -> None:
+def test_viewitem_no_normal_set_even_with_normal_art(tmp_path: Path) -> None:
+    """PlasmaExtras.Highlight paints ``normal`` for a current-but-unhovered
+    item at 0.6 opacity (Kicker, folder views); E16 painted MENU_SEL's
+    normal art on EVERY row. Neither matches, Breeze ships no ``normal``
+    prefix — so themey never does either (StarEnli's tan bars over the
+    Favorites/Help rows, 2026-09-01)."""
     n = _png(tmp_path, "n.png")
     hi = _png(tmp_path, "h.png")
     theme = _theme(tmp_path, {
@@ -727,7 +732,54 @@ def test_viewitem_normal_set_when_normal_art_exists(tmp_path: Path) -> None:
     })
     svg = plasmastyle.build_viewitem(theme)
     assert svg is not None
-    assert "normal-center" in _ids(svg)
+    ids = _ids(svg)
+    assert not any(i.startswith("normal-") for i in ids)
+    assert {"hover-center", "selected-center", "selected+hover-center"} <= ids
+
+
+def _pill_png(tmp_path: Path, name: str, size: tuple[int, int]) -> Path:
+    """Opaque rounded-end strip (corners cut by a 1-bit shape mask)."""
+    w, h = size
+    im = Image.new("RGBA", size, (0, 0, 0, 0))
+    r = h // 2
+    for y in range(h):
+        for x in range(w):
+            cx = min(max(x, r), w - 1 - r)
+            if (x - cx) ** 2 + (y - r) ** 2 <= r * r:
+                im.putpixel((x, y), (220, 120, 80, 255))
+    p = tmp_path / name
+    im.save(p, format="PNG")
+    return p
+
+
+def test_viewitem_caps_never_outgrow_a_plasma_list_row(tmp_path: Path) -> None:
+    """StarEnli's 27 px MENU_SEL pill at 1.5x: 12 ref px caps would scale
+    to 18+18 = 36 output px, more than Kickoff's ~30 px row — FrameSvg
+    then paints a degenerate sliver. Past VIEWITEM_MAX_ROW_CHROME_PX the
+    set stays at source scale (12+12) with a note."""
+    pill = _pill_png(tmp_path, "pill.png", (120, 27))
+    theme = _theme(tmp_path, {
+        "MENU_SEL": _iclass("MENU_SEL", edge=(64, 14, 2, 2), hilited=pill),
+    }, scale=1.5)
+    svg = plasmastyle.build_viewitem(theme)
+    assert svg is not None
+    top = _tile_image(svg, "hover-top")
+    bottom = _tile_image(svg, "hover-bottom")
+    assert top.height + bottom.height <= plasmastyle.VIEWITEM_MAX_ROW_CHROME_PX
+    assert top.height == 12
+    assert any("kept at source scale" in n and "36 px of caps" in n for n in theme.notes)
+
+    # A 16 px bevel strip declares 3 px caps → 5+5 output px at 1.5x fits,
+    # so it scales like everything else.
+    strip = _png(tmp_path, "strip.png", size=(213, 16), color=(150, 90, 60, 255))
+    theme2 = _theme(tmp_path, {
+        "MENU_SEL": _iclass("MENU_SEL", edge=(3, 3, 3, 3), hilited=strip),
+    }, scale=1.5)
+    svg2 = plasmastyle.build_viewitem(theme2)
+    assert svg2 is not None
+    assert _tile_image(svg2, "hover-top").height == scale_px(3, 1.5)
+    assert _tile_image(svg2, "hover-center").width > 0
+    assert not any("kept at source scale" in n for n in theme2.notes)
 
 
 def test_arrows_all_four_or_skip(tmp_path: Path) -> None:
@@ -1834,34 +1886,116 @@ def test_slider_groove_full_cross_section_ships(tmp_path: Path) -> None:
     assert next(iter(by_id["groove-bottomleft"])).get("height") == "5"
 
 
-def test_line_thickness_clamped_and_vertical_rotated(tmp_path: Path) -> None:
-    """Aliens/e13 point the separator at a ~64 px bevel box E16 squeezed
-    into a thin rule — clamp to LINE_MAX_REF_THICKNESS, never render the
-    box at its own height."""
-    art = _png(tmp_path, "bt2.png", size=(64, 64))
-    theme = _theme(tmp_path, {
-        "DIALOG_WIDGET_SEPARATOR": _iclass("DIALOG_WIDGET_SEPARATOR", normal=art),
-    }, scale=2)
-    svg = plasmastyle.build_line(theme)
-    assert svg is not None
+def _line_dims(svg: ET.Element) -> tuple[tuple[int, int], tuple[int, int]]:
+    """((h_w, h_h), (v_w, v_h)) of the two rule images."""
     by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
     h_img = next(iter(by_id["horizontal-line"]))
     v_img = next(iter(by_id["vertical-line"]))
-    assert h_img.get("height") == str(scale_px(4, 2))
-    assert h_img.get("width") == str(scale_px(64, 2))
-    # Vertical = same art rotated: dimensions swap.
-    assert v_img.get("width") == h_img.get("height")
-    assert v_img.get("height") == h_img.get("width")
-    assert any("squeezed" in n for n in theme.notes)
+    return (
+        (int(h_img.get("width")), int(h_img.get("height"))),
+        (int(v_img.get("width")), int(v_img.get("height"))),
+    )
 
-    # Authored-thin art (LiteGnome's 120x4 hline) is not squeezed further.
-    thin = _png(tmp_path, "hline.png", size=(120, 4))
+
+def test_line_thickness_from_padding_like_e16(tmp_path: Path) -> None:
+    """dialog.c:1048-1056 sizes a separator from the iclass __PADDING
+    (h = pad.t + pad.b) and squeezes the art into it — Aliens/e13 point the
+    separator at a ~64 px bevel box that E16 drew 2 px thick."""
+    art = _png(tmp_path, "bt2.png", size=(64, 64))
+    theme = _theme(tmp_path, {
+        "DIALOG_WIDGET_SEPARATOR": _iclass(
+            "DIALOG_WIDGET_SEPARATOR", padding=(1, 1, 1, 1), normal=art,
+        ),
+    }, scale=2)
+    svg = plasmastyle.build_line(theme)
+    assert svg is not None
+    (h_w, h_h), (v_w, v_h) = _line_dims(svg)
+    assert h_h == scale_px(2, 2)
+    assert h_w == scale_px(64, 2)
+    # Vertical = same art rotated: dimensions swap.
+    assert (v_w, v_h) == (h_h, h_w)
+    assert any(
+        "2 ref px thick from __PADDING, as E16 sized them; art 64 px squeezed" in n
+        for n in theme.notes
+    )
+
+    # No padding declared (ten corpus themes): the art height, clamped to
+    # LINE_MAX_REF_THICKNESS.
     theme2 = _theme(tmp_path, {
-        "DIALOG_WIDGET_SEPARATOR": _iclass("DIALOG_WIDGET_SEPARATOR", normal=thin),
+        "DIALOG_WIDGET_SEPARATOR": _iclass("DIALOG_WIDGET_SEPARATOR", normal=art),
     }, scale=2)
     svg2 = plasmastyle.build_line(theme2)
     assert svg2 is not None
-    assert not any("squeezed" in n for n in theme2.notes)
+    (h_w, h_h), _ = _line_dims(svg2)
+    assert h_h == scale_px(plasmastyle.LINE_MAX_REF_THICKNESS, 2)
+    assert any("no __PADDING; 64 ref px of art squeezed to 4" in n for n in theme2.notes)
+
+    # Authored-thin art (LiteGnome's 120x4 hline), no padding: kept as is.
+    thin = _png(tmp_path, "hline.png", size=(120, 4))
+    theme3 = _theme(tmp_path, {
+        "DIALOG_WIDGET_SEPARATOR": _iclass("DIALOG_WIDGET_SEPARATOR", normal=thin),
+    }, scale=2)
+    svg3 = plasmastyle.build_line(theme3)
+    assert svg3 is not None
+    assert _line_dims(svg3)[0] == (scale_px(120, 2), scale_px(4, 2))
+    assert not any("squeezed" in n for n in theme3.notes)
+
+    # LCARS declares __PADDING 8 8 8 8: clamped, and the note says what E16 drew.
+    theme4 = _theme(tmp_path, {
+        "DIALOG_WIDGET_SEPARATOR": _iclass(
+            "DIALOG_WIDGET_SEPARATOR", padding=(8, 8, 8, 8), normal=thin,
+        ),
+    }, scale=1)
+    svg4 = plasmastyle.build_line(theme4)
+    assert svg4 is not None
+    assert _line_dims(svg4)[0][1] == plasmastyle.LINE_MAX_REF_THICKNESS
+    assert any("declares 16 ref px, clamped to 4 — E16 drew 16" in n for n in theme4.notes)
+
+
+def test_line_hairline_art_survives_the_squeeze(tmp_path: Path) -> None:
+    """LCARS: widget_separator.png is 1x16 with ONE opaque row (row 7)
+    inside __PADDING 2 2 8 8. A NEAREST squeeze of 16 rows into the
+    clamped 4 sampled rows 0/4/8/12 and the rule vanished (probe
+    2026-09-01). The art is trimmed to its opaque span and centred."""
+    im = Image.new("RGBA", (1, 16), (0, 0, 0, 0))
+    im.putpixel((0, 7), (255, 153, 0, 255))
+    p = tmp_path / "widget_separator.png"
+    im.save(p, format="PNG")
+    theme = _theme(tmp_path, {
+        "DIALOG_WIDGET_SEPARATOR": _iclass(
+            "DIALOG_WIDGET_SEPARATOR", edge=(0, 0, 0, 0), padding=(2, 2, 8, 8),
+            normal=p, clicked=p,
+        ),
+    })
+    svg = plasmastyle.build_line(theme)
+    assert svg is not None
+    (h_w, h_h), (v_w, v_h) = _line_dims(svg)
+    assert (h_w, h_h) == (1, plasmastyle.LINE_MAX_REF_THICKNESS)
+    h_img = _tile_image(svg, "horizontal-line")
+    assert h_img.getchannel("A").getextrema()[1] == 255
+    assert h_img.getpixel((0, 1)) == (255, 153, 0, 255)
+    # Vertical: pad.l + pad.r = 4 wide, the 1 px column centred, 16 tall.
+    assert (v_w, v_h) == (4, 16)
+    assert _tile_image(svg, "vertical-line").getpixel((1, 7)) == (255, 153, 0, 255)
+    assert any("clamped to 4 — E16 drew 16; 1 px of art centred in it" in n for n in theme.notes)
+
+
+def test_line_starenli_both_rules_from_padding(tmp_path: Path) -> None:
+    """StarEnli: 46x2 magenta strip, __PADDING 1 1 1 1, __CLICKED the same
+    file. Both rules are 2 ref px = 3 px at 1.5x; the vertical rule used
+    to take the art's 46 px WIDTH clamped to 4 (6 px, chris's screenshot)."""
+    art = _png(tmp_path, "separator.png", size=(46, 2), color=(220, 0, 200, 255))
+    theme = _theme(tmp_path, {
+        "DIALOG_WIDGET_SEPARATOR": _iclass(
+            "DIALOG_WIDGET_SEPARATOR", padding=(1, 1, 1, 1), normal=art, clicked=art,
+        ),
+    }, scale=1.5)
+    svg = plasmastyle.build_line(theme)
+    assert svg is not None
+    (h_w, h_h), (v_w, v_h) = _line_dims(svg)
+    assert (h_w, h_h) == (scale_px(46, 1.5), 3)
+    assert (v_w, v_h) == (3, 3)
+    assert _tile_image(svg, "vertical-line").getpixel((0, 0))[:3] == (220, 0, 200)
 
 
 def test_frame_unprefixed_set_with_margins(tmp_path: Path) -> None:
@@ -1881,6 +2015,44 @@ def test_frame_unprefixed_set_with_margins(tmp_path: Path) -> None:
             "hint-bottom-margin", "hint-stretch-borders"} <= ids
     # Unprefixed only — no plain-/raised-/sunken- variants.
     assert not any(i.startswith(("plain-", "raised-", "sunken-")) for i in ids)
+    # Ring only: E16's area window covers the interior (dialog.c:776-783).
+    center = _tile_image(svg, "center")
+    assert center.getchannel("A").getextrema() == (0, 0)
+    assert _tile_image(svg, "top").getchannel("A").getextrema() == (255, 255)
+    assert any("ring only" in n for n in theme.notes)
+
+
+def test_frame_solid_area_art_becomes_a_ring(tmp_path: Path) -> None:
+    """StarEnli's DIALOG_WIDGET_AREA is 256x256 solid magenta with
+    __EDGE_SCALING 1 1 1 1 / __PADDING 1 1 1 1: E16 showed a 1 px ring,
+    themey shipped the whole tile as the GroupBox background."""
+    art = _png(tmp_path, "area.png", size=(256, 256), color=(220, 0, 200, 255))
+    theme = _theme(tmp_path, {
+        "DIALOG_WIDGET_AREA": _iclass(
+            "DIALOG_WIDGET_AREA", edge=(1, 1, 1, 1), padding=(1, 1, 1, 1),
+            normal=art,
+        ),
+    }, scale=1.5)
+    svg = plasmastyle.build_frame(theme)
+    assert svg is not None
+    ring = scale_px(1, 1.5)
+    assert _tile_image(svg, "top").height == ring
+    assert _tile_image(svg, "left").width == ring
+    assert _tile_image(svg, "top").getpixel((0, 0)) == (220, 0, 200, 255)
+    assert _tile_image(svg, "center").getchannel("A").getextrema() == (0, 0)
+
+    # Padding wider than the caps widens the ring (the centre element must
+    # stay fully transparent — FrameSvg stretches it across the interior).
+    theme2 = _theme(tmp_path, {
+        "DIALOG_WIDGET_AREA": _iclass(
+            "DIALOG_WIDGET_AREA", edge=(1, 1, 1, 1), padding=(3, 3, 3, 3),
+            normal=art,
+        ),
+    })
+    svg2 = plasmastyle.build_frame(theme2)
+    assert svg2 is not None
+    assert _tile_image(svg2, "top").height == 3
+    assert _tile_image(svg2, "center").getchannel("A").getextrema() == (0, 0)
 
 
 def test_frame_falls_back_to_table_iclass(tmp_path: Path) -> None:
@@ -2396,8 +2568,10 @@ def test_line_vertical_uses_clicked_art(tmp_path: Path) -> None:
     h = _png(tmp_path, "h.png", size=(32, 4), color=(200, 0, 0, 255))
     v = _png(tmp_path, "v.png", size=(4, 32), color=(0, 0, 200, 255))
     theme = _theme(tmp_path, {
-        "DIALOG_WIDGET_SEPARATOR": _iclass("DIALOG_WIDGET_SEPARATOR", normal=h, clicked=v),
-    })
+        "DIALOG_WIDGET_SEPARATOR": _iclass(
+            "DIALOG_WIDGET_SEPARATOR", padding=(1, 1, 2, 2), normal=h, clicked=v,
+        ),
+    }, scale=2)
     svg = plasmastyle.build_line(theme)
     assert svg is not None
     for e in svg.iter():
@@ -2408,9 +2582,15 @@ def test_line_vertical_uses_clicked_art(tmp_path: Path) -> None:
             data = base64.b64decode(img.get(XLINK).split(",", 1)[1])
             px = Image.open(io.BytesIO(data)).convert("RGB").getpixel((1, 1))
             assert px == (0, 0, 200)
+            # Width = pad.l + pad.r (E16's vertical separator width), the
+            # clicked art's height scaled.
+            assert int(img.get("width")) == scale_px(1 + 1, 2)
+            assert int(img.get("height")) == scale_px(32, 2)
             break
     else:
         raise AssertionError("no vertical-line")
+    assert _line_dims(svg)[0][1] == scale_px(2 + 2, 2)
+    assert any("vertical rule from the __CLICKED art" in n for n in theme.notes)
 
 
 # ------------------------------------------------------------------ #
