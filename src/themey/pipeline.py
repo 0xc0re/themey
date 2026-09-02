@@ -33,7 +33,7 @@ from .generate.aurorae import write as write_aurorae
 from .generate.colors import scheme_stem, write_colors
 from .generate.cursors import CursorTheme
 from .generate.cursors import write_theme as write_cursor_theme
-from .generate.plasmastyle import PlasmaStyleError
+from .generate.plasmastyle import ICONBOX_FRAME_MODES, PlasmaStyleError
 from .generate.plasmastyle import write as write_plasma_style
 from .generate.wallpaper import WallpaperError, WallpaperPackage
 from .generate.wallpaper import pick_default as pick_default_wallpaper
@@ -126,6 +126,7 @@ def convert(
     backend: str = "qml",
     upscale: str = "nearest",
     shade_button: str = "maximize",
+    iconbox_frames: str = "on",
 ) -> ConvertResult:
     """Convert one .etheme to an installed KWin decoration + preview + report.
 
@@ -152,6 +153,10 @@ def convert(
             ``"none"`` (today's inert disabled button). The SVG backend
             never consumes this flag, so any value is accepted regardless
             of ``backend``.
+        iconbox_frames: Plasma Style task frames for the iconbox panel:
+            ``"on"`` (default — the iconbox button art as per-icon plates)
+            or ``"off"`` (E16's own frameless iconbox default, transparent
+            sets); ``plasmastyle.ICONBOX_FRAME_MODES``.
 
     Returns:
         A :class:`ConvertResult`. ``installed_dir`` is the SVG theme dir
@@ -163,7 +168,8 @@ def convert(
         pointer theme (None when there was nothing to install).
 
     Raises:
-        ValueError: If ``scale`` or ``backend`` is invalid.
+        ValueError: If ``scale``, ``backend``, ``upscale``, ``shade_button``
+            or ``iconbox_frames`` is invalid.
         UnsafeArchiveError: If the archive fails safe-extract validation.
         InstallError: If the atomic install rename fails.
     """
@@ -194,6 +200,11 @@ def convert(
         raise ValueError(
             f"shade_button must be one of {qmldeco.SHADE_BUTTON_MODES} "
             f"(got {shade_button!r})"
+        )
+    if iconbox_frames not in ICONBOX_FRAME_MODES:
+        raise ValueError(
+            f"iconbox_frames must be one of {ICONBOX_FRAME_MODES} "
+            f"(got {iconbox_frames!r})"
         )
 
     # Theme name comes from the archive filename, never from cfg content.
@@ -293,7 +304,7 @@ def convert(
             if style_out.exists():
                 shutil.rmtree(style_out)
             try:
-                style = write_plasma_style(theme, style_out)
+                style = write_plasma_style(theme, style_out, iconbox_frames=iconbox_frames)
             except PlasmaStyleError as exc:
                 theme.notes.append(f"plasmastyle: skipped: {exc}")
             else:
@@ -416,7 +427,9 @@ def convert(
                 # collision reason as "look-and-feel/" below.
                 stage_style_dir = stage / "desktoptheme" / pkg_id
                 try:
-                    style = write_plasma_style(theme, stage_style_dir)
+                    style = write_plasma_style(
+                        theme, stage_style_dir, iconbox_frames=iconbox_frames
+                    )
                 except PlasmaStyleError as exc:
                     theme.notes.append(f"plasmastyle: skipped: {exc}")
                 else:

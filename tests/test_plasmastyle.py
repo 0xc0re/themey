@@ -2596,3 +2596,132 @@ def test_north_wordmark_accepts_thin_strip(tmp_path: Path) -> None:
         "top panels wear the DESKTOP_DRAGBUTTON_HORIZ wordmark art (north- set" in n
         for n in theme.notes
     )
+
+
+# ------------------------------------------------------------------ #
+# Iconbox faithfulness: --iconbox-frames, hover prefixes, TasksHover
+# ------------------------------------------------------------------ #
+
+_TASKS_ALL_PREFIXES = (
+    "normal-", "minimized-", "", "hover-", "attention-", "progress-", "focus-",
+)
+
+
+def test_tasks_frames_off_ships_blank_sets_with_trough_margins(tmp_path: Path) -> None:
+    """E16's iconbox default (container.c draw_icon_base = 0): no plate.
+    Every prefix (hover-on-state ones too) is a transparent 1 px
+    center-only set, margins from the iconbox trough __PADDING scaled, so
+    Breeze's plates never come back and the icons keep E16's spacing."""
+    png = _png(tmp_path, "iconbtn.png")
+    trough = _png(tmp_path, "trough.png")
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass(
+            "DEFAULT_ICON_BUTTON", normal=png, hilited=png, padding=(2, 2, 2, 2)
+        ),
+        "ICONBOX_VERTICAL": _iclass(
+            "ICONBOX_VERTICAL", normal=trough, padding=(3, 3, 4, 4)
+        ),
+        **_arrow_iclasses(tmp_path),
+    }, scale=2)
+    svg = plasmastyle.build_tasks(theme, iconbox_frames="off")
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    for prefix in (*_TASKS_ALL_PREFIXES, "launcher-hover-", "focus-hover-"):
+        center = by_id[f"{prefix}center"]
+        assert center.tag.endswith("rect") and "opacity:0" in center.get("style", "")
+        assert center.get("width") == "1"
+        assert by_id[f"{prefix}hint-left-margin"].get("width") == "6"   # 3 × 2
+        assert by_id[f"{prefix}hint-top-margin"].get("width") == "8"    # 4 × 2
+        assert f"{prefix}topleft" not in by_id
+    assert not any(e.tag.endswith("image") and "center" in (e.get("id") or "")
+                   for e in svg.iter())
+    for direction in ("left", "right", "top", "bottom"):
+        assert f"group-expander-{direction}" in by_id  # expanders retained
+    assert any("task frames OFF" in n and "from the iconbox trough" in n for n in theme.notes)
+
+
+def test_tasks_frames_off_without_button_art_still_ships(tmp_path: Path) -> None:
+    """Off mode needs no button art at all (nothing is painted); the
+    trough padding falls back to E16's 2 px default."""
+    theme = _theme(tmp_path, {})
+    svg = plasmastyle.build_tasks(theme, iconbox_frames="off")
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    assert "normal-center" in by_id
+    assert by_id["normal-hint-left-margin"].get("width") == "2"
+    assert any("(E16 default)" in n for n in theme.notes)
+
+
+def test_tasks_frames_on_notes_e16_frameless_default(tmp_path: Path) -> None:
+    png = _png(tmp_path, "iconbtn.png")
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass("DEFAULT_ICON_BUTTON", normal=png),
+    })
+    svg = plasmastyle.build_tasks(theme)
+    assert svg is not None
+    assert any("draws NO per-icon plate" in n for n in theme.notes)
+    with pytest.raises(plasmastyle.PlasmaStyleError, match="iconbox_frames"):
+        plasmastyle.build_tasks(theme, iconbox_frames="bogus")
+
+
+def test_tasks_launcher_and_focus_hover_only_with_hilited_art(tmp_path: Path) -> None:
+    png = _png(tmp_path, "iconbtn.png")
+    hi = _png(tmp_path, "iconbtn_hi.png", color=(90, 200, 90, 255))
+    cl = _png(tmp_path, "iconbtn_cl.png", color=(20, 20, 20, 255))
+    plain = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass("DEFAULT_ICON_BUTTON", normal=png),
+    })
+    svg = plasmastyle.build_tasks(plain)
+    assert svg is not None
+    ids = _ids(svg)
+    assert "launcher-hover-center" not in ids and "focus-hover-center" not in ids
+    assert plasmastyle.tasks_hover(plain) is False
+
+    lit = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass(
+            "DEFAULT_ICON_BUTTON", normal=png, hilited=hi, clicked=cl
+        ),
+    })
+    svg2 = plasmastyle.build_tasks(lit)
+    assert svg2 is not None
+    by_id = {e.get("id"): e for e in svg2.iter() if e.get("id")}
+    assert "launcher-hover-center" in by_id and "focus-hover-center" in by_id
+    assert "launcher-hover-hint-left-margin" not in by_id  # padding 0 → no hints
+    # launcher-hover wears the hilited art, focus-hover the clicked art.
+    launcher = next(iter(by_id["launcher-hover-center"])).get(XLINK)
+    focus_hover = next(iter(by_id["focus-hover-center"])).get(XLINK)
+    hover = next(iter(by_id["hover-center"])).get(XLINK)
+    focus = next(iter(by_id["focus-center"])).get(XLINK)
+    assert launcher == hover and focus_hover == focus and launcher != focus_hover
+    assert plasmastyle.tasks_hover(lit) is True
+    # hilited_active alone is not a hover (checked-semantics trap).
+    only_active = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass(
+            "DEFAULT_ICON_BUTTON", normal=png, hilited_active=hi
+        ),
+    })
+    assert plasmastyle.tasks_hover(only_active) is False
+
+
+def test_write_metadata_carries_tasks_hover_and_iconbox_frames(tmp_path: Path) -> None:
+    import json
+
+    png = _png(tmp_path, "iconbtn.png")
+    hi = _png(tmp_path, "iconbtn_hi.png", color=(90, 200, 90, 255))
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass("DEFAULT_ICON_BUTTON", normal=png, hilited=hi),
+    })
+    out = tmp_path / "themey_TestStyle"
+    style = plasmastyle.write(theme, out, iconbox_frames="off")
+    meta = json.loads((out / "metadata.json").read_text())
+    assert meta["X-Themey-TasksHover"] is True
+    assert plasmastyle.TASKS_SVG in style.shipped
+    svg = ET.parse(out / plasmastyle.TASKS_SVG).getroot()
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    assert by_id["normal-center"].tag.endswith("rect")  # blank set shipped
+    for variant in ("solid", "opaque"):
+        assert (out / variant / plasmastyle.TASKS_SVG).read_bytes() == (
+            out / plasmastyle.TASKS_SVG
+        ).read_bytes()
+    with pytest.raises(plasmastyle.PlasmaStyleError, match="iconbox_frames"):
+        plasmastyle.write(theme, out, iconbox_frames="bogus")

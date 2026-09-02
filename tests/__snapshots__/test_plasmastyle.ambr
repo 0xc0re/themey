@@ -167,7 +167,8 @@
           "Name": "TestStyle (themey)",
           "Version": "1.0"
       },
-      "X-Plasma-API": "5.0"
+      "X-Plasma-API": "5.0",
+      "X-Themey-TasksHover": false
   }
   
   '''
