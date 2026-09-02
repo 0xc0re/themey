@@ -177,9 +177,9 @@ a third user-layer kdeglobals write (`[KDE] widgetStyle=`, same
 kdedefaults-shadowing reason as the colours and icons) plus a `dbus-send
 --type=signal /KGlobalSettings org.kde.KGlobalSettings.notifyChange
 int32:2 int32:0` broadcast so running apps restyle without a relogin
-(failure = warning); neither stamp nor flag leaves the application style
-entirely alone, and revert restores or deletes the key the same way the
-colours block does — then, when the Plasma Style package is installed,
+(failure = warning); with no stamp AND no flag the application style is
+left entirely alone — no baseline recorded, nothing written — and revert
+restores or deletes the key the same way the colours block does — then, when the Plasma Style package is installed,
 `_clear_style_cache` followed by `plasma-apply-desktoptheme themey_<slug>`
 (explicit for the same user-layer-shadowing reason; the cache clear must
 come first or plasmashell repaints from the stale Version-keyed kcache of a
@@ -471,7 +471,9 @@ Selection/View colours with contrast ratios and a `contact.png` of every
 theme's hover and selected strips for the eyeball check (223 rows, held
 under `MAX_SHEET_BYTES` = 1 MB by a scale ladder). ~90 s, nothing
 installed, nothing written outside `--out`. `uv run python
-scripts/reconvert_installed.py [--dry-run] [--only SLUG]` refreshes the
+scripts/reconvert_installed.py [--dry-run] [--only PKG_ID ...]`
+(one or more full `themey_<slug>` ids, a bare `<slug>` also accepted)
+refreshes the
 locally INSTALLED `themey_*` reference packages: it maps each installed
 package id back to its `.etheme` through `slug.plugin_id` on the archive
 stem, re-runs `pipeline.convert` in-process with the current defaults
