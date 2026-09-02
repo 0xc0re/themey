@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Popup background for item-background menu styles** — NeXTSTEP-style
+  themes (`__USE_ITEM_BACKGROUNDS __ON`: OldE, OPENSTEP, NewSTEP, 8 corpus
+  themes) now paint the popup/launcher centre flat in the item strip's
+  dominant colour inside the strip's own bevel, instead of repeating the
+  whole strip — on a 600 px Kickoff the repeated bevel rows read as a
+  striped texture. E16 never drew a menu background for these styles, so
+  the centre is themey's choice either way; the colour is the one the
+  Window colour group already samples from the same art.
+
 ### Fixed (render)
 
 - **`themey render` from a tty/ssh session** — the nested KWin refused
