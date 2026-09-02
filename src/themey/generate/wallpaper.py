@@ -48,10 +48,12 @@ setting (``-n 0``): ``-n 1`` cleans up JPEG mosquito noise on flat dark
 art but visibly waxes over the grain in textured art (rust, stone,
 scanlines), which lost 4 of those 5 comparisons.
 
-Cost, measured on Aliens: the four shipped wallpapers go 707 KB -> 5020
-KB. JPEG sources stay cheap because they are re-encoded as JPEG (279 ->
-428 KB, one even shrank); a doubled photographic PNG is what dominates
-(384 -> 4467 KB) and stays PNG on purpose.
+Upscaled wallpapers are written as lossless PNG whatever the source
+container was (``_save_upscaled``) — the format is ours to pick once the
+passthrough is forfeit, and a JPEG re-encode would stack a second
+generation of loss on a CNN's reconstruction of an already-lossy source.
+That is the expensive choice and it is deliberate: Aliens' four
+wallpapers dominate the package, taking it to roughly 14 MB.
 
 Guards the same decompression-bomb pitfall as ``analyze/colors.py``: an
 explicit width*height check against the header before any pixel is
@@ -90,6 +92,9 @@ WALLPAPER_UPSCALE_MAX_WIDTH: int = 1920
 # (4x a 1024-wide source is 4096 px for a 1920 px screen).
 _WALLPAPER_UPSCALE_FACTOR = 2
 
+# Unused while upscaled wallpapers ship as lossless PNG (see
+# _save_upscaled); kept as the knob for the size/quality trade if a
+# package ever needs to shrink.
 # Re-encode quality when an upscaled JPEG source is saved back as JPEG.
 # Upscaling forfeits the byte-for-byte passthrough, and a photographic
 # 2048x1536 PNG is several MB against ~100 KB for the JPEG it replaces.
@@ -171,30 +176,26 @@ def _maybe_upscale(
 def _save_upscaled(
     img: Image.Image, images_dir: Path, source_format: str
 ) -> tuple[Path, int, int]:
-    """Write *img*, preferring the source's own container.
+    """Write *img* losslessly, as PNG, whatever the source container was.
 
-    Upscaling forfeits the byte-for-byte passthrough, so the format
-    choice is ours again: a photographic 2048x1536 PNG runs to several MB
-    where the JPEG it replaces was ~100 KB. The test is the SOURCE's
-    format, not the upscaled image's mode — waifu2x always hands back
-    RGBA, so asking it would send every JPEG to PNG; a JPEG source cannot
-    have carried alpha in the first place.
+    Upscaling forfeits the byte-for-byte passthrough, so the format is
+    ours to choose again — and the choice is quality, per chris
+    2026-09-02 ("store the images as whatever looks best"). Re-encoding
+    to JPEG is the only lossy step left in the wallpaper path, and it is
+    a *second* generation of loss stacked on an already-JPEG source and
+    then on a CNN's reconstruction of it. Measured on a doubled 800x600
+    corpus wallpaper: q92 costs 0.85 mean / 13 max RGB error for 415 KB,
+    q98 costs 0.44 / 9 for 730 KB, PNG costs nothing for 2302 KB.
+
+    The price is package size, and it is not small: Aliens goes ~8 MB to
+    ~14 MB. If that ever matters more than the pixels, restoring the
+    JPEG branch for ``source_format == "JPEG"`` is a four-line change and
+    ``_WALLPAPER_JPEG_QUALITY`` is still here for it. ``source_format``
+    is retained for that reason and for callers that log it.
     """
     width, height = img.width, img.height
-    if source_format == "JPEG":
-        dest = images_dir / f"{width}x{height}.jpg"
-        img.convert("RGB").save(
-            dest, format="JPEG", quality=_WALLPAPER_JPEG_QUALITY
-        )
-    else:
-        # A PNG source stays PNG: it may be lossless art the author chose
-        # deliberately, and re-encoding to JPEG is not a call to make
-        # silently. That is the expensive branch and there is no way
-        # around it — measured on Aliens' 955x611 PNG, doubling gives
-        # 4467 KB, where ``optimize`` claws back 0.7% and JPEG q92 would
-        # have been 1193 KB at the cost of the author's lossless pixels.
-        dest = images_dir / f"{width}x{height}.png"
-        img.save(dest, format="PNG", optimize=True)
+    dest = images_dir / f"{width}x{height}.png"
+    img.save(dest, format="PNG", optimize=True)
     return dest, width, height
 
 

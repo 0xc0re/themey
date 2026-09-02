@@ -445,7 +445,29 @@ def test_waifu2x_doubles_a_small_wallpaper(tmp_path: Path) -> None:
     spec = WallpaperSpec(path=src, fill_mode="stretch")
     pkg = write_package(theme, spec, tmp_path / wallpaper_id(theme.name, "small"))
     assert (pkg.width, pkg.height) == (128, 96)
-    assert (pkg.dir / "contents" / "images" / "128x96.jpg").is_file()
+    # Lossless PNG even from a JPEG source: once the byte-for-byte
+    # passthrough is forfeit the format is ours, and a re-encode would
+    # stack a second generation of loss on the CNN's reconstruction.
+    assert (pkg.dir / "contents" / "images" / "128x96.png").is_file()
+    assert not (pkg.dir / "contents" / "images" / "128x96.jpg").exists()
+
+
+@needs_waifu2x
+def test_upscaled_wallpapers_are_lossless_whatever_the_source(
+    tmp_path: Path,
+) -> None:
+    """Both source containers land on PNG — the choice is quality, and a
+    JPEG source is exactly the case where another lossy pass is worst."""
+    theme = _make_theme()
+    object.__setattr__(theme, "upscale", "waifu2x")
+    for stem, maker, ext in (("j", _jpeg, "jpg"), ("p", _png, "png")):
+        src = maker(tmp_path / "src" / f"{stem}.{ext}", (64, 48))
+        spec = WallpaperSpec(path=src, fill_mode="stretch")
+        pkg = write_package(
+            theme, spec, tmp_path / wallpaper_id(theme.name, stem)
+        )
+        images = list((pkg.dir / "contents" / "images").iterdir())
+        assert [i.suffix for i in images] == [".png"], (stem, images)
 
 
 def test_waifu2x_failure_ships_the_original_with_a_note(

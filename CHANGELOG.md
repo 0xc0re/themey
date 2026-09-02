@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2026-09-02
 
 ### Added
 
@@ -50,6 +50,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (1920), only under `waifu2x` (hqx on a photograph is the wrong tool),
   and a scaler failure ships the original with a `wallpaper:` note rather
   than failing the conversion.
+
+  Upscaled wallpapers are written as **lossless PNG** whatever the source
+  container was: once the byte-for-byte passthrough is forfeit the format
+  is ours to pick, and a JPEG re-encode would stack a second generation of
+  loss on a CNN's reconstruction of an already-lossy source. Measured on a
+  doubled 800x600 corpus wallpaper, q92 costs 0.85 mean / 13 max RGB error
+  to save 1.9 MB. The price is package size — Aliens goes ~3 MB at
+  `nearest` to ~14 MB at `waifu2x`.
 
 ### Fixed
 
