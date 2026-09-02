@@ -30,6 +30,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a performance budget, sized to clear the one-off shader-pipeline compile
   the first run against a device pays (36 s vs 1.7 s warm, measured).
 
+- **`--upscale` now reaches the Plasma Style.** Panels, Kickoff/popup,
+  tooltip, task and pager chrome are scaled with the same scaler as the
+  window decoration; previously all three `plasmastyle.py` call sites took
+  the default, so a themed desktop showed smoothed window frames beside a
+  staircased panel. The mode rides on `ir.Theme.upscale`, beside `scale`.
+
+  Changing the scaler cannot move geometry — classifiers run on source art
+  and caps derive from source dims × scale — and a test pins that by
+  comparing emitted SVGs with the rasters blanked. Style art repeats across
+  prefixed sets, so `write()` memoizes the expensive modes: e13 goes 71 → 53
+  waifu2x launches (57.9 → 39.8 s).
+
 ### Fixed
 
 - `report.txt`'s Approximated section named the scaler that actually ran.
