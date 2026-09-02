@@ -26,6 +26,15 @@ Flags (convert):
     -v / -vv      increase verbosity (DEBUG, default INFO)
     -q            quiet (WARNING+ only)
 
+Flags (apply, E16 furniture):
+    --no-pager / --no-iconbox / --no-dragbar
+                  leave that panel out (an already-created one is removed)
+    --furniture-strut
+                  let the pager/iconbox panels reserve screen space
+                  (default: Windows Go Below)
+    --pager-cell PX / --iconbox-size PX
+                  override E16's own 48 px cell / iconbox sizes
+
 Group flags:
     --version     print themey.__version__ and exit 0
 
@@ -40,7 +49,7 @@ from typing import Annotated
 import typer
 import typer.core
 
-from . import __version__, external, log
+from . import __version__, apply, external, log
 from .pipeline import convert
 
 #: Lone flags that belong to the group itself, not to the implicit
@@ -379,6 +388,35 @@ def render_cmd(
     typer.echo(f"Rendered: {png}")
 
 
+def _furniture_options(
+    *,
+    no_pager: bool,
+    no_iconbox: bool,
+    no_dragbar: bool,
+    furniture_strut: bool,
+    pager_cell: int,
+    iconbox_size: int,
+) -> apply.FurnitureOptions:
+    """Build the :class:`apply.FurnitureOptions` for one command's flags.
+
+    Shared by ``themey apply`` and ``themey convert --apply`` so both
+    spell the E16 furniture the same way. The sizes are validated here as
+    a usage error rather than surfacing ``apply``'s typed
+    :class:`~themey.apply.ApplyError` as a failed apply.
+    """
+    for flag, value in (("--pager-cell", pager_cell), ("--iconbox-size", iconbox_size)):
+        if value <= 0:
+            raise typer.BadParameter(f"{flag} must be a positive number of pixels")
+    return apply.FurnitureOptions(
+        pager=not no_pager,
+        iconbox=not no_iconbox,
+        dragbar=not no_dragbar,
+        strut=furniture_strut,
+        pager_cell_px=pager_cell,
+        iconbox_px=iconbox_size,
+    )
+
+
 @app.command("apply")
 def apply_cmd(
     name: Annotated[
@@ -442,11 +480,54 @@ def apply_cmd(
             "ignored with --deco-only/--revert",
         ),
     ] = False,
+    no_pager: Annotated[
+        bool,
+        typer.Option(
+            "--no-pager",
+            help="Don't create E16's pager panel (an existing themey one is removed)",
+        ),
+    ] = False,
+    no_iconbox: Annotated[
+        bool,
+        typer.Option(
+            "--no-iconbox",
+            help="Don't create E16's iconbox panel (an existing themey one is removed)",
+        ),
+    ] = False,
+    no_dragbar: Annotated[
+        bool,
+        typer.Option(
+            "--no-dragbar",
+            help="Don't create E16's top dragbar (the parked top panels come back)",
+        ),
+    ] = False,
+    furniture_strut: Annotated[
+        bool,
+        typer.Option(
+            "--furniture-strut",
+            help="Let the pager/iconbox panels reserve screen space; default is "
+            "Windows Go Below, so maximized windows keep the whole screen",
+        ),
+    ] = False,
+    pager_cell: Annotated[
+        int,
+        typer.Option(
+            "--pager-cell",
+            help="Pager cell height in px (E16's own default 48); the panel is "
+            "one aspect-true cell thick",
+        ),
+    ] = apply.DEFAULT_FURNITURE.pager_cell_px,
+    iconbox_size: Annotated[
+        int,
+        typer.Option(
+            "--iconbox-size",
+            help="Iconbox panel thickness in px = the task icon size "
+            "(E16's own default 48)",
+        ),
+    ] = apply.DEFAULT_FURNITURE.iconbox_px,
 ) -> None:
     """Point the live KWin session at an installed theme's full Look-and-Feel
     bundle (or, with --deco-only, just its decoration), and reconfigure."""
-    from . import apply
-
     if revert:
         try:
             reverted = apply.revert()
@@ -487,6 +568,14 @@ def apply_cmd(
                 border_size=border_size,
                 keep_buttons=keep_buttons,
                 restart_shell=not no_restart_shell,
+                furniture=_furniture_options(
+                    no_pager=no_pager,
+                    no_iconbox=no_iconbox,
+                    no_dragbar=no_dragbar,
+                    furniture_strut=furniture_strut,
+                    pager_cell=pager_cell,
+                    iconbox_size=iconbox_size,
+                ),
             )
     except apply.ApplyError as exc:
         logging.getLogger(__name__).error("apply failed: %s", exc)
