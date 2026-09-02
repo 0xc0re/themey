@@ -8,9 +8,11 @@ needed.
 """
 from __future__ import annotations
 
+import pytest
 from typer.testing import CliRunner
 
 from themey import apply as apply_mod
+from themey import cli as cli_mod
 from themey.cli import app
 
 
@@ -25,6 +27,7 @@ def test_apply_default_routes_to_apply_full(monkeypatch) -> None:
         ("e13", {
             "legacy_plugin": False, "border_size": None,
             "keep_buttons": False, "restart_shell": True,
+            "furniture": apply_mod.FurnitureOptions(),
         })
     ]
     assert "revert: themey apply --revert" in result.output
@@ -119,3 +122,58 @@ def test_apply_no_restart_shell_flag_passes_through(monkeypatch) -> None:
     result = CliRunner().invoke(app, ["apply", "e13", "--no-restart-shell"])
     assert result.exit_code == 0, result.output
     assert calls[0][1]["restart_shell"] is False
+
+
+def test_apply_furniture_flags_build_options(monkeypatch) -> None:
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        apply_mod, "apply_full", lambda name, **kw: calls.append((name, kw))
+    )
+    result = CliRunner().invoke(
+        app,
+        [
+            "apply", "e13", "--no-pager", "--no-dragbar", "--furniture-strut",
+            "--pager-cell", "64", "--iconbox-size", "32",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert calls[0][1]["furniture"] == apply_mod.FurnitureOptions(
+        pager=False, iconbox=True, dragbar=False, strut=True,
+        pager_cell_px=64, iconbox_px=32,
+    )
+
+
+def test_apply_no_iconbox_flag(monkeypatch) -> None:
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        apply_mod, "apply_full", lambda name, **kw: calls.append((name, kw))
+    )
+    result = CliRunner().invoke(app, ["apply", "e13", "--no-iconbox"])
+    assert result.exit_code == 0, result.output
+    assert calls[0][1]["furniture"].iconbox is False
+
+
+@pytest.mark.parametrize(
+    "flag", ["--pager-cell", "--iconbox-size"]
+)
+@pytest.mark.parametrize("value", ["0", "-8"])
+def test_apply_rejects_nonpositive_furniture_sizes(
+    monkeypatch, flag: str, value: str,
+) -> None:
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        apply_mod, "apply_full", lambda name, **kw: calls.append((name, kw))
+    )
+    result = CliRunner().invoke(app, ["apply", "e13", flag, value])
+    assert result.exit_code != 0
+    assert calls == []
+
+
+def test_furniture_options_helper_is_reusable() -> None:
+    """WP4's ``convert --apply`` builds its options through the same
+    helper, so it takes the six flag values and nothing else."""
+    opts = cli_mod._furniture_options(
+        no_pager=False, no_iconbox=True, no_dragbar=False,
+        furniture_strut=False, pager_cell=48, iconbox_size=48,
+    )
+    assert opts == apply_mod.FurnitureOptions(iconbox=False)
