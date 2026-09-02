@@ -18,10 +18,10 @@ Flags (convert):
                   QML-backend-only remap for E16's dead shade button
                   (Plasma 6 removed window shading): maximize (default),
                   keepAbove, keepBelow, menu, hide, or none
-    --iconbox-frames on|off
-                  Plasma Style task frames on the iconbox panel: on
-                  (default, the iconbox button art as plates) or off
-                  (E16's own frameless iconbox default)
+    --iconbox-frames off|on
+                  Plasma Style task frames on the icon task manager: off
+                  (default, E16's own frameless iconbox) or on (the
+                  iconbox button art as per-icon plates)
     --no-open     do not launch the HTML preview in a browser
     -v / -vv      increase verbosity (DEBUG, default INFO)
     -q            quiet (WARNING+ only)
@@ -179,12 +179,13 @@ def convert_cmd(
         typer.Option(
             "--iconbox-frames",
             help=(
-                "Plasma Style task frames on the iconbox panel: 'on' "
-                "(default: the iconbox button art as per-icon plates) or "
-                "'off' (E16's own frameless iconbox default)"
+                "Plasma Style task frames on the icon task manager: 'off' "
+                "(default: E16's own frameless iconbox — container.c "
+                "draw_icon_base = 0) or 'on' (the iconbox button art as "
+                "per-icon plates)"
             ),
         ),
-    ] = "on",
+    ] = "off",
     verbose: Annotated[
         int,
         typer.Option(

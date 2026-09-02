@@ -201,3 +201,26 @@ def test_convert_iconbox_frames_off_ships_blank_tasks(fake_home, tmp_path):
     assert any("task frames OFF" in n for n in result.notes)
     meta = json.loads((result.desktop_theme_dir / "metadata.json").read_text())
     assert isinstance(meta["X-Themey-TasksHover"], bool)
+
+
+def test_convert_default_iconbox_frames_is_off(fake_home, tmp_path):
+    """The convert default flipped to E16's own frameless iconbox
+    (container.c draw_icon_base = 0) — a plate under every icon on the
+    bottom bar was Plasma's look, not E16's."""
+    import json
+
+    result = convert(
+        FIXTURES / "Aliens.etheme", scale=2, backend="qml",
+        output_dir=tmp_path / "out",
+    )
+    assert result.desktop_theme_dir is not None
+    tasks = result.desktop_theme_dir / "widgets" / "tasks.svg"
+    text = tasks.read_text()
+    assert "task frames OFF" in "\n".join(result.notes)
+    # The synthesized states survive frames-OFF: a white hover wash and
+    # the scheme-coloured accent bar on the active task.
+    assert 'id="hover-center"' in text and "fill:#ffffff" in text
+    assert 'class="ColorScheme-Highlight"' in text
+    assert 'id="current-color-scheme"' in text
+    meta = json.loads((result.desktop_theme_dir / "metadata.json").read_text())
+    assert meta["X-Themey-TasksHover"] is True
