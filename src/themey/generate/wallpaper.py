@@ -35,6 +35,24 @@ Two SET_SOLID-driven exceptions (see ``analyze/wallpaper.py``):
   :func:`pick_default`'s area ranking (belt) plus the explicit ``solid``
   flag (suspenders) never prefer it over real art.
 
+Under ``--upscale waifu2x`` (and ONLY then — hqx on a photograph is the
+wrong tool, and NEAREST would be absurd) a source smaller than
+``WALLPAPER_UPSCALE_MAX_WIDTH`` is run through the CNN at 2x before being
+saved. E16 wallpapers are 512-1024 px, desktops are not, and Plasma
+upsamples whatever it is given: doubling first means it DOWNsamples
+instead, which is the direction that does not invent detail. Measured
+2026-09-02 against LANCZOS-straight-to-1920x1080 on five corpus
+wallpapers spanning 512x400 to 1280x1024 — waifu2x won every one, most
+visibly on text and fine mechanical detail. Denoise stays at the chrome
+setting (``-n 0``): ``-n 1`` cleans up JPEG mosquito noise on flat dark
+art but visibly waxes over the grain in textured art (rust, stone,
+scanlines), which lost 4 of those 5 comparisons.
+
+Cost, measured on Aliens: the four shipped wallpapers go 707 KB -> 5020
+KB. JPEG sources stay cheap because they are re-encoded as JPEG (279 ->
+428 KB, one even shrank); a doubled photographic PNG is what dominates
+(384 -> 4467 KB) and stays PNG on purpose.
+
 Guards the same decompression-bomb pitfall as ``analyze/colors.py``: an
 explicit width*height check against the header before any pixel is
 decoded, deliberately not ``Image.MAX_IMAGE_PIXELS`` (that would relax the
@@ -51,12 +69,31 @@ from pathlib import Path
 
 from PIL import Image
 
+from themey.external import Waifu2xError
+from themey.images.waifu2x import waifu2x
 from themey.ir import Theme, WallpaperSpec
 from themey.slug import wallpaper_id
 
 log = logging.getLogger(__name__)
 
 MAX_IMAGE_PIXELS: int = 100_000_000
+
+# Upscale only sources narrower than this. 1920 is the width at which a
+# wallpaper already covers the common desktop, so doubling it would only
+# bloat the package; below it Plasma is upsampling today. The corpus sits
+# well under: 1024x768 (23 of 60 themes surveyed), 512x512, 512x400,
+# 800x600, 1280x1024 — and the 1280 case still measurably benefited, so
+# the cut is deliberately at the screen width rather than lower.
+WALLPAPER_UPSCALE_MAX_WIDTH: int = 1920
+
+# waifu2x scales by powers of two; 2 is the only factor worth using here
+# (4x a 1024-wide source is 4096 px for a 1920 px screen).
+_WALLPAPER_UPSCALE_FACTOR = 2
+
+# Re-encode quality when an upscaled JPEG source is saved back as JPEG.
+# Upscaling forfeits the byte-for-byte passthrough, and a photographic
+# 2048x1536 PNG is several MB against ~100 KB for the JPEG it replaces.
+_WALLPAPER_JPEG_QUALITY = 92
 
 # Formats copied through at their own extension and dimensions. Anything
 # else is decoded and re-saved as PNG (see module docstring).
@@ -91,6 +128,74 @@ class WallpaperPackage:
     # True for a SET_SOLID-only package; never outranks real art as the
     # Look-and-Feel default.
     solid: bool = False
+
+
+
+def _maybe_upscale(
+    theme: Theme, spec: WallpaperSpec, im: Image.Image
+) -> Image.Image | None:
+    """Return a 2x waifu2x version of *im*, or None to ship it as-is.
+
+    None is the normal answer: any mode but ``waifu2x``, a source that
+    already covers a desktop width, or one whose doubled size would
+    breach the decompression guard. A scaler FAILURE is also None — with
+    a ``wallpaper:`` note — because a wallpaper that could not be
+    enlarged is still a perfectly good wallpaper, and losing the whole
+    conversion over it would be absurd (same reasoning as the hqx
+    fallback in ``pipeline.convert``).
+    """
+    if theme.upscale != "waifu2x":
+        return None
+    if im.width >= WALLPAPER_UPSCALE_MAX_WIDTH:
+        return None
+    factor = _WALLPAPER_UPSCALE_FACTOR
+    if (im.width * factor) * (im.height * factor) > MAX_IMAGE_PIXELS:
+        theme.notes.append(
+            f"wallpaper: {spec.path.name if spec.path else spec.stem} not "
+            f"upscaled: {factor}x would exceed the {MAX_IMAGE_PIXELS}-pixel "
+            "guard"
+        )
+        return None
+    try:
+        return waifu2x(im, factor)
+    except (Waifu2xError, OSError, ValueError) as exc:
+        name = spec.path.name if spec.path else spec.stem
+        theme.notes.append(
+            f"wallpaper: {name} kept at {im.width}x{im.height}; waifu2x "
+            f"upscale failed ({exc})"
+        )
+        log.warning("wallpaper upscale failed for %s: %s", name, exc)
+        return None
+
+
+def _save_upscaled(
+    img: Image.Image, images_dir: Path, source_format: str
+) -> tuple[Path, int, int]:
+    """Write *img*, preferring the source's own container.
+
+    Upscaling forfeits the byte-for-byte passthrough, so the format
+    choice is ours again: a photographic 2048x1536 PNG runs to several MB
+    where the JPEG it replaces was ~100 KB. The test is the SOURCE's
+    format, not the upscaled image's mode — waifu2x always hands back
+    RGBA, so asking it would send every JPEG to PNG; a JPEG source cannot
+    have carried alpha in the first place.
+    """
+    width, height = img.width, img.height
+    if source_format == "JPEG":
+        dest = images_dir / f"{width}x{height}.jpg"
+        img.convert("RGB").save(
+            dest, format="JPEG", quality=_WALLPAPER_JPEG_QUALITY
+        )
+    else:
+        # A PNG source stays PNG: it may be lossless art the author chose
+        # deliberately, and re-encoding to JPEG is not a call to make
+        # silently. That is the expensive branch and there is no way
+        # around it — measured on Aliens' 955x611 PNG, doubling gives
+        # 4467 KB, where ``optimize`` claws back 0.7% and JPEG q92 would
+        # have been 1193 KB at the cost of the author's lossless pixels.
+        dest = images_dir / f"{width}x{height}.png"
+        img.save(dest, format="PNG", optimize=True)
+    return dest, width, height
 
 
 def write_package(theme: Theme, spec: WallpaperSpec, pkg_dir: Path) -> WallpaperPackage:
@@ -138,9 +243,13 @@ def write_package(theme: Theme, spec: WallpaperSpec, pkg_dir: Path) -> Wallpaper
                     # E16 composites the (partially transparent) image over
                     # the block's SET_SOLID; Plasma has no such underlay.
                     frame = im.convert("RGBA")
-                    width, height = frame.width, frame.height
                     base = Image.new("RGBA", frame.size, (*spec.solid_rgb, 255))
                     flat = Image.alpha_composite(base, frame).convert("RGB")
+                    # Flatten BEFORE upscaling: the CNN would otherwise
+                    # feather the alpha it is meant to be compositing away.
+                    bigger = _maybe_upscale(theme, spec, flat)
+                    flat = bigger.convert("RGB") if bigger is not None else flat
+                    width, height = flat.width, flat.height
                     dest = images_dir / f"{width}x{height}.png"
                     flat.save(dest, format="PNG")
                     theme.notes.append(
@@ -149,14 +258,25 @@ def write_package(theme: Theme, spec: WallpaperSpec, pkg_dir: Path) -> Wallpaper
                         "composites the tile over the solid"
                     )
                 elif fmt in _PASSTHROUGH_EXTENSIONS:
-                    width, height = im.width, im.height
-                    dest = (
-                        images_dir
-                        / f"{width}x{height}{_PASSTHROUGH_EXTENSIONS[fmt]}"
-                    )
-                    shutil.copyfile(spec.path, dest)
+                    bigger = _maybe_upscale(theme, spec, im)
+                    if bigger is None:
+                        # The documented contract at every other mode:
+                        # copied through byte-for-byte, dimensions intact.
+                        width, height = im.width, im.height
+                        dest = (
+                            images_dir
+                            / f"{width}x{height}{_PASSTHROUGH_EXTENSIONS[fmt]}"
+                        )
+                        shutil.copyfile(spec.path, dest)
+                    else:
+                        dest, width, height = _save_upscaled(
+                            bigger, images_dir, fmt
+                        )
                 else:
                     frame = im.convert("RGBA")
+                    bigger = _maybe_upscale(theme, spec, frame)
+                    if bigger is not None:
+                        frame = bigger
                     width, height = frame.width, frame.height
                     dest = images_dir / f"{width}x{height}.png"
                     frame.save(dest, format="PNG")

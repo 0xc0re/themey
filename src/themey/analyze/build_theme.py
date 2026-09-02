@@ -85,6 +85,7 @@ def build_theme(
     display_name: str | None = None,
     author: str | None = None,
     scale: float = 2,
+    upscale: str = "nearest",
 ) -> Theme:
     """Compose AST + asset_root into a frozen Theme IR.
 
@@ -358,6 +359,7 @@ def build_theme(
         display_name=display_name or name,
         author=author,
         scale=scale,
+        upscale=upscale,
         asset_root=asset_root,
         border=border,
         iclasses=iclasses,

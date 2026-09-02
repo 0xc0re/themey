@@ -516,6 +516,14 @@ class Theme:
     left_buttons: str  # final Aurorae LeftButtons string, e.g. "XAI"
     right_buttons: str
     palette: Palette
+    # The part-art scaler this conversion is running (``UPSCALE_MODES``).
+    # It rides on the IR for the same reason ``scale`` does: the generators
+    # that need it — plasmastyle's builders, wallpaper.write_package — are
+    # reached through call chains that already carry ``Theme`` and nothing
+    # else. pipeline.convert passes the EFFECTIVE mode, i.e. after any
+    # waifu2x→hqx fallback, so nothing downstream can act on a scaler that
+    # is not actually going to run.
+    upscale: str = "nearest"
     cursors: tuple[CursorSpec, ...] = ()
     wallpapers: tuple[Path, ...] = ()
     # Additive alongside `wallpapers` (which stays the bare-path view some
