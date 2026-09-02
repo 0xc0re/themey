@@ -187,7 +187,24 @@ step so the new panels never pollute `PrevPanelLengthModes`; creation
 scripts set `p.minimumLength = 0` — a scripted `new Panel` starts with
 min=max=full-screen and `lengthMode='fit'` never clears it — and the
 pager gets `showOnlyCurrentScreen=true` so multi-head cells keep desktop
-aspect). Just before the furniture, `_set_desktop_grid_column` stacks the
+aspect; since 2026-09-01 the pager panel hosts themey's OWN
+`org.themey.pager` — a recorded panel still carrying the stock pager
+reads `stale` from the existence check and is removed + recreated — and
+the iconbox script writes `taskHoverEffect` from the Plasma Style's
+`X-Themey-TasksHover`). A THIRD furniture panel, E16's dragbar
+(`DragbarPanel`): full-width TOP panel, `scale_px(16, X-Themey-Scale)`
+px thick floored at 24 (`dragbar_thickness_px`), `lengthMode=fill`,
+`org.themey.deskbutton` next → panelspacer → systemtray → digitalclock →
+deskbutton prev (E16's default ordering: RAISE/next at the start,
+LOWER/prev at the end); created LAST, right after `_park_top_panels`,
+which moves every pre-existing top panel to a nonexistent screen index
+(`p.screen = screenCount` → `p.screen == -1`, config kept, never shown —
+verified live 2026-09-01; fallback right edge + autohide) and records
+`id=screen:location:hiding|…` once in `PrevTopPanels` (a later apply parks
+and appends only unrecorded top panels; the dragbar's own marker id is
+always excluded). apply refuses to run without both applet packages
+under `paths.plasmoids()` and warns when their `X-Themey-Runtime` is
+behind the code's. Just before the furniture, `_set_desktop_grid_column` stacks the
 desktops one per row (kwinrc `[Desktops] Rows=Number` AND the writable
 `VirtualDesktopManager.rows` D-Bus property — KWin reads the config key
 only at startup, verified live 2026-08-31; `PrevDesktopRows` baseline,
@@ -228,8 +245,10 @@ the markers back, reapplies the recorded Look-and-Feel package (no
 Breeze special-case — a real baseline is typically a third-party theme,
 e.g. `com.github.vinceliuice.MacVentura-Dark`), restores the deco
 triple, button layout and panel length/floating modes, removes the themey-created
-iconbox panel (before the panel-mode restore, so that script iterates only
-surviving panels), then clears the markers it
+pager/iconbox/dragbar panels (before the panel-mode restore, so that script iterates only
+surviving panels), unparks the recorded top panels (`PrevTopPanels`:
+screen/location/hiding back exactly; after the dragbar removal, before
+the mode restores; keep-on-failure), then clears the markers it
 actually restored; a
 failure to reapply the recorded package does NOT abort the rest of the
 restore, and `PrevLookAndFeelPackage` is deliberately kept in that one case
