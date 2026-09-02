@@ -2261,9 +2261,15 @@ ICONBOX_FRAME_MODES: tuple[str, ...] = ("off", "on")
 #: OUTPUT-px thickness of the synthesized focus bar. Not scaled: it is a
 #: Plasma affordance (Breeze paints the same 2 px accent), not E16 art.
 TASKS_FOCUS_BAR_PX = 2
-#: How far toward white a synthesized hover/attention plate is blended,
-#: and the alpha of the equivalent white wash in frames-OFF mode.
+#: How far toward white the synthesized hover plate is blended from the
+#: normal one, and the alpha of the equivalent white wash in frames-OFF
+#: mode.
 TASKS_HOVER_LIGHTEN = 0.12
+#: How far toward white the synthesized attention plate is blended from
+#: the HOVER one (not from normal) — attention must read distinctly
+#: ABOVE hover, and 25 % off the normal plate lands only 13 % above it.
+#: Compounded that is 1 − 0.88 × 0.75 = 34 % toward white. In frames-OFF
+#: mode it is the white wash's alpha, straight off the trough.
 TASKS_ATTENTION_LIGHTEN = 0.25
 #: Alpha the synthesized ``minimized-`` plate keeps — E16 has no such
 #: state, and a faded plate reads as "put away" at a glance.
@@ -2394,33 +2400,49 @@ def _synth_task_states(src: Image.Image) -> dict[str, Image.Image]:
     Plasma's seven task prefixes all resolved to the same plate and an
     active, a minimized and a hovered task were indistinguishable. These
     are pure pixel ops on the theme's own art, never invented chrome:
-    hover/attention blend toward white (the plate reads "lit", the way
-    E16's own hilited art always did), ``focus`` flips the plate
-    VERTICALLY so a bevel's light and dark edges swap — E16's depressed
-    button in one operation — and ``minimized`` fades it out. ``focus``
-    additionally wears the accent bar :func:`_emit_task_frame` paints.
+    hover blends toward white (the plate reads "lit", the way E16's own
+    hilited art always did), ``attention`` blends the HOVER plate
+    further so it stays distinct from a mere hover, ``focus`` flips the
+    plate VERTICALLY so a bevel's light and dark edges swap — E16's
+    depressed button in one operation — and ``minimized`` fades it out.
+    ``focus`` additionally wears the accent bar
+    :func:`_emit_task_frame` paints.
     """
     hover = _lighten(src, TASKS_HOVER_LIGHTEN)
     return {
         "hover": hover,
         "progress": hover,
-        "attention": _lighten(src, TASKS_ATTENTION_LIGHTEN),
+        "attention": _lighten(hover, TASKS_ATTENTION_LIGHTEN),
         "minimized": _fade(src, TASKS_MINIMIZED_ALPHA),
         "focus": ImageOps.flip(src),
     }
 
 
-def _task_plate(
-    theme: Theme, spec: IClassSpec
-) -> tuple[Image.Image, tuple[int, int, int, int], float] | None:
-    """The scaled normal plate, its OUTPUT-px caps and the scale used —
-    the base every synthesized task state derives from.
+@dataclass(frozen=True)
+class _TaskPlate:
+    """The normal plate every synthesized task state derives from."""
+
+    #: Trimmed, scaled RGBA art.
+    img: Image.Image
+    #: OUTPUT-px 9-patch caps (L R T B), post-shave.
+    caps: tuple[int, int, int, int]
+    #: The scale ``_surface_scale`` chose for this art.
+    scale: float
+    #: Whether E16 TILED the normal state (``__FILLRULE __TILE*``). The
+    #: synthesized sets MUST carry the same choice: a tiled ``normal-``
+    #: next to stretched hover/focus sets changes the frame's texture
+    #: the moment the mouse touches it.
+    tile_center: bool
+
+
+def _task_plate(theme: Theme, spec: IClassSpec) -> _TaskPlate | None:
+    """The normal plate, its caps, scale and fill rule — see :class:`_TaskPlate`.
 
     Mirrors :func:`_emit_set`'s art pipeline (opaque trim → cap fit →
-    surface scale → cap shave) without re-emitting its notes:
-    :func:`build_tasks` always emits the ``normal-`` set from this very
-    art through ``_emit_set`` first, so whatever notes it earns are on
-    ``theme.notes`` already.
+    surface scale → cap shave → ``fill_for``) without re-emitting its
+    notes: :func:`build_tasks` always emits the ``normal-`` set from this
+    very art through ``_emit_set`` first, so whatever notes it earns are
+    on ``theme.notes`` already.
     """
     found = _state_attr(spec, "normal")
     if found is None:
@@ -2438,7 +2460,12 @@ def _task_plate(
     caps = _scaled_caps(edge, art.width, art.height, scale)
     left, right = _shave_for_center(caps[0], caps[1], img.width)
     top, bottom = _shave_for_center(caps[2], caps[3], img.height)
-    return img, (left, right, top, bottom), scale
+    return _TaskPlate(
+        img=img,
+        caps=(left, right, top, bottom),
+        scale=scale,
+        tile_center=spec.fill_for(state_attr) != FILL_STRETCH,
+    )
 
 
 def _grow_for_bar(
@@ -2531,29 +2558,56 @@ def _emit_task_frame(
     canvas: _Canvas,
     prefix: str,
     img: Image.Image,
-    caps: tuple[int, int, int, int],
+    plate: _TaskPlate,
     padding: tuple[int, int, int, int],
-    scale: float,
     *,
     bar_edge: str | None = None,
 ) -> None:
-    """Emit one SYNTHESIZED task set from an in-memory plate.
+    """Emit one SYNTHESIZED task set: *img* sliced at *plate*'s caps.
 
     Not :func:`_emit_set`: the art has no file path — it is derived from
     the normal plate by :func:`_synth_task_states`, whose notes and cap
-    math the ``normal-`` set already carried. *bar_edge* adds the focus
-    accent (:func:`_grow_for_bar` + :func:`_paint_edge_bar`).
+    math the ``normal-`` set already carried. The plate's ``tile_center``
+    comes along so a ``__FILLRULE __TILE*`` iclass does not change
+    texture between its normal and its synthesized states. *bar_edge*
+    adds the focus accent (:func:`_grow_for_bar` + :func:`_paint_edge_bar`).
     """
+    caps = plate.caps
     if bar_edge is not None:
         img, caps = _grow_for_bar(img, caps, bar_edge)
     try:
-        _frame_group(canvas, prefix, img, caps)
+        _frame_group(canvas, prefix, img, caps, tile_center=plate.tile_center)
     except ValueError:  # last resort — _task_plate already fitted the caps
-        _frame_group(canvas, prefix, img, (0, 0, 0, 0))
+        _frame_group(canvas, prefix, img, (0, 0, 0, 0), tile_center=plate.tile_center)
     else:
         if bar_edge is not None:
             _paint_edge_bar(canvas, prefix, bar_edge)
-    _margin_hints(canvas, prefix, padding, scale)
+    _margin_hints(canvas, prefix, padding, plate.scale)
+
+
+def _bar_margins(
+    spec: IClassSpec, plate: _TaskPlate | None, focus_synthesized: bool
+) -> tuple[int, int, int, int] | None:
+    """OUTPUT-px margin hints every frames-ON task set must carry, or None
+    when the sets already agree without them.
+
+    FrameSvg falls back to a set's own BORDER THICKNESS for a side with no
+    ``hint-<side>-margin``, and :func:`_grow_for_bar` makes the focus
+    set's bar edge ``TASKS_FOCUS_BAR_PX`` thicker than every other set's.
+    With a declared ``__PADDING`` that never shows — ``_emit_set`` and
+    :func:`_emit_task_frame` both emit the same padding hints, which win.
+    With NO padding there are no hints at all, so the active task would
+    inset its icon 2 px further than the rest and the icon would visibly
+    shift the moment a window took focus. Returning the plate's own caps
+    (floored at 1 px — a zero-size hint rect has no bounds for FrameSvg
+    to read) pins every set to the same margins.
+    """
+    if plate is None or not focus_synthesized or spec.padding != (0, 0, 0, 0):
+        return None
+    return (
+        max(1, plate.caps[0]), max(1, plate.caps[1]),
+        max(1, plate.caps[2]), max(1, plate.caps[3]),
+    )
 
 
 def _emit_tint_set(
@@ -2703,7 +2757,7 @@ def build_tasks(theme: Theme, *, iconbox_frames: str = "off") -> ET.Element | No
             return None
         plate = _task_plate(theme, src)
         normal_art = _state_image(src, "normal")
-        states = _synth_task_states(plate[0]) if plate is not None else {}
+        states = _synth_task_states(plate.img) if plate is not None else {}
         # `required`: a base prefix that cannot be emitted kills the whole
         # file (Breeze's per-FILE fallback beats a half-painted one). The
         # hover-on-state extras ship only with real hilited art and fall
@@ -2711,27 +2765,35 @@ def build_tasks(theme: Theme, *, iconbox_frames: str = "off") -> ET.Element | No
         sets = [(p, s, y, True) for p, s, y in _TASKS_PREFIXES]
         if _hilited_image(src) is not None:
             sets += [(p, s, y, False) for p, s, y in _TASKS_HOVER_PREFIXES]
+        clicked = _state_image(src, "pressed")
+        bar_margins = _bar_margins(src, plate, clicked in (None, normal_art))
         for prefix, state, synth, required in sets:
             real = _state_image(src, state)
             if synth is None or (real is not None and real != normal_art):
                 emitted = _emit_set(theme, canvas, prefix, src, state, hints=True)
                 if emitted is None and required:
                     return None  # transparent button art: the file is Breeze's
-                continue
-            if plate is None:
+            elif plate is None:
                 return None
-            _, caps, scale = plate  # the derived art comes from `states`
-            if synth == "focus":
+            elif synth == "focus":
                 for edge_prefix, edge in _TASKS_FOCUS_EDGES:
                     _emit_task_frame(
-                        canvas, edge_prefix + prefix, states[synth], caps,
-                        src.padding, scale, bar_edge=edge,
+                        canvas, edge_prefix + prefix, states[synth], plate,
+                        src.padding, bar_edge=edge,
                     )
+                    if bar_margins is not None:
+                        _margin_hints(
+                            canvas, edge_prefix + prefix, bar_margins, 1.0
+                        )
+                synthesized.append(synth)
+                continue
             else:
                 _emit_task_frame(
-                    canvas, prefix, states[synth], caps, src.padding, scale
+                    canvas, prefix, states[synth], plate, src.padding
                 )
-            synthesized.append(synth)
+                synthesized.append(synth)
+            if bar_margins is not None:
+                _margin_hints(canvas, prefix, bar_margins, 1.0)
 
     expanders: list[tuple[str, Path]] = []
     for direction, name in _EXPANDER_SOURCES:

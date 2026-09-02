@@ -13,7 +13,15 @@ from PIL import Image
 
 from themey.generate import plasmastyle
 from themey.generate.qmldeco.resolver import scale_px
-from themey.ir import BorderSpec, IClassSpec, Palette, TClassSpec, Theme, TooltipSpec
+from themey.ir import (
+    FILL_TILE,
+    BorderSpec,
+    IClassSpec,
+    Palette,
+    TClassSpec,
+    Theme,
+    TooltipSpec,
+)
 
 SVG_NS = "http://www.w3.org/2000/svg"
 XLINK = "{http://www.w3.org/1999/xlink}href"
@@ -3062,3 +3070,95 @@ def test_tasks_hover_true_once_hover_is_synthesized(tmp_path: Path) -> None:
     # No art and frames ON: no tasks.svg ships, so Breeze paints the frames.
     assert plasmastyle.tasks_hover(_theme(tmp_path, {}), iconbox_frames="on") is False
     assert plasmastyle.tasks_hover(_theme(tmp_path, {}), iconbox_frames="off") is True
+
+
+def test_tasks_synthesized_sets_keep_the_e16_fill_rule(tmp_path: Path) -> None:
+    """A `__FILLRULE __TILE*` iclass tiles its center. The synthesized
+    states come from the same art, so they must tile too — a tiled
+    `normal-` beside a stretched `hover-` changes the frame's texture the
+    moment the mouse touches it."""
+    png = _bevel_png(tmp_path, "iconbtn.png")
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass(
+            "DEFAULT_ICON_BUTTON", normal=png,
+            fill_by_state={"normal": FILL_TILE},
+        ),
+    })
+    svg = plasmastyle.build_tasks(theme, iconbox_frames="on")
+    assert svg is not None
+    ids = _ids(svg)
+    for prefix in ("normal-", "hover-", "attention-", "minimized-", "focus-",
+                   "progress-", "", "north-focus-", "west-focus-"):
+        assert f"{prefix}hint-tile-center" in ids, prefix
+    # And a stretched iclass (E16's default) tiles nothing anywhere.
+    plain = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass("DEFAULT_ICON_BUTTON", normal=png),
+    })
+    stretched = plasmastyle.build_tasks(plain, iconbox_frames="on")
+    assert stretched is not None
+    assert not any("tile-center" in i for i in _ids(stretched))
+
+
+def test_tasks_every_set_reports_the_same_margins(tmp_path: Path) -> None:
+    """The focus set's bar edge is 2 px thicker than every other set's, and
+    FrameSvg reads an unhinted side's margin off the border thickness — so
+    a padding-less iclass would inset the active task's icon further than
+    the rest and the icon would jump on focus. Explicit hints pin them."""
+    png = _bevel_png(tmp_path, "iconbtn.png")
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass("DEFAULT_ICON_BUTTON", normal=png),
+    })
+    svg = plasmastyle.build_tasks(theme, iconbox_frames="on")
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+
+    def margins(prefix: str) -> dict[str, tuple[str | None, str | None]]:
+        return {
+            side: (
+                by_id[f"{prefix}hint-{side}-margin"].get("width"),
+                by_id[f"{prefix}hint-{side}-margin"].get("height"),
+            )
+            for side in ("left", "right", "top", "bottom")
+        }
+
+    baseline = margins("normal-")
+    for prefix in ("hover-", "attention-", "minimized-", "progress-", "",
+                   "focus-", "north-focus-", "west-focus-", "east-focus-"):
+        assert margins(prefix) == baseline, prefix
+
+
+def test_tasks_declared_padding_still_drives_the_margins(tmp_path: Path) -> None:
+    """With a real __PADDING the hints come from E16, scaled — the
+    uniform-margin fallback only fills in for a padding-less iclass."""
+    png = _bevel_png(tmp_path, "iconbtn.png")
+    theme = _theme(tmp_path, {
+        "DEFAULT_ICON_BUTTON": _iclass(
+            "DEFAULT_ICON_BUTTON", normal=png, padding=(3, 3, 3, 3)
+        ),
+    }, scale=2)
+    svg = plasmastyle.build_tasks(theme, iconbox_frames="on")
+    assert svg is not None
+    by_id = {e.get("id"): e for e in svg.iter() if e.get("id")}
+    for prefix in ("normal-", "hover-", "focus-", "north-focus-"):
+        assert by_id[f"{prefix}hint-left-margin"].get("width") == "6"  # 3 x 2
+
+
+def test_tasks_attention_is_lighter_than_hover(tmp_path: Path) -> None:
+    """attention = the HOVER plate lightened again, not the normal one:
+    25% off normal lands only 13% above hover and the two states read
+    the same on a panel."""
+    plate = Image.new("RGBA", (8, 8), (100, 100, 100, 255))
+    states = plasmastyle._synth_task_states(plate)
+    normal = plate.getpixel((4, 4))
+    hover = states["hover"].getpixel((4, 4))
+    attention = states["attention"].getpixel((4, 4))
+    assert isinstance(normal, tuple) and isinstance(hover, tuple)
+    assert isinstance(attention, tuple)
+    # 100 -> 12% toward white = 118 -> another 25% of what is left = 152.
+    assert (normal[0], hover[0], attention[0]) == (100, 118, 152)
+    # The attention step must be the bigger one, or the two states read
+    # alike on a panel — the whole point of stacking it on hover.
+    assert attention[0] - hover[0] > hover[0] - normal[0]
+    assert states["minimized"].getpixel((4, 4))[3] == round(
+        255 * plasmastyle.TASKS_MINIMIZED_ALPHA
+    )

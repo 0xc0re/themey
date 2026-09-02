@@ -656,8 +656,10 @@ def _furniture_specs(
     showing ONLY minimized windows — E16's iconbox: icons appear on
     iconify, vanish on restore. ``launchers`` is cleared because icontasks
     ships default pinned launchers; ``taskHoverEffect`` follows the Plasma
-    Style's ``X-Themey-TasksHover`` (*tasks_hover*: whether the style
-    ships hilited iconbox art). Dragbar panel: E16's top strip
+    Style's ``X-Themey-TasksHover`` (*tasks_hover*: whether the style has
+    a hover task frame of its own — real ``__HILITED`` iconbox art, or
+    the frame themey synthesizes from the normal plate when E16 declared
+    none, which is nearly always). Dragbar panel: E16's top strip
     (``_DRAGBAR_KEY``) — full width, ``dragbar_thickness_px(scale)``
     thick, desk-next button, spacer, tray, clock, desk-prev button (E16's
     default ordering: RAISE at the start, LOWER at the end). Created LAST
@@ -1321,7 +1323,12 @@ def _read_theme_scale(lnf_dir: Path) -> float:
 def _read_tasks_hover(style_dir: Path) -> bool:
     """``X-Themey-TasksHover`` from an installed Plasma Style's
     ``metadata.json`` (``generate/plasmastyle._write_metadata``): whether
-    the iconbox art has a hilited state worth a hover effect. Absent or
+    the package's ``widgets/tasks.svg`` carries a hover frame worth the
+    effect — the iconbox iclass's own hilited art, else the one
+    ``plasmastyle._synth_task_states`` derives from the normal plate (a
+    12 % lightened plate, or a 12 %-alpha white wash with
+    ``--iconbox-frames off``). It used to mean "the iclass declares
+    ``__HILITED``", which almost none of the corpus does. Absent or
     unreadable → True (Plasma's own default)."""
     meta = style_dir / "metadata.json"
     try:

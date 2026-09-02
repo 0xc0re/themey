@@ -224,3 +224,67 @@ def test_convert_default_iconbox_frames_is_off(fake_home, tmp_path):
     assert 'id="current-color-scheme"' in text
     meta = json.loads((result.desktop_theme_dir / "metadata.json").read_text())
     assert meta["X-Themey-TasksHover"] is True
+
+
+_TASK_SLICES = (
+    "topleft", "top", "topright", "left", "center", "right",
+    "bottomleft", "bottom", "bottomright",
+)
+
+
+def _task_set_art(root, prefix: str) -> str:
+    """Every embedded slice of one task set, joined — the whole plate, not
+    just the stretched middle (an E16 bevel lives in the caps)."""
+    import xml.etree.ElementTree as ET
+
+    xlink = "{http://www.w3.org/1999/xlink}href"
+    by_id = {e.get("id"): e for e in root.iter() if e.get("id")}
+    parts = []
+    for name in _TASK_SLICES:
+        group = by_id.get(f"{prefix}{name}")
+        if group is None:
+            continue
+        img = group.find("{http://www.w3.org/2000/svg}image")
+        parts.append(img.get(xlink) if img is not None else ET.tostring(group))
+    return "|".join(str(p) for p in parts)
+
+
+def test_aliens_fixture_task_states_are_distinct(fake_home, tmp_path):
+    """The real canary: Aliens' DEFAULT_ICON_BUTTON declares only __NORMAL,
+    so every task prefix used to be byte-identical art. Both modes must now
+    tell the states apart."""
+    import xml.etree.ElementTree as ET
+
+    on = convert(
+        FIXTURES / "Aliens.etheme", scale=2, backend="qml",
+        output_dir=tmp_path / "on", iconbox_frames="on",
+    )
+    assert on.desktop_theme_dir is not None
+    root = ET.parse(on.desktop_theme_dir / "widgets" / "tasks.svg").getroot()
+    art = {
+        p: _task_set_art(root, p)
+        for p in ("normal-", "hover-", "attention-", "minimized-", "focus-")
+    }
+    assert all(art.values()), "every prefix ships real art"
+    assert len(set(art.values())) == 5, "five visibly different task states"
+    assert _task_set_art(root, "progress-") == art["hover-"]
+    assert _task_set_art(root, "") == art["normal-"]  # launcher = normal plate
+
+    off = convert(
+        FIXTURES / "Aliens.etheme", scale=2, backend="qml",
+        output_dir=tmp_path / "off", iconbox_frames="off",
+    )
+    assert off.desktop_theme_dir is not None
+    off_root = ET.parse(
+        off.desktop_theme_dir / "widgets" / "tasks.svg"
+    ).getroot()
+    styles = {
+        e.get("id"): e.get("style")
+        for e in off_root.iter()
+        if (e.get("id") or "").endswith("center")
+    }
+    assert styles["normal-center"] == "opacity:0"
+    assert styles["hover-center"] != styles["normal-center"]
+    assert styles["attention-center"] != styles["hover-center"]
+    off_ids = {e.get("id") for e in off_root.iter() if e.get("id")}
+    assert "focus-bottom" in off_ids  # the active task's accent bar
