@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+      http://www.kde.org/standards/kcfg/1.0/kcfg.xsd" >
+  <kcfgfile name=""/>
+
+  <group name="General">
+    <!-- One cell grid per screen: multi-head virtual desktops are ultrawide
+         and squash the cells to slivers (verified live 2026-08-31). -->
+    <entry name="showOnlyCurrentScreen" type="Bool">
+      <default>true</default>
+    </entry>
+    <!-- E16's pager draws bare window rects (PAGER_WIN); icons are a
+         Plasma-side extra. -->
+    <entry name="showWindowIcons" type="Bool">
+      <default>false</default>
+    </entry>
+    <!-- E16 LIVE pager mode: the real desktop background scaled into the
+         cell. -->
+    <entry name="showWallpaper" type="Bool">
+      <default>true</default>
+    </entry>
+    <!-- The wallpaper is re-read from plasmashell over D-Bus this often
+         (plus on every desktop switch) so a KCM change is never stale. -->
+    <entry name="wallpaperPollSeconds" type="Int">
+      <default>20</default>
+    </entry>
+  </group>
+</kcfg>
