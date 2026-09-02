@@ -472,7 +472,7 @@ _PAGER_RENDER_ROWS = 2
 #: detects the viewer's fake screen rect and drops its screen filter
 #: (2026-09-01).
 _PAGER_RENDER_THICKNESS = apply.pager_thickness_px(
-    apply.FurnitureOptions().pager_cell_px, 16 / 9
+    apply.DEFAULT_FURNITURE.pager_cell_px, 16 / 9
 )
 _PAGER_VIEWER_ARGS: tuple[str, ...] = (
     "-c", "org.kde.panel", "-f", "vertical", "-l", "leftedge",
