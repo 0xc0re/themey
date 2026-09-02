@@ -2380,3 +2380,58 @@ def test_revert_widget_style_write_failure_keeps_marker(
     # ... but the deco half still went back, and the marker survives.
     assert fake_kconfig.store["PrevWidgetStyle"] == "Breeze"
     assert "ThemeyPrevDeco" not in fake_kconfig.store
+
+
+def test_second_apply_reasserts_iconbox_task_hover(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """``taskHoverEffect`` is themey's own per-theme spec, not user
+    config: the creation script is not the only writer, or an iconbox
+    panel created under a theme whose Plasma Style had no hover frame
+    would keep ``false`` through every later apply."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    apply_mod.apply_full("e13")
+    fake_kconfig.iconbox_exists_reply = "exists"
+    apply_mod.apply_full("e13")
+    reassert = fake_kconfig.calls[
+        fake_kconfig.index_of("panelById(301)", "p.height")
+    ][-1]
+    assert "p.widgets('org.kde.plasma.icontasks')[0]" in reassert
+    assert "w.writeConfig('taskHoverEffect', true)" in reassert
+    assert "w.reloadConfig()" in reassert
+
+
+def test_second_apply_reasserts_iconbox_task_hover_off(
+    fake_kconfig: FakeKConfig, monkeypatch,
+) -> None:
+    """And turns it back OFF when the style says so — the stale value
+    goes both ways."""
+    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    style = _install_fake_style("e13")
+    (style / "metadata.json").write_text(json.dumps({"X-Themey-TasksHover": False}))
+    fake_kconfig.store["IconboxPanel"] = "301"
+    fake_kconfig.iconbox_exists_reply = "exists"
+    apply_mod.apply_full("e13")
+    reassert = fake_kconfig.calls[
+        fake_kconfig.index_of("panelById(301)", "p.height")
+    ][-1]
+    assert "w.writeConfig('taskHoverEffect', false)" in reassert
+
+
+def test_reassert_snippet_only_on_the_iconbox(fake_kconfig: FakeKConfig) -> None:
+    """The pager and dragbar re-asserts stay widget-free."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["PagerPanel"] = "302"
+    fake_kconfig.store["DragbarPanel"] = "303"
+    fake_kconfig.iconbox_exists_reply = "exists"
+    apply_mod.apply_full("e13")
+    for pid in ("302", "303"):
+        script = fake_kconfig.calls[
+            fake_kconfig.index_of(f"panelById({pid})", "p.height")
+        ][-1]
+        assert "taskHoverEffect" not in script
+        assert "widgets(" not in script

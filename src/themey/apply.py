@@ -855,7 +855,8 @@ class FurnitureSpec:
     """One themey-created panel: marker key, human name, creation script,
     thickness, length mode, plasmashell visibility mode, and the widget
     its recorded panel MUST host to count as alive (None = any live panel
-    counts)."""
+    counts), plus the widget-config snippet every apply re-writes into a
+    live panel (``reassert``, empty for a panel with none)."""
 
     key: str
     name: str
@@ -864,6 +865,7 @@ class FurnitureSpec:
     length_mode: str = "fit"
     required_widget: str | None = None
     visibility: int = _VISIBILITY_NORMAL
+    reassert: str = ""
 
 
 def _furniture_specs(
@@ -880,7 +882,9 @@ def _furniture_specs(
     showing ONLY minimized windows — E16's iconbox: icons appear on
     iconify, vanish on restore. ``launchers`` is cleared because icontasks
     ships default pinned launchers; ``taskHoverEffect`` follows the Plasma
-    Style's ``X-Themey-TasksHover`` (*tasks_hover*: whether the style has
+    Style's ``X-Themey-TasksHover`` and is re-written on every apply
+    (``FurnitureSpec.reassert``, since the style changes under a panel
+    that outlives it) (*tasks_hover*: whether the style has
     a hover task frame of its own — real ``__HILITED`` iconbox art, or
     the frame themey synthesizes from the normal plate when E16 declared
     none, which is nearly always). Dragbar panel: E16's top strip
@@ -913,6 +917,11 @@ def _furniture_specs(
         visibility=side_visibility,
     )
     hover = "true" if tasks_hover else "false"
+    hover_cfg = (
+        " w.currentConfigGroup = ['General'];"
+        f" w.writeConfig('taskHoverEffect', {hover});"
+        " w.reloadConfig();"
+    )
     iconbox = _panel_script(
         "right",
         furniture.iconbox_px,
@@ -923,6 +932,10 @@ def _furniture_specs(
         f" w.writeConfig('taskHoverEffect', {hover});"
         " w.reloadConfig();",
         visibility=side_visibility,
+    )
+    iconbox_reassert = (
+        f" var w = p.widgets('{_ICONBOX_WIDGET}')[0];"
+        f" if (w) {{{hover_cfg} }}"
     )
     dragbar_px = dragbar_thickness_px(scale)
     middle = "".join(f" p.addWidget('{w}');" for w in _DRAGBAR_MIDDLE_WIDGETS)
@@ -946,7 +959,8 @@ def _furniture_specs(
                       required_widget=_PAGER_WIDGET,
                       visibility=side_visibility),
         FurnitureSpec(_ICONBOX_KEY, "iconbox panel", iconbox,
-                      furniture.iconbox_px, visibility=side_visibility),
+                      furniture.iconbox_px, visibility=side_visibility,
+                      reassert=iconbox_reassert),
         FurnitureSpec(_DRAGBAR_KEY, "dragbar panel", dragbar, dragbar_px,
                       length_mode="fill"),
     )
@@ -957,6 +971,7 @@ def _furniture_reassert_script(
     height: int,
     length_mode: str = "fit",
     visibility: int = _VISIBILITY_NORMAL,
+    reassert: str = "",
 ) -> str:
     """Bring a live furniture panel back to themey's spec.
 
@@ -972,6 +987,17 @@ def _furniture_reassert_script(
     reason as in :func:`_panel_script` — a windows-go-below panel is
     switched through plasmashellrc instead, and reads back ``'none'``
     anyway.
+
+    *reassert* is the spec's own widget-config snippet
+    (:class:`FurnitureSpec`), run inside the same live-panel block. It
+    carries the ONE widget key that is themey's per-theme spec rather
+    than the user's config: the iconbox's ``taskHoverEffect``, which
+    follows the Plasma Style's ``X-Themey-TasksHover``. The creation
+    script used to be its only writer, so a panel created under a theme
+    whose style had no hover frame kept ``false`` for every later theme
+    (and one created with ``true`` was never turned off). Everything
+    else about the widgets — alignment, pinned launchers — stays the
+    user's.
     """
     return (
         f"var p = panelById({panel_id});"
@@ -979,7 +1005,8 @@ def _furniture_reassert_script(
         f" p.lengthMode = '{length_mode}';"
         + (" p.hiding = 'none';" if visibility == _VISIBILITY_NORMAL else "")
         + (" p.minimumLength = 0;" if length_mode == "fit" else "")
-        + " try { p.floating = false; } catch (e) {} }"
+        + " try { p.floating = false; } catch (e) {}"
+        + f"{reassert} }}"
         " print(p ? 'reasserted' : 'missing');"
     )
 
@@ -1087,8 +1114,9 @@ def _ensure_furniture(
     screen_aspect: float = _DEFAULT_SCREEN_ASPECT,
 ) -> tuple[tuple[FurnitureSpec, str], ...]:
     """Create each WANTED E16 furniture panel unless its recorded one is
-    alive — in which case its thickness/length/visibility spec is
-    re-asserted (:func:`_furniture_reassert_script`). A recorded panel
+    alive — in which case its thickness/length/visibility spec and its
+    themey-owned widget config are re-asserted
+    (:func:`_furniture_reassert_script`). A recorded panel
     that is alive but ``stale`` (:func:`_furniture_exists_script` —
     hosting the stock pager instead of themey's) is removed and
     recreated, its marker overwritten. Returns ``(spec, panel_id)`` for
@@ -1124,7 +1152,8 @@ def _ensure_furniture(
             if alive == "exists":
                 _evaluate_plasma_script(
                     _furniture_reassert_script(
-                        marker, spec.height, spec.length_mode, spec.visibility
+                        marker, spec.height, spec.length_mode, spec.visibility,
+                        spec.reassert,
                     ),
                     f"plasmashell {spec.name} re-assert script",
                 )

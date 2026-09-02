@@ -340,3 +340,10 @@ def test_aliens_fixture_task_states_are_distinct(fake_home, tmp_path):
     assert styles["attention-center"] != styles["hover-center"]
     off_ids = {e.get("id") for e in off_root.iter() if e.get("id")}
     assert "focus-bottom" in off_ids  # the active task's accent bar
+    # The active task UNDER THE MOUSE wears both: the bar (unlike hover-)
+    # and the wash (unlike focus-). Aliens declares no __HILITED, so the
+    # hover-on-state prefixes ship in the frames-OFF mode only.
+    assert "focus-hover-bottom" in off_ids
+    assert "hover-bottom" not in off_ids
+    assert styles["focus-hover-center"] == styles["hover-center"]
+    assert styles["focus-hover-center"] != styles["focus-center"]
