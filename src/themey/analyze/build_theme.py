@@ -43,6 +43,7 @@ from .iclasses import build_iclasses
 from .menus import build_menu_styles
 from .states import collapse_image_states
 from .tclasses import build_tclasses
+from .tooltips import build_tooltips
 from .wallpaper import extract_wallpaper_specs
 
 
@@ -279,6 +280,9 @@ def build_theme(
     scheme = build_scheme(border, iclasses, tclasses, notes)
     palette = palette_from_scheme(scheme)
     menu_styles = build_menu_styles(_collect_blocks(ast_nodes, "__MENU_STYLE"))
+    tooltips = build_tooltips(
+        _collect_blocks(ast_nodes, "__TOOLTIP"), iclasses=iclasses, notes=notes
+    )
 
     return Theme(
         name=name,
@@ -301,4 +305,5 @@ def build_theme(
         skipped_borders=tuple(skipped),
         fonts=fonts,
         menu_styles=menu_styles,
+        tooltips=tooltips,
     )

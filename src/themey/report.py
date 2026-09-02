@@ -189,7 +189,7 @@ def write(
     # buried past line 20.
     _layout_prefixes = (
         "aurorae_rc:", "bundle:", "colors:", "composite:", "cursors:",
-        "plasmastyle:", "qmldeco:", "wallpaper:",
+        "plasmastyle:", "qmldeco:", "tooltips:", "wallpaper:",
     )
     layout_notes = [n for n in theme.notes if n.startswith(_layout_prefixes)]
     state_notes = [n for n in theme.notes if not n.startswith(_layout_prefixes)]

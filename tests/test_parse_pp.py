@@ -450,3 +450,29 @@ def test_directives_inside_inactive_region_are_inert(tmp_path: Path) -> None:
     )
     nodes = parse_tree(tmp_path, ["borders.cfg"])
     assert _blocks(nodes, "__ICLASS") == []
+
+
+_TOOLTIPS_CFG = (
+    "#include <definitions>\n"
+    "__E_CFG_VERSION 1\n"
+    'DEFINE_TOOLTIP("DEFAULT", "TT_MAIN", "TT_CLOUD", "TT_CLOUD", "TT_CLOUD", '
+    '"TT_CLOUD", "TEXT1", 64)\n'
+    'DEFINE_TOOLTIP_SIMPLE("PAGER", "TT_MINI", "TT_TEXT", 16)\n'
+)
+
+
+def test_default_entry_files_include_tooltips_cfg(tmp_path: Path) -> None:
+    """E16's ThemeConfigLoad reads tooltips.cfg (config.c:593); every corpus
+    copy declares its tooltips through ``DEFINE_TOOLTIP*`` macros."""
+    (tmp_path / "tooltips.cfg").write_text(_TOOLTIPS_CFG)
+    nodes = parse_tree(tmp_path)
+    tips = _blocks(nodes, "__TOOLTIP")
+    assert len(tips) == 2
+    assert _kv(tips[0], "__NAME").values == ("DEFAULT",)
+    assert _kv(tips[0], "__ICLASS").values == ("TT_MAIN",)
+    assert _kv(tips[0], "__BUBBLE4_ICLASS").values == ("TT_CLOUD",)
+    assert _kv(tips[0], "__TOOLTIP_HELP_ICON").values == ("DO_HELP_BUTTON",)
+    assert _kv(tips[0], "__TCLASS").values == ("TEXT1",)
+    assert _kv(tips[0], "__DISTANCE").values == (64,)
+    assert _kv(tips[1], "__NAME").values == ("PAGER",)
+    assert _kv(tips[1], "__BUBBLE1_ICLASS") is None

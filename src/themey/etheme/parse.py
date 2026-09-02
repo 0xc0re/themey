@@ -123,8 +123,11 @@ def parse_tree(
             "imageclasses.cfg",
             "textclasses.cfg",
             "cursors.cfg",
-            # E16's ThemeConfigLoad (config.c) also loads menustyles.cfg;
-            # its __MENU_STYLE blocks name the menu background iclass.
+            # E16's ThemeConfigLoad (config.c:593-594) also loads
+            # tooltips.cfg (its __TOOLTIP blocks name the tooltip art and
+            # text) and menustyles.cfg (__MENU_STYLE names the menu
+            # background iclass), in that order.
+            "tooltips.cfg",
             "menustyles.cfg",
         ]
     seen: set[Path] = set()

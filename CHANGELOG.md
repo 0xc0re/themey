@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (render)
+
+- **`themey render` from a tty/ssh session** — the nested KWin refused
+  Spectacle's screenshot ("The process is not authorized to take a
+  screenshot", no PNG, rc 0) when the harness was launched outside a Plasma
+  session; the private headless compositor now runs with
+  `KWIN_SCREENSHOT_NO_PERMISSION_CHECKS=1`, KWin's own escape hatch.
+
 ### Fixed (fonts)
 
 - **Font sizes and styles** — theme TTF sizes (`ariali/9`) are points at
@@ -18,6 +26,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **E16 tooltips** — `tooltips.cfg` is parsed (E16's `ThemeConfigLoad`
+  order; the `DEFINE_TOOLTIP*` macros expand through the bundled
+  `config/definitions`) and the Plasma Style's `widgets/tooltip.svg` plus
+  the Tooltip colour group now come from the DEFAULT `__TOOLTIP` block's
+  own iclass and tclass, as `TooltipShow` resolves them, with the old
+  `TT_MAIN`/`TT_TEXT` names as the fallback. 11 corpus themes that dress
+  their tooltip with TT_MINI/BAR/COORDS/TT_CLOUD art shipped no tooltip
+  before (223/223 do now) and 88 painted the text in TT_TEXT's colour
+  instead of the TEXT1/TEXT2/COORDS/MENU_TEXT tclass E16 used. The first
+  block that registers wins, as E16's loader skips a repeated name and
+  creates nothing for an undefined iclass; an artless tooltip iclass and
+  an undefined tclass fall back with a report note.
 - **Text states, orientation, hovered menu text** — the title caption
   follows E16's four text-state groups (a sticky window's title uses the
   `__NORMAL_STICKY`/`__NORMAL_ACTIVE_STICKY` colour, font effect and effect

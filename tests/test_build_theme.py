@@ -427,3 +427,39 @@ def test_build_theme_collects_menu_styles(tmp_path: Path) -> None:
     theme = build_theme(tmp_path, nodes, name="t")
     assert theme.menu_styles["DEFAULT"].bg_iclass == "MENU_BG"
     assert theme.menu_styles["DEFAULT"].item_iclass == "MENU_SEL"
+
+
+# ---------------------------------------------------------------------------
+# Tooltips
+# ---------------------------------------------------------------------------
+
+
+def test_build_theme_collects_tooltips(tmp_path: Path) -> None:
+    """The tooltip's iclass must be one the theme defines (E16's
+    ``_TtCreate`` creates nothing otherwise); a ghost block is dropped
+    with a ``tooltips:`` note and a later same-name block applies."""
+    nodes = [
+        _border_block("DEFAULT", sizes={"left": 1, "right": 1, "top": 1, "bottom": 1}),
+        _block("__ICLASS", _kv("__NORMAL", "bar.png"), head=("BAR",)),
+        _block(
+            "__TOOLTIP",
+            _kv("__NAME", "DEFAULT"),
+            _kv("__ICLASS", "TT_GHOST"),
+            _kv("__TCLASS", "COORDS"),
+        ),
+        _block(
+            "__TOOLTIP",
+            _kv("__NAME", "DEFAULT"),
+            _kv("__ICLASS", "BAR"),
+            _kv("__TCLASS", "COORDS"),
+            _kv("__DISTANCE", 32),
+        ),
+    ]
+    theme = build_theme(tmp_path, nodes, name="t")
+    assert theme.tooltips["DEFAULT"].iclass == "BAR"
+    assert theme.tooltips["DEFAULT"].tclass == "COORDS"
+    assert theme.tooltips["DEFAULT"].distance == 32
+    assert any(
+        n.startswith("tooltips: __TOOLTIP DEFAULT names undefined iclass TT_GHOST")
+        for n in theme.notes
+    )

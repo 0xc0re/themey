@@ -1582,9 +1582,76 @@ def build_dialog_background(theme: Theme) -> ET.Element | None:
     return canvas.finish()
 
 
+#: The tooltip E16 shows for every window/button hint — ``TooltipShow``
+#: (tooltips.c:752) looks ``DEFAULT`` up by name; ``ICONBOX``/``PAGER``
+#: dress only those two windows.
+_TOOLTIP_NAME = "DEFAULT"
+
+
+def _tooltip_sources(theme: Theme) -> tuple[str, ...]:
+    """Iclass names for the tooltip art, best first: the parsed ``DEFAULT``
+    ``__TOOLTIP`` block's ``__ICLASS`` (11/223 corpus themes name TT_MINI,
+    BAR, COORDS or TT_CLOUD there), then the ``TT_MAIN`` convention."""
+    tip = theme.tooltips.get(_TOOLTIP_NAME)
+    names: list[str] = [tip.iclass] if tip is not None else []
+    if "TT_MAIN" not in names:
+        names.append("TT_MAIN")
+    return tuple(names)
+
+
+def _tooltip_tclass_name(theme: Theme) -> str:
+    """The DEFAULT tooltip's own ``__TCLASS`` when the theme defines it
+    (88/223 corpus blocks name TEXT1/TEXT2/COORDS/... rather than TT_TEXT),
+    else the ``TT_TEXT`` convention. Two corpus blocks name an iclass by
+    mistake: E16 painted those with its built-in fallback tclass
+    (``TextclassAlloc(name, 1)`` → ``TextclassGetFallback``), themey with
+    TT_TEXT, and a note says so."""
+    tip = theme.tooltips.get(_TOOLTIP_NAME)
+    if tip is not None:
+        if tip.tclass in theme.tclasses:
+            return tip.tclass
+        _note_once(
+            theme,
+            f"plasmastyle: DEFAULT tooltip names undefined tclass {tip.tclass} "
+            "(E16 painted its built-in fallback text); tooltip text from TT_TEXT",
+        )
+    return "TT_TEXT"
+
+
+def _note_once(theme: Theme, note: str) -> None:
+    if note not in theme.notes:
+        theme.notes.append(note)
+
+
+def _resolve_tooltip_source(theme: Theme) -> IClassSpec | None:
+    """First :func:`_tooltip_sources` entry with normal art, noting when the
+    DEFAULT tooltip's own iclass is passed over for lack of it.
+
+    No shaped-art rejection here, unlike :func:`_resolve_dialog_source`:
+    45/223 corpus ``TT_MAIN`` images (Aliens, e13, OldE, ...) are 10-31%
+    transparent — rounded corners and clear margins that ``_emit_set``'s
+    opaque trim already handles — and rejecting them would drop the tooltip
+    frame those themes have shipped since the Plasma Style landed. Notes
+    are deduplicated because ``style_scheme`` resolves again.
+    """
+    names = _tooltip_sources(theme)
+    for i, name in enumerate(names):
+        spec = theme.iclasses.get(name)
+        if spec is not None and _state_image(spec, "normal") is not None:
+            return spec
+        if i == 0 and len(names) > 1:
+            _note_once(
+                theme,
+                f"plasmastyle: DEFAULT tooltip iclass {name} has no normal "
+                "art; tooltip background from TT_MAIN instead",
+            )
+    return None
+
+
 def build_tooltip(theme: Theme) -> ET.Element | None:
-    """``widgets/tooltip.svg`` from ``TT_MAIN``."""
-    src = _iclass_with_art(theme, "TT_MAIN")
+    """``widgets/tooltip.svg`` from the DEFAULT tooltip's iclass
+    (:func:`_resolve_tooltip_source`)."""
+    src = _resolve_tooltip_source(theme)
     if src is None:
         return None
     canvas = _Canvas()
@@ -2449,7 +2516,7 @@ def style_scheme(theme: Theme, *, shipped: frozenset[str]) -> ColorScheme:
     tints the *Breeze fallback* art, so a group whose art we ship must
     match that art, and a group whose art we don't must stay on the
     sampled scheme. Text prefers the theme's own tclass colors
-    (``MENU_TEXT``/``TT_TEXT``/``DIALOG_*``), WCAG-guarded; every override
+    (``MENU_TEXT``/the DEFAULT tooltip's tclass/``DIALOG_*``), WCAG-guarded; every override
     appends a ``plasmastyle:`` note naming its source.
 
     Colors:Window is shared by the panel AND popups, so its ENTIRE
@@ -2529,20 +2596,25 @@ def style_scheme(theme: Theme, *, shipped: frozenset[str]) -> ColorScheme:
                 + ("" if fg == menu_fg else f" (guarded to rgb{fg})")
             )
 
-    # Colors:Tooltip.
+    # Colors:Tooltip — the same DEFAULT-tooltip sources build_tooltip used.
     if TOOLTIP_SVG in shipped:
-        src = _iclass_with_art(theme, "TT_MAIN")
+        src = _resolve_tooltip_source(theme)
         path = _state_image(src, "normal")
         bg = extract_dominant(path) if path is not None else None
-        if bg is not None:
+        if bg is not None and src is not None:
+            tt_tclass = _tooltip_tclass_name(theme)
             fg, forced = _fg_for(
-                _tclass_fg(theme, "TT_TEXT"),
+                _tclass_fg(theme, tt_tclass),
                 scheme.tooltip.foreground_normal, (bg,),
             )
             scheme = replace(scheme, tooltip=_regroup(scheme.tooltip, bg, fg))
             theme.notes.append(
-                "plasmastyle: colors Tooltip background from TT_MAIN art; text "
-                + (f"forced to rgb{fg} for contrast" if forced else "from tclass TT_TEXT")
+                f"plasmastyle: colors Tooltip background from {src.name} art; text "
+                + (
+                    f"forced to rgb{fg} for contrast"
+                    if forced
+                    else f"from tclass {tt_tclass}"
+                )
             )
 
     # Colors:Selection — MENU_SEL hover art; the text is what E16 drew on a
