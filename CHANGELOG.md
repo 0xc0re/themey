@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`--upscale waifu2x` no longer fails a conversion when the Vulkan
+  driver hiccups.** A launch killed by a *signal* is now relaunched (3
+  attempts, 0.5 s apart); a non-zero exit and a timeout are not, since
+  those are the tool rejecting its arguments and a wedged machine
+  respectively.
+
+  The crash is the driver's: measured over 270 otherwise identical
+  launches on an RTX 3070, 2 of them had ncnn print `vkCreateDevice
+  failed -3` (`VK_ERROR_INITIALIZATION_FAILED`), hand back a
+  `VulkanDevice` it never created, and segfault on the dereference. At
+  ~0.7% a launch that is harmless in isolation and fatal in aggregate —
+  themey runs one launch per distinct source image, ~40 for Aliens across
+  the decoration, the Plasma Style and the wallpapers, so about a quarter
+  of `--upscale waifu2x` conversions died partway through. The wallpaper
+  stage already degraded gracefully; the decoration and Plasma Style
+  stages did not, so the whole run ended with `conversion failed:
+  waifu2x-ncnn-vulkan exited -11`.
+
+  It is a transient — the next launch of the same input succeeded every
+  time — so three attempts take the per-image odds to ~3e-7. Verified
+  after the fix: 4 real crashes across 6 Aliens conversions, all
+  recovered, none failed. Pinning `$THEMEY_WAIFU2X_GPU` does not help
+  (0/150 against 2/270 is not a difference at that rate).
+
 ## [0.6.0] - 2026-09-02
 
 ### Added

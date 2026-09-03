@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from themey.external import (
+    WAIFU2X_ATTEMPTS,
     WAIFU2X_GPU_ENV,
     WAIFU2X_MODEL,
     WAIFU2X_MODELS_ENV,
@@ -451,3 +452,98 @@ def test_run_waifu2x_pins_the_device_when_asked(
     run_waifu2x(src, tmp_path / "out.png", 2)
     argv = (tmp_path / "argv.txt").read_text().split()
     assert argv[argv.index("-g") + 1] == "0"
+
+
+# --------------------------------------------------------------------- #
+# Retry on a crashed launch
+#
+# Measured on chris's box 2026-09-02: 2 failures in 270 identical launches
+# (~0.7%), always the same shape — ncnn prints ``vkCreateDevice failed -3``
+# (VK_ERROR_INITIALIZATION_FAILED), hands back a device it never created,
+# and waifu2x dereferences it and dies on SIGSEGV. The next launch of the
+# SAME input succeeds every time. themey fires one launch per distinct
+# source image, so a ~40-launch convert used to die about a quarter of the
+# time on a transient the driver forgets a millisecond later.
+# --------------------------------------------------------------------- #
+
+
+def _counting_waifu2x(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str):
+    """Fake binary that records each launch in ``launches.txt``.
+
+    *body* runs with ``$COUNT`` set to the 1-based launch number, so a
+    test can crash the first launch and succeed on the second.
+    """
+    counter = tmp_path / "launches.txt"
+    script = (
+        f'echo x >> "{counter}"\n'
+        f'COUNT=$(wc -l < "{counter}")\n'
+        f"{body}\n"
+    )
+    src = _ready(monkeypatch, tmp_path, script)
+    return src, counter
+
+
+def _launches(counter: Path) -> int:
+    return len(counter.read_text().split()) if counter.is_file() else 0
+
+
+def test_run_waifu2x_retries_a_crashed_launch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """A SIGSEGV is the transient Vulkan-init failure, not a verdict on
+    the input: relaunch and the same image goes through."""
+    _png(tmp_path / "canned.png", (8, 6))
+    src, counter = _counting_waifu2x(
+        tmp_path,
+        monkeypatch,
+        f'if [ "$COUNT" -eq 1 ]; then\n'
+        f'  echo "vkCreateDevice failed -3" >&2\n'
+        f"  kill -SEGV $$\n"
+        f"fi\n"
+        f'cp "{tmp_path}/canned.png" "$4"',
+    )
+    out = tmp_path / "out.png"
+    assert run_waifu2x(src, out, 2) == out
+    assert out.is_file()
+    assert _launches(counter) == 2
+
+
+def test_run_waifu2x_gives_up_after_the_retry_budget(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """A binary that crashes every time is broken, not unlucky — the
+    retry is bounded and the last stderr still reaches the caller."""
+    src, counter = _counting_waifu2x(
+        tmp_path,
+        monkeypatch,
+        'echo "vkCreateDevice failed -3" >&2\nkill -SEGV $$',
+    )
+    with pytest.raises(Waifu2xError) as exc:
+        run_waifu2x(src, tmp_path / "out.png", 2)
+    assert "vkCreateDevice failed -3" in str(exc.value)
+    assert _launches(counter) == WAIFU2X_ATTEMPTS
+
+
+def test_run_waifu2x_does_not_retry_a_usage_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """An ordinary non-zero exit is a rejection of the arguments and will
+    say the same thing three times over; only a signal death is retried."""
+    src, counter = _counting_waifu2x(
+        tmp_path, monkeypatch, 'echo "invalid scale argument" >&2; exit 255'
+    )
+    with pytest.raises(Waifu2xError, match="invalid scale argument"):
+        run_waifu2x(src, tmp_path / "out.png", 3)
+    assert _launches(counter) == 1
+
+
+def test_run_waifu2x_does_not_retry_a_timeout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """WAIFU2X_TIMEOUT_SECONDS is 300; retrying one would spend 15
+    minutes proving the machine is still wedged."""
+    src, counter = _counting_waifu2x(tmp_path, monkeypatch, "sleep 30")
+    monkeypatch.setattr("themey.external.WAIFU2X_TIMEOUT_SECONDS", 1)
+    with pytest.raises(Waifu2xError, match="timed out"):
+        run_waifu2x(src, tmp_path / "out.png", 2)
+    assert _launches(counter) == 1

@@ -41,15 +41,25 @@ rendering was only 2x slower, so auto is a fine default). The genuinely
 slow case is the FIRST run against a device, which compiles its shader
 pipelines — 36s vs 1.7s warm, measured — hence the generous timeout and a
 timeout message that quotes the device banner.
+
+A launch that dies on a SIGNAL is retried (``WAIFU2X_ATTEMPTS``); one that
+exits non-zero, or times out, is not. That split is the whole point: the
+crash is a transient Vulkan device-creation failure in the driver, which
+the very next launch of the same input survives, while a non-zero exit is
+the tool telling us the arguments are wrong.
 """
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 from PIL import Image
+
+log = logging.getLogger(__name__)
 
 XCURSORGEN = "xcursorgen"
 XCURSORGEN_TIMEOUT_SECONDS = 60
@@ -84,6 +94,26 @@ WAIFU2X_MODELS_ENV = "THEMEY_WAIFU2X_MODELS"
 # part: RTX 3070 0.85s, llvmpipe 1.70s. Note that gap is only 2x, NOT the
 # reason a run goes slow; see WAIFU2X_TIMEOUT_SECONDS for what is.
 WAIFU2X_GPU_ENV = "THEMEY_WAIFU2X_GPU"
+
+# Relaunch budget for a CRASHED run, and only a crashed one.
+#
+# Measured 2026-09-02 on chris's RTX 3070 (driver 580.173, Vulkan 1.4.341,
+# two devices enumerated: the NVIDIA one and llvmpipe): 2 of 270 otherwise
+# identical launches died with ncnn printing ``vkCreateDevice failed -3``
+# — VK_ERROR_INITIALIZATION_FAILED — after which it returns a VulkanDevice
+# it never created and waifu2x dereferences it, so the process dies on
+# SIGSEGV (returncode -11). ~0.7% per launch is harmless in isolation and
+# fatal in aggregate: themey fires one launch per distinct source image,
+# ~40 for Aliens between the decoration, the Plasma Style and the
+# wallpapers, so a quarter of all converts hit it. Pinning the device with
+# $THEMEY_WAIFU2X_GPU did not clear it (0/150 against 2/270 is not a
+# difference at this rate), and the failure is not ours to fix inside a
+# third-party binary — but it IS transient: the next launch of the same
+# input succeeded every time, so three attempts take the per-image odds to
+# ~3e-7. The delay is a courtesy to whatever driver state is settling, not
+# a measured requirement.
+WAIFU2X_ATTEMPTS = 3
+WAIFU2X_RETRY_DELAY_SECONDS = 0.5
 _WAIFU2X_MODEL_ROOTS = (
     Path("/usr/local/share/waifu2x-ncnn-vulkan"),
     Path("/usr/share/waifu2x-ncnn-vulkan"),
@@ -230,11 +260,16 @@ def run_waifu2x(
     *factor* must be one of waifu2x's supported powers of two; the tool
     rejects anything else ("invalid scale argument") rather than rounding.
 
+    A launch killed by a signal is relaunched up to ``WAIFU2X_ATTEMPTS``
+    times — see that constant for the measured transient this exists for.
+    Every other failure is reported on the first try.
+
     Raises :class:`Waifu2xError` when the binary or its weights are
-    absent, the run times out or exits non-zero, or the output is missing,
-    empty, or not exactly *factor* times the source dimensions — the same
-    output-verification discipline :func:`run_xcursorgen` uses, since an
-    exit code alone does not prove the pixels arrived.
+    absent, the run times out or exits non-zero (crashes having exhausted
+    their retries), or the output is missing, empty, or not exactly
+    *factor* times the source dimensions — the same output-verification
+    discipline :func:`run_xcursorgen` uses, since an exit code alone does
+    not prove the pixels arrived.
     """
     exe = shutil.which(WAIFU2X)
     if exe is None:
@@ -256,32 +291,51 @@ def run_waifu2x(
     gpu = os.environ.get(WAIFU2X_GPU_ENV)
     if gpu:
         cmd += ["-g", gpu]
-    try:
-        proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=WAIFU2X_TIMEOUT_SECONDS
+    for attempt in range(1, WAIFU2X_ATTEMPTS + 1):
+        try:
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=WAIFU2X_TIMEOUT_SECONDS
+            )
+        except subprocess.TimeoutExpired as exc:
+            # Keep whatever stderr arrived before the kill. waifu2x prints
+            # its Vulkan device banner the moment it starts, so this says
+            # which device was chosen and whether it got as far as loading
+            # the model — without it a timeout says nothing about WHY, which
+            # is what stalled the 2026-09-02 investigation.
+            #
+            # Not retried, unlike a crash: the budget is 300s an attempt,
+            # so three of them would spend a quarter of an hour restating
+            # that the machine is wedged.
+            partial = exc.stderr or ""
+            if isinstance(partial, bytes):
+                partial = partial.decode("utf-8", "replace")
+            tail = partial.strip()[-500:]
+            detail = f": {tail}" if tail else ""
+            raise Waifu2xError(
+                f"{WAIFU2X} timed out after {WAIFU2X_TIMEOUT_SECONDS}s on "
+                f"{src.name}. The banner below names the Vulkan devices it "
+                f"found; pin one with ${WAIFU2X_GPU_ENV}=<index> if it chose "
+                f"badly{detail}"
+            ) from exc
+        tail = proc.stderr.strip()[-500:]
+        if proc.returncode == 0:
+            break
+        # subprocess reports a signal death as -N. That is the transient
+        # Vulkan-init crash (see WAIFU2X_ATTEMPTS) and nothing else here
+        # produces one; an ordinary non-zero exit is the tool REJECTING
+        # the arguments ("invalid scale argument" is exit 255) and would
+        # say the same thing three times over.
+        crashed = proc.returncode < 0
+        if not crashed or attempt == WAIFU2X_ATTEMPTS:
+            tries = f" after {attempt} attempts" if attempt > 1 else ""
+            raise Waifu2xError(
+                f"{WAIFU2X} exited {proc.returncode} on {src.name}{tries}: {tail}"
+            )
+        log.warning(
+            "%s crashed (signal %d) on %s, attempt %d of %d; retrying",
+            WAIFU2X, -proc.returncode, src.name, attempt, WAIFU2X_ATTEMPTS,
         )
-    except subprocess.TimeoutExpired as exc:
-        # Keep whatever stderr arrived before the kill. waifu2x prints
-        # its Vulkan device banner the moment it starts, so this says
-        # which device was chosen and whether it got as far as loading
-        # the model — without it a timeout says nothing about WHY, which
-        # is what stalled the 2026-09-02 investigation.
-        partial = exc.stderr or ""
-        if isinstance(partial, bytes):
-            partial = partial.decode("utf-8", "replace")
-        tail = partial.strip()[-500:]
-        detail = f": {tail}" if tail else ""
-        raise Waifu2xError(
-            f"{WAIFU2X} timed out after {WAIFU2X_TIMEOUT_SECONDS}s on "
-            f"{src.name}. The banner below names the Vulkan devices it "
-            f"found; pin one with ${WAIFU2X_GPU_ENV}=<index> if it chose "
-            f"badly{detail}"
-        ) from exc
-    tail = proc.stderr.strip()[-500:]
-    if proc.returncode != 0:
-        raise Waifu2xError(
-            f"{WAIFU2X} exited {proc.returncode} on {src.name}: {tail}"
-        )
+        time.sleep(WAIFU2X_RETRY_DELAY_SECONDS)
     if not out.is_file() or out.stat().st_size == 0:
         raise Waifu2xError(
             f"{WAIFU2X} produced no output (or an empty file) at {out}: {tail}"
