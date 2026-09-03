@@ -387,6 +387,21 @@ hit 2026-09-02 that never reproduced warm. The timeout path attaches the
 stderr captured before the kill, because waifu2x prints its device banner
 immediately and without it a timeout says nothing about why.
 
+A launch killed by a SIGNAL is relaunched, `WAIFU2X_ATTEMPTS` (3) times with
+`WAIFU2X_RETRY_DELAY_SECONDS` between; a non-zero exit and a timeout are not.
+The crash is the driver's, not ours: measured 2026-09-02 on chris's RTX 3070,
+2 of 270 identical launches had ncnn print `vkCreateDevice failed -3`
+(VK_ERROR_INITIALIZATION_FAILED), hand back a VulkanDevice it never created,
+and segfault on the dereference (returncode -11). ~0.7% a launch is fatal in
+aggregate — themey fires one launch per distinct source image, ~40 for Aliens
+across the decoration, the Plasma Style and the wallpapers, so a quarter of
+converts died on it — and it is transient, the next launch of the same input
+succeeding every time (verified after the fix: 4 real crashes over 6 Aliens
+converts, all recovered, 0 failed). Pinning `$THEMEY_WAIFU2X_GPU` does NOT
+clear it (0/150 against 2/270 is not a difference at that rate). A non-zero
+exit is the tool rejecting its arguments ("invalid scale argument" is 255) and
+would say the same thing three times; a timeout is 300 s an attempt.
+
 **The fallback is ONE decision point**, in `pipeline.convert` immediately
 BEFORE `build_theme`: `upscale == "waifu2x"` and no binary/models →
 `effective_upscale = "quality"`, and that is what the Theme is built with as
