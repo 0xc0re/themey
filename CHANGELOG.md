@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.1] - 2026-09-02
 
 ### Fixed
 
@@ -32,6 +32,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   after the fix: 4 real crashes across 6 Aliens conversions, all
   recovered, none failed. Pinning `$THEMEY_WAIFU2X_GPU` does not help
   (0/150 against 2/270 is not a difference at that rate).
+
+### Documentation
+
+- **The README now shows what `--upscale waifu2x` changes** instead of
+  asserting it. Five before/after figures — `Graphiti`, `e13`, `OldE`,
+  `Aliens` and `Obsidian` — each the same theme, window, `--scale 2` and
+  crop rendered twice through `themey render --plugin qml`, magnified 3x
+  with NEAREST so the page shows real pixels rather than the browser's
+  smoothing of them. `scripts/make_upscale_figures.py` regenerates them.
+
+  `Obsidian` is in the set as the counter-example, and is why `nearest`
+  remains the default: a smooth vertical gradient has no detail below the
+  pixel grid for the CNN to reconstruct, and the two runs are all but
+  identical. The gain is real on drawn, organic and textured art and
+  close to nil on flat gradient chrome.
+
+- Corrects a stale scope claim in the same section, which read "Scope is
+  the **window decoration only** — the Plasma Style, color scheme,
+  wallpapers and cursors ... stay NEAREST regardless of this flag". That
+  stopped being true in 0.6.0, when the Plasma Style started taking
+  `theme.upscale` and sub-1920px wallpapers started going through the CNN
+  at 2x. Cursors and the sampled colour scheme do not move; the text now
+  says exactly that.
 
 ## [0.6.0] - 2026-09-02
 
@@ -387,7 +410,9 @@ installable KDE Plasma 6 Global Theme.
 - Converting a theme means handing its fonts and images to your compositor;
   see the residual-risk section of [SECURITY.md](SECURITY.md).
 
-[Unreleased]: https://github.com/0xc0re/themey/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/0xc0re/themey/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/0xc0re/themey/compare/v0.6.0...v0.6.1
+[0.6.0]: https://github.com/0xc0re/themey/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/0xc0re/themey/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/0xc0re/themey/compare/v0.2.0...v0.4.0
 [0.2.0]: https://github.com/0xc0re/themey/compare/v0.1.0...v0.2.0
