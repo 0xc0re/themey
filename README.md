@@ -69,7 +69,8 @@ Working today:
 - **QML decoration backend (default)** — an E16-faithful KWin/Decoration
   KPackage: unclamped borders, text-sized title plaques, side-border button
   stacks, theme TTF fonts, fractional `--scale`, and two opt-in smoothing
-  upscalers (in-tree hqx, or waifu2x-ncnn-vulkan when installed)
+  upscalers (in-tree hqx, or waifu2x-ncnn-vulkan when installed — see the
+  [before/after figures](#waifu2x-upscaling-optional))
 - **SVG decoration backend** (`--backend svg`) — the original Aurorae SVG
   theme (`decoration.svg`, `<name>rc`, button SVGs); kept as an escape hatch,
   clamped to the KWin Border-size brackets
@@ -190,7 +191,7 @@ themey Aliens.etheme --no-open           # skip the browser
 | Flag | Meaning |
 |------|---------|
 | `--scale N` | Border/image upscale factor in `[0.5, 3]`. Default `2`. Values below 1 shrink borders below their native E16 size (0.5 is the floor — below that, 1-px pixel-art features vanish). Fractional values (e.g. `1.5` or `0.5`) are accepted only with the QML backend — the SVG backend requires an integer. |
-| `--upscale MODE` | Part-art scaler: `nearest` (default, pixel-art sharp, NEAREST resampling), `quality` (in-tree hqx smoothing), or `waifu2x` (waifu2x-ncnn-vulkan, a CNN trained on this task — see below). Both smoothing modes overshoot to a factor they support and LANCZOS *downsample* to the target; both are QML-backend-only. `waifu2x` falls back to `quality` with an `upscale:` note in `report.txt` when the binary or its models are missing, so a conversion never fails for want of it. |
+| `--upscale MODE` | Part-art scaler: `nearest` (default, pixel-art sharp, NEAREST resampling), `quality` (in-tree hqx smoothing), or `waifu2x` (waifu2x-ncnn-vulkan, a CNN trained on this task — see [the before/after figures](#waifu2x-upscaling-optional)). Both smoothing modes overshoot to a factor they support and LANCZOS *downsample* to the target; both are QML-backend-only. `waifu2x` falls back to `quality` with an `upscale:` note in `report.txt` when the binary or its models are missing, so a conversion never fails for want of it. |
 | `--backend NAME` | Decoration backend: `qml` (default — the E16-faithful QML KPackage), `svg` (the legacy Aurorae SVG theme), or `both`. |
 | `--shade-button ACTION` | QML-backend-only. KWin removed window shading in Plasma 6, so E16's shade button is dead weight; this remaps it instead. One of `maximize` (default), `keepAbove`, `keepBelow`, `menu`, `hide`, or `none` (today's inert disabled button, which still absorbs clicks). e13, for example, has no maximize button of its own, so the dead shade slot becomes the missing action. |
 | `--iconbox-frames MODE` | Plasma Style task frames on the icon task manager: `off` (default — E16's own frameless iconbox, `container.c` `draw_icon_base = 0`: bare icons on the trough) or `on` (the theme's iconbox button art as a plate under every icon). Either way the task states are told apart: hover, attention, minimized and the active task are synthesized from the theme's own plate when E16 authored no such art, and the active task wears a 2 px accent bar in the color scheme's selection color. |
@@ -327,11 +328,56 @@ it draws its own unclamped borders and ignores `--border-size` entirely.
 themey Aliens.etheme --upscale waifu2x
 ```
 
-E16 border art is 13–30 px pixel art. `nearest` keeps it honest and sharp;
-`quality` smooths it with the in-tree hqx port; `waifu2x` runs
+E16 border art is 13–30 px pixel art and themey draws it at `--scale 2` by
+default, so every mode here is answering the same question: what goes in the
+pixels E16 never drew? `nearest` (the default) duplicates the ones it has —
+honest, sharp, and stair-stepped on every curve. `quality` smooths them with
+the in-tree hqx port. `waifu2x` runs
 [waifu2x-ncnn-vulkan](https://github.com/nihui/waifu2x-ncnn-vulkan), a CNN
-that reconstructs edges rather than blurring them. It is local, free,
+that reconstructs the edge instead of blurring it. It is local, free,
 deterministic and offline — themey makes no network call under any flag.
+
+#### What it actually looks like
+
+Same theme, same window, same `--scale 2`, same crop, magnified 3× so you are
+looking at real pixels rather than your browser's idea of them. **Left:
+`--upscale nearest` (the default). Right: `--upscale waifu2x`.**
+
+![Graphiti: nearest versus waifu2x](docs/images/graphiti-upscale-compare.png)
+
+*`Graphiti` — hand-drawn cartoon art is the best case. Nearest serrates every
+contour and breaks the shading into visible blocks; waifu2x rebuilds the
+outline as a line and keeps the shading continuous.*
+
+![e13: nearest versus waifu2x](docs/images/e13-upscale-compare.png)
+
+*`e13` — the long tubular curves are where staircasing is most obvious. Look
+at the ring around the button plaque and the rail below the title bar.*
+
+![OldE: nearest versus waifu2x](docs/images/olde-upscale-compare.png)
+
+*`OldE` — button glyphs and bevels. The rust texture keeps its grain (the CNN
+is reconstructing, not denoising: `-n 0`) while the X, the arrow and the frame
+highlights lose their jaggies.*
+
+![Aliens: nearest versus waifu2x](docs/images/aliens-upscale-compare.png)
+
+*`Aliens` — biomechanical art with fine internal detail. The gain is real but
+smaller here, because a lot of this frame is texture rather than edge.*
+
+And the counter-example, which is why `nearest` is still the default:
+
+![Obsidian: nearest versus waifu2x](docs/images/obsidian-upscale-compare.png)
+
+*`Obsidian` — a smooth vertical gradient with no detail below the pixel grid.
+There is nothing to reconstruct, and the two runs are all but identical.*
+
+The pattern across the corpus: waifu2x pays for itself on drawn, organic and
+textured art, does very little for flat gradient chrome, and never helps the
+parts of the frame that were already smooth. Regenerate these figures with
+`uv run python scripts/make_upscale_figures.py`.
+
+#### Installing it
 
 It needs **two** things, and installs commonly get only the first. Upstream
 ships the executable and its `models-*` directories as flat siblings in one
@@ -361,12 +407,19 @@ here), so don't judge the speed by the first conversion.
 
 If either half is missing, the conversion still succeeds: the art is upscaled
 with hqx instead and `report.txt` records an `upscale:` note naming what was
-not found. Scope is the **window decoration only** — the Plasma Style, color
-scheme, wallpapers and cursors are derived from the source art on separate
-code paths and stay NEAREST regardless of this flag. Expect roughly 20 s for
-a theme like e13 on a discrete GPU: the run is one subprocess per *distinct*
-source image (e13: 26, not its 76 manifest entries), each paying ~2.8 s of
-Vulkan startup.
+not found.
+
+Scope is the window decoration **and** the Plasma Style — panel, popup,
+tooltip and task chrome are sliced from the same art through the same scaler,
+so the desktop matches the frame. Under `waifu2x` only, a wallpaper narrower
+than 1920 px is also run through the CNN at 2× first, so Plasma downsamples it
+instead of stretching it. Cursors stay NEAREST whatever you pass (a smoothed
+pointer at 24 px is mush), and the color scheme is sampled from the source
+art, so it does not move either.
+
+Expect roughly 20 s for a theme like e13 on a discrete GPU: the run is one
+subprocess per *distinct* source image (e13: 26, not its 76 manifest entries),
+each paying ~2.8 s of Vulkan startup.
 
 Because waifu2x anti-aliases the alpha channel as well as the colour, a
 shaped part ships a soft silhouette rather than E16's 1-bit mask. That is
