@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Maximized windows keep the full E16 frame (QML backend).** The
+  decoration used to tell KWin that a maximized window has no left, right
+  or bottom border and hid every part that fell below the title band, so
+  the side rails, the bottom strip and side-stacked buttons (e13's
+  ICONIFY/SHADE/STICK column) vanished on maximize while a corner button
+  that fit the band's rows stayed — a half-drawn left column. E16 had no
+  borderless-maximized state: it drew the same frame maximized or not and
+  `MAX_AVAILABLE` sized the whole frame to the free area. themey now does
+  the same — `maximizedBorders` equal the normal borders, nothing is
+  maximize-conditional, and KWin insets the client by the full frame.
+  `RUNTIME_VERSION` 5 → 6 (the part model lost `hideWhenMaximized`); the
+  `qmldeco: button ... hidden while the window is maximized` note is gone
+  with it. Re-convert installed packages to pick up the new runtime.
+
 ## [0.6.1] - 2026-09-02
 
 ### Fixed

@@ -2,8 +2,7 @@
 
 The QML runtime resolves part geometry live (window resizes, caption
 changes); this module is the SAME algorithm over the SAME part-model dicts,
-used by the emitter (maximized-band detection) and by tests (e13
-ground-truth geometry). Keep the two implementations in lockstep — both
+used by tests (e13 ground-truth geometry). Keep the two implementations in lockstep — both
 carry RUNTIME_VERSION and tests/test_qmldeco_geometry.py pins the e13
 values that KWin must reproduce.
 
@@ -46,7 +45,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 
-RUNTIME_VERSION = 5
+RUNTIME_VERSION = 6
 
 _MAX_ORIGIN_DEPTH = 8
 
