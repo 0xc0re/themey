@@ -15,6 +15,11 @@ resolved HERE so the runtime only ever binds concrete filenames; origin
 topology is validated HERE (an origin must reference an earlier-declared
 part — violations degrade to window-relative with a ``qmldeco:`` note).
 
+A maximized window keeps every part: E16 had no borderless-maximized
+state (``MAX_AVAILABLE`` sized the whole frame to the free area), so
+``main.qml`` reports the full ``borders`` as ``maximizedBorders`` and
+nothing in this model is maximize-conditional.
+
 ``slotTile[slot]`` is E16's per-state ``__FILLRULE`` (``null`` stretch,
 ``"h"``/``"v"``/``"both"`` tile — BorderImage repeat modes on the
 middle); ``keepOnTop`` mirrors ``__KEEP_ON_TOP`` (off = the part stacks
@@ -41,15 +46,7 @@ from pathlib import Path
 from themey.ir import ButtonPart, IClassSpec, Theme
 
 from .actions import button_kind
-from .resolver import RUNTIME_VERSION, part_geometry, scale_px
-
-# Reference frame (ref px, pre-scale) for the emitter-side maximized
-# side-zone detection — mirrors analyze/coords.py's binning reference.
-REFERENCE_W = 800
-REFERENCE_H = 600
-# Caption width stand-in for the reference resolve; only title parts read
-# it and they always live in the top band, so precision is irrelevant here.
-REFERENCE_TITLE_W = 120
+from .resolver import RUNTIME_VERSION, scale_px
 
 _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9_]+")
 
@@ -460,7 +457,6 @@ def build_theme_data(
                 "padBottom": pad_b,
                 "justification": justification,
                 "keepWhenShaded": part.keep_when_shaded,
-                "hideWhenMaximized": False,  # filled below
                 "button": kind,
                 "insets": _clamped_insets(
                     ic, scale, slot_states.get("normal") if slot_states else None
@@ -497,34 +493,7 @@ def build_theme_data(
         "parts": parts,
     }
 
-    _mark_hidden_when_maximized(theme, data)
     return data, manifest, font_sources
-
-
-def _mark_hidden_when_maximized(theme: Theme, data: dict) -> None:
-    """When maximized only the title band survives (side/bottom borders
-    collapse to 0), so any part that does not fit inside the band — the
-    side rails, the bottom strip, side-stack buttons below the band — is
-    hidden. Detection resolves every part at the reference frame with the
-    shared resolver; a corner button that lives within the band's rows
-    (e13's KILL) stays visible."""
-    scale = theme.scale
-    frame_w = scale_px(REFERENCE_W, scale)
-    frame_h = scale_px(REFERENCE_H, scale)
-    band_h = data["borders"]["top"]
-    for i, p in enumerate(data["parts"]):
-        _x, y, _w, h = part_geometry(
-            data, i, frame_w, frame_h,
-            lambda _i: scale_px(REFERENCE_TITLE_W, scale),
-        )
-        if y + h > band_h:
-            p["hideWhenMaximized"] = True
-            if p["button"] is not None:
-                theme.notes.append(
-                    f"qmldeco: button '{p['id']}' sits below the title band "
-                    "and is hidden while the window is maximized (side and "
-                    "bottom borders collapse to 0 there)"
-                )
 
 
 def render_theme_js(data: dict) -> str:

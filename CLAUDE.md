@@ -436,7 +436,7 @@ QML-backend contracts:
    x_out`) so adjacent parts stay seamless at fractional scales; identical
    to `v*scale` at integer scales. Scale may be fractional ([1,3], 2
    decimals) — **QML-backend-only**; svg/both hard-error. Change both
-   resolvers together and bump `RUNTIME_VERSION` (currently 5);
+   resolvers together and bump `RUNTIME_VERSION` (currently 6);
    `tests/test_qmldeco_geometry.py` pins e13 ground truth (KILL
    40x38@(0,0), stack x=9, plaque = textwidth+25) at scale 2 and 1.5.
 2. **theme.js is pure data** (`var theme = {...}` — no runtime I/O/XHR);
@@ -485,7 +485,12 @@ QML-backend contracts:
 3. **KPlugin Id == package dir name == kwinrc `theme=`** (`slug.plugin_id`,
    `themey_<slug>`). QML applies must NOT write BorderSize or
    ButtonsOnLeft/Right — the theme draws its own buttons and unclamped
-   borders.
+   borders. A MAXIMIZED window keeps the full frame — all four
+   `maximizedBorders` equal `borders` and every part stays visible —
+   because E16 had no borderless-maximized state (`MAX_AVAILABLE` sized
+   the whole frame to the free area); until 2026-09-03 the runtime
+   collapsed the side/bottom borders to 0 there and hid every part below
+   the title band, which dropped the left rail and the side button stack.
 
 Three contracts govern the SVG backend's theme:
 

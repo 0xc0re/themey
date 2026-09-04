@@ -149,8 +149,9 @@ def test_e13_package_specifics(tmp_path):
     # edge (whole 129px source is the right cap, x2).
     assert by_id["FIN"]["insets"]["right"] == 258
 
-    hidden_notes = [n for n in notes if n.startswith("qmldeco: button")]
-    assert len(hidden_notes) == 3  # iconify/shade/stick hidden when maximized
+    # A maximized window keeps the full frame, so no button is ever noted
+    # as hidden there.
+    assert not [n for n in notes if n.startswith("qmldeco: button")]
 
     # Toggle buttons (stick/shade) get toggled art so the pressed-in state
     # is visible: e13 declares __NORMAL_STICKY, so the chain's first member

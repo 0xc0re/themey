@@ -29,10 +29,6 @@ Decoration {
         var c = decoration ? decoration.client : null;
         return c ? c.shaded === true : false;
     }
-    readonly property bool clientMaximized: {
-        var c = decoration ? decoration.client : null;
-        return c ? c.maximized === true : false;
-    }
     readonly property string clientCaption: {
         var c = decoration ? decoration.client : null;
         return (c && c.caption !== undefined && c.caption !== null)
@@ -108,9 +104,10 @@ Decoration {
     // part's rect — E16-style corner/side buttons (e13's KILL, the
     // ICONIFY/SHADE/STICK stack) get the arrow cursor, and the border
     // strips between them act as titlebar. Resize survives on the
-    // bottom border and on side borders below the lowest button. When
-    // maximized the below-band buttons are hideWhenMaximized, so the
-    // height collapses back to borders.top (== maximizedBorders.top).
+    // bottom border and on side borders below the lowest button. A
+    // maximized window keeps the full frame (E16 had no borderless
+    // maximized state), so the union does not collapse there: every
+    // button keeps the arrow cursor maximized too.
     // MUST STAY CHILDLESS: with children present, Aurorae prefers
     // childrenRect() over the item's own geometry.
     Item {
@@ -131,8 +128,6 @@ Decoration {
                 if (p.button === null)
                     continue;
                 if (root.clientShaded && !p.keepWhenShaded)
-                    continue;
-                if (root.clientMaximized && p.hideWhenMaximized)
                     continue;
                 var g = Resolver.partGeometry(
                     root.themeData, i, root.width, root.height,
@@ -159,11 +154,13 @@ Decoration {
         borders.right = b.right;
         borders.top = b.top;
         borders.bottom = b.bottom;
-        // Maximized: side/bottom borders collapse; the title band stays.
-        maximizedBorders.left = 0;
-        maximizedBorders.right = 0;
+        // Maximized: the full frame stays, as E16 drew it — it had no
+        // borderless-maximized concept, and MAX_AVAILABLE sized the whole
+        // frame to the free area. KWin insets the client by these.
+        maximizedBorders.left = b.left;
+        maximizedBorders.right = b.right;
         maximizedBorders.top = b.top;
-        maximizedBorders.bottom = 0;
+        maximizedBorders.bottom = b.bottom;
         if (decoration && typeof decoration.installTitleItem === "function")
             decoration.installTitleItem(titleBandItem);
     }

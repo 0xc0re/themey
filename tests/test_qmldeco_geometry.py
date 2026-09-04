@@ -111,14 +111,10 @@ def test_e13_title_clamps_to_span_and_min(e13_data):
 
 
 @needs_e13
-def test_e13_maximized_band_detection(e13_data):
-    """Only parts fitting inside the 46-ref title band survive maximize."""
-    hidden = {p["id"] for p in e13_data["parts"] if p["hideWhenMaximized"]}
-    assert "BUTTON_KILL" not in hidden  # corner button lives in the band
-    assert "TITLEBAR" not in hidden
-    assert "FIN" not in hidden
-    assert {"BUTTON_ICONIFY", "BUTTON_SHADE", "BUTTON_STICK",
-            "WIN_SIDE_LEFT", "WIN_SIDE_RIGHT", "WIN_BOTTOM"} <= hidden
+def test_e13_no_part_is_maximize_conditional(e13_data):
+    """E16 drew the same frame maximized or not, so the part model
+    carries no maximize-only visibility field."""
+    assert not [p["id"] for p in e13_data["parts"] if "hideWhenMaximized" in p]
 
 
 def _mk_part(**over) -> dict:
@@ -317,12 +313,10 @@ def test_adjacent_parts_share_edges_at_half_scale():
 # ------------------------------------------------------------------ #
 
 
-def _title_union_height(data, frame_w, frame_h, tw, *, maximized=False):
+def _title_union_height(data, frame_w, frame_h, tw):
     bottom = data["borders"]["top"]
     for i, p in enumerate(data["parts"]):
         if p["button"] is None:
-            continue
-        if maximized and p["hideWhenMaximized"]:
             continue
         _x, y, _w, h = part_geometry(data, i, frame_w, frame_h, tw)
         bottom = max(bottom, y + h)
@@ -345,17 +339,6 @@ def test_e13_title_union_ignores_chrome_parts(e13_data):
     _x, y, _w, h = part_geometry(e13_data, i, FRAME_W, FRAME_H, _tw)
     assert y + h > 284
     assert _title_union_height(e13_data, FRAME_W, FRAME_H, _tw) == 284
-
-
-@needs_e13
-def test_e13_title_union_collapses_when_maximized(e13_data):
-    # Below-band buttons are hideWhenMaximized; KILL (bottom 76) fits
-    # inside the 92px band, so the union collapses to borders.top
-    # exactly (== maximizedBorders.top).
-    assert (
-        _title_union_height(e13_data, FRAME_W, FRAME_H, _tw, maximized=True)
-        == 92
-    )
 
 
 @needs_e13

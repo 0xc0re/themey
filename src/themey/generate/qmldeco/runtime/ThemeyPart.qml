@@ -52,8 +52,6 @@ Item {
             return false;
         if (root.clientShaded && !partItem.part.keepWhenShaded)
             return false;
-        if (root.clientMaximized && partItem.part.hideWhenMaximized)
-            return false;
         return true;
     }
 
