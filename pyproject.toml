@@ -1,6 +1,6 @@
 [project]
 name = "themey"
-version = "0.6.1"
+version = "0.6.2"
 description = "Convert Enlightenment DR16 (E16) .etheme archives into installable KDE Plasma 6 themes"
 readme = "README.md"
 license = "MIT"
