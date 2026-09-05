@@ -74,8 +74,12 @@ contributors` line; no existing header was removed.
 * **`contents/ui/TaskList.qml`**
   * An invisible `KSvg.FrameSvgItem` on the `normal` prefix (upstream
     `main.qml:356-363`) passed to every delegate as `metricFrame`.
-  * `baseIconSize` is the full panel thickness when there is art — the
-    plate's own margins are the padding.
+  * `baseIconSize` is `panelThickness / zoomFactor` when there is art: the
+    plate's own margins are the padding (no Kirigami spacing on top of
+    them), but the cell must still budget the zoom headroom the fork's
+    `- smallSpacing * 4` was buying, or a hovered plate is clipped by the
+    panel. At full zoom the plate then equals the panel thickness exactly,
+    and the parabolic rise overflows into the floating margin.
   * **Delegate geometry publishing restored** (upstream `main.qml:120-132,
     248-316`): `requestPublishDelegateGeometry` per task on a 500 ms settle
     timer, restarted on size / position / location / count changes and on the

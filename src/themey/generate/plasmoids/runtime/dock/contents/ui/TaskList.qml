@@ -190,12 +190,16 @@ Item {
         prefix: TaskTools.taskPrefix("normal", taskListRoot.panelLocation)
     }
 
-    // With theme art the cell IS the panel thickness: the plate's own
-    // margins are the padding, so subtracting Kirigami spacing on top of
-    // them would float the plate inside a gap. Without art the fork's own
-    // formula stands.
+    // With theme art the padding is the plate's own margins, not Kirigami
+    // spacing — but the cell still has to budget the ZOOM HEADROOM the
+    // fork's `- smallSpacing * 4` was really buying: Task sizes itself
+    // baseSize square and scales the icon by up to maxZoomFactor, so a
+    // cell equal to the panel thickness would be clipped the moment it
+    // was hovered. Dividing by that factor makes the plate exactly fill
+    // the panel at FULL zoom, and the parabolic rise then overflows into
+    // the floating panel's margin as the fork already relies on.
     readonly property int baseIconSize: hasTaskArt
-        ? panelThickness
+        ? Math.round(panelThickness / Math.max(1, zoomFactor))
         : Math.max(panelThickness - Kirigami.Units.smallSpacing * 4, Kirigami.Units.iconSizes.medium)
     readonly property int preAntiClipSize: antiClip ? Math.round(baseIconSize * 0.9) : baseIconSize
     readonly property int itemSpacing: Kirigami.Units.smallSpacing * iconSpacing

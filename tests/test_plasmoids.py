@@ -172,6 +172,15 @@ def test_dock_tasklist_publishes_delegate_geometry() -> None:
     assert 'prefix: TaskTools.taskPrefix("normal"' in qml
 
 
+def test_dock_tasklist_budgets_zoom_headroom() -> None:
+    """A cell equal to the panel thickness is clipped the moment it is
+    hovered: Task scales the icon by up to maxZoomFactor."""
+    qml = (DOCK_RUNTIME / "contents" / "ui" / "TaskList.qml").read_text()
+    assert "Math.round(panelThickness / Math.max(1, zoomFactor))" in qml
+    # The no-art path keeps the fork's own formula.
+    assert "panelThickness - Kirigami.Units.smallSpacing * 4" in qml
+
+
 def test_dock_task_tools_prefix_chain() -> None:
     """themey ships no ``south-`` set, so the unprefixed set IS the
     bottom-panel one (``_TASKS_FOCUS_EDGES``)."""
