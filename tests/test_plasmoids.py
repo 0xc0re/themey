@@ -172,13 +172,42 @@ def test_dock_tasklist_publishes_delegate_geometry() -> None:
     assert 'prefix: TaskTools.taskPrefix("normal"' in qml
 
 
-def test_dock_tasklist_budgets_zoom_headroom() -> None:
-    """A cell equal to the panel thickness is clipped the moment it is
-    hovered: Task scales the icon by up to maxZoomFactor."""
+def test_dock_tasklist_budgets_zoom_and_rise() -> None:
+    """The hovered icon is centred in its cell, scaled by up to zoomFactor
+    and lifted by the parabolic rise, so its top edge clears the panel only
+    when ``size * zoom + 2 * rise <= panelThickness``. A docked panel's
+    window is exactly its thickness (chris's 60 px bottom panel, 2026-09-05),
+    so the cell must budget BOTH — the earlier formula budgeted the zoom
+    alone and every hover clipped by the rise."""
     qml = (DOCK_RUNTIME / "contents" / "ui" / "TaskList.qml").read_text()
-    assert "Math.round(panelThickness / Math.max(1, zoomFactor))" in qml
-    # The no-art path keeps the fork's own formula.
-    assert "panelThickness - Kirigami.Units.smallSpacing * 4" in qml
+    assert "readonly property int riseBudget: parabolicEnabled ? maxParabolicRise : 0" in qml
+    assert "Math.floor((panelThickness - 2 * riseBudget) / Math.max(1, zoomFactor))" in qml
+    # One formula for art and no-art alike: the rest-state margin the fork's
+    # `- smallSpacing * 4` bought is now the zoom + rise budget.
+    assert "panelThickness - Kirigami.Units.smallSpacing * 4" not in qml
+    assert "Math.round(panelThickness / Math.max(1, zoomFactor))" not in qml
+    # Safety net: the rise itself is clamped to the headroom left after the
+    # zoom, so no configuration can push the icon past the panel edge.
+    assert "riseHeadroom" in qml
+    assert "Math.min(taskListRoot.maxParabolicRise, taskListRoot.riseHeadroom)" in qml
+
+
+def test_dock_defaults_fit_a_docked_panel() -> None:
+    """Upstream's 18 px rise and 10 % anti-clip shrink assumed a floating
+    panel's margin. With the rise budgeted into the cell, anti-clip is
+    redundant (off, still honoured when a user turns it on) and 18 px of
+    rise would cost 36 px of a 60 px panel — 6 px keeps the icons at two
+    thirds of the panel on chris's docked bar."""
+    xml = (DOCK_RUNTIME / "contents" / "config" / "main.xml").read_text()
+
+    def default(name: str) -> str:
+        pattern = rf'name="{name}"[^<]*<label>[^<]*</label>\s*<default>(\w+)</default>'
+        match = re.search(pattern, xml)
+        assert match is not None, name
+        return match.group(1)
+
+    assert default("maxParabolicRise") == "6"
+    assert default("antiClip") == "false"
 
 
 def test_dock_task_tools_prefix_chain() -> None:
