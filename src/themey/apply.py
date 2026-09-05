@@ -1391,8 +1391,11 @@ def _ensure_furniture(
     if unwanted:
         _remove_furniture(kw, kr, unwanted)
     live: list[tuple[FurnitureSpec, str]] = []
-    for spec in (s for s in specs if furniture.wanted(s.key) is not False):
-        create = furniture.wanted(spec.key) is True
+    for spec in specs:
+        want = furniture.wanted(spec.key)
+        if want is False:
+            continue
+        create = want is True
         marker = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, spec.key)
         if marker is not None and _is_panel_id(marker):
             alive = _evaluate_plasma_script(

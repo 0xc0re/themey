@@ -215,6 +215,7 @@ def test_dock_files_carry_spdx_headers() -> None:
         "contents/ui/Task.qml",
         "contents/ui/TaskList.qml",
         "contents/ui/code/TaskTools.js",
+        "contents/ui/code/launcherfromdrop.js",
         "contents/config/main.xml",
     }
     for rel in touched:

@@ -470,14 +470,14 @@ def _style_session_script(
     ]
 
     def _clients() -> list[str]:
-        out: list[str] = []
+        lines: list[str] = []
         for i in range(clients):
-            out += [
+            lines += [
                 f"kdialog --title 'themey client {i + 1}' "
                 f"--msgbox 'themey client {i + 1}' &",
                 "sleep 1",
             ]
-        return out
+        return lines
 
     if not clients_last:
         lines += _clients()

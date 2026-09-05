@@ -3,7 +3,7 @@ name = "themey"
 version = "0.6.2"
 description = "Convert Enlightenment DR16 (E16) .etheme archives into installable KDE Plasma 6 themes"
 readme = "README.md"
-license = "MIT"
+license = "MIT AND GPL-2.0-or-later"
 license-files = [
     "LICENSE",
     # The vendored GPL-2.0+ dock applet keeps its own licence.

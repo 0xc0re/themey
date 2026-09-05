@@ -62,6 +62,7 @@ import json
 import logging
 from dataclasses import dataclass
 from importlib import resources
+from importlib.resources.abc import Traversable
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -169,8 +170,10 @@ def runtime_files(plugin_id: str) -> tuple[str, ...]:
         raise PlasmoidError(f"unknown themey plasmoid {plugin_id!r}")
     root = resources.files("themey.generate.plasmoids") / "runtime"
     root = root / _PACKAGES[plugin_id].subdir
+    if not root.is_dir():
+        raise PlasmoidError(f"themey plasmoid {plugin_id!r} has no runtime directory at {root}")
 
-    def walk(node, prefix: str) -> list[str]:
+    def walk(node: Traversable, prefix: str) -> list[str]:
         found: list[str] = []
         for child in node.iterdir():
             rel = f"{prefix}{child.name}"

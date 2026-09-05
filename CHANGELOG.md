@@ -73,7 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   removes everything themey recorded.
 
   `--dock`, `--no-dock` and `--dock-size` join them as a fourth
-  tri-state, and now build the dock panel described below.
+  tri-state, and now build the dock panel described above.
 
 ## [0.6.2] - 2026-09-03
 

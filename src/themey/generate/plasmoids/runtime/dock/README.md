@@ -3,9 +3,11 @@
 This directory is a **fork of third-party GPL-2.0-or-later QML**, not themey's
 own work. Unlike `runtime/pager/` and `runtime/deskbutton/` (themey-authored,
 MIT), it is vendored, and it keeps its own licence: see `COPYING` (the full GNU
-General Public License, version 2), the per-file `SPDX-License-Identifier:
-GPL-2.0-or-later` headers, and `License: GPL-2.0+` in the generated
-`metadata.json`. Both files are installed with the package.
+General Public License, version 2), the per-file headers where upstream
+carried them (`SPDX-License-Identifier: GPL-2.0-or-later` — two upstream
+files, `layoutmetrics.js` and `LauncherDrop.qml`, ship bare and were not
+modified), and `License: GPL-2.0+` in the generated `metadata.json`. Both
+files are installed with the package.
 
 ## Provenance
 
@@ -103,7 +105,9 @@ contributors` line; no existing header was removed.
     `console.warn`.
 * **`contents/config/main.xml`** — added the `taskHoverEffect` Bool (default
   true), upstream `main.xml:137-140`. This is the key `themey apply` writes
-  from the Plasma Style's `X-Themey-TasksHover` stamp.
+  from the Plasma Style's `X-Themey-TasksHover` stamp. It is deliberately NOT
+  exposed in `config.qml`'s UI — it is themey's own per-theme spec, like the
+  iconbox's, not a user-facing setting.
 * **`contents/ui/code/launcherfromdrop.js`** — its one `console.log` became
   `console.warn`; SPDX header added (it had none).
 

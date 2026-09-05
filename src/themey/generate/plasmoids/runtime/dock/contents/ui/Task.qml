@@ -176,6 +176,10 @@ Item {
     // by (upstream Task.qml:533-540 does the same with taskFrame.margins).
     property var metricFrame: null
 
+    // Deliberately the horizontal margin pair applied to BOTH axes (not
+    // top+bottom) so the icon stays square: the focus sets' 2px accent bar
+    // makes the vertical pair asymmetric, and a square plate should still
+    // fit a square icon.
     readonly property real frameInset: (hasTaskArt && metricFrame)
         ? metricFrame.fixedMargins.left + metricFrame.fixedMargins.right
         : 0

@@ -157,8 +157,8 @@ class FakeKConfig:
 
 
 def _install_fake_plasmoids(runtime: int | None = plasmoids.RUNTIME_VERSION) -> None:
-    """Both themey applet packages (apply's pre-check), stamped *runtime*
-    (None = no stamp)."""
+    """All three themey applet packages (apply's pre-check), stamped
+    *runtime* (None = no stamp)."""
     for pid in plasmoids.PLASMOID_IDS:
         pkg = paths.plasmoids() / pid
         pkg.mkdir(parents=True, exist_ok=True)
@@ -1244,7 +1244,7 @@ def test_apply_full_iconbox_survives_wallpaper_failure(
 
 
 def test_apply_breeze_never_creates_iconbox(fake_kconfig: FakeKConfig) -> None:
-    apply_mod.apply_full("Breeze")
+    apply_mod.apply_full("Breeze", furniture=ALL_FURNITURE)
     with pytest.raises(AssertionError):
         fake_kconfig.index_of("new Panel")
 
