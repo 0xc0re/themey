@@ -10,6 +10,7 @@ delegates to.
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import subprocess
 from pathlib import Path
@@ -22,6 +23,12 @@ from themey import paths
 from themey.generate import plasmoids
 from themey.generate.desktop_writer import write_desktop
 from themey.slug import plugin_id
+
+#: The E16 furniture is opt-in, so every test about a panel being CREATED
+#: has to ask for it. The dock is deliberately left absent: the
+#: three-panel assertions below (creation order, marker sets, the specs
+#: pin) hold only while nothing else is built.
+ALL_FURNITURE = apply_mod.FurnitureOptions(pager=True, iconbox=True, dragbar=True)
 
 
 class FakeKConfig:
@@ -1083,7 +1090,7 @@ def test_apply_full_creates_pager_panel_and_records_marker(
     kept its pager window, with cells big enough to read the theme art."""
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     i = fake_kconfig.index_of("new Panel", "org.themey.pager")
     script = fake_kconfig.calls[i][-1]
     assert "org.kde.plasmashell" in fake_kconfig.calls[i]
@@ -1115,7 +1122,7 @@ def test_apply_full_creates_iconbox_panel_and_records_marker(
     iconbox."""
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     i = fake_kconfig.index_of("new Panel", "icontasks")
     script = fake_kconfig.calls[i][-1]
     assert "org.kde.plasmashell" in fake_kconfig.calls[i]
@@ -1143,7 +1150,7 @@ def test_apply_full_iconbox_after_fit_before_wallpaper_and_out_of_baseline(
     _install_fake_wallpaper("themey_e13_tanbg", fill_mode="tile")
     _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
     fake_kconfig.panel_read_reply = "1058=fill"
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     i_fit = fake_kconfig.index_of("p.lengthMode = 'fit'")
     i_create = fake_kconfig.index_of("new Panel")
     i_wp = fake_kconfig.index_of("plasma-apply-wallpaperimage")
@@ -1158,9 +1165,9 @@ def test_apply_full_second_apply_reuses_live_iconbox(
 ) -> None:
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     fake_kconfig.iconbox_exists_reply = "exists"
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     creates = [c for c in fake_kconfig.calls if "new Panel" in c[-1]]
     assert len(creates) == 3  # one per furniture panel, first apply only
     assert fake_kconfig.store["IconboxPanel"] == "301"
@@ -1188,7 +1195,7 @@ def test_apply_full_recreates_iconbox_when_panel_gone(
     fake_kconfig.store["IconboxPanel"] = "290"
     fake_kconfig.store["PagerPanel"] = "291"
     fake_kconfig.iconbox_exists_reply = "missing"
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     assert fake_kconfig.store["IconboxPanel"] == "301"
     assert fake_kconfig.store["PagerPanel"] == "302"
 
@@ -1202,7 +1209,7 @@ def test_apply_full_iconbox_create_without_id_raises_no_stale_marker(
     _install_fake_lnf("e13")
     fake_kconfig.iconbox_create_reply = ""
     with pytest.raises(apply_mod.ApplyError, match="iconbox"):
-        apply_mod.apply_full("e13")
+        apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     assert "IconboxPanel" not in fake_kconfig.store
     # The pager panel is created first and keeps its marker — the retry
     # skips it instead of doubling it.
@@ -1217,7 +1224,7 @@ def test_apply_full_iconbox_survives_wallpaper_failure(
     _install_fake_lnf("e13", wallpaper_id="themey_e13_tanbg")
     fake_kconfig.fail_on["plasma-apply-wallpaperimage"] = "boom"
     with pytest.raises(apply_mod.ApplyError, match="plasma-apply-wallpaperimage"):
-        apply_mod.apply_full("e13")
+        apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     fake_kconfig.index_of("new Panel")
     assert fake_kconfig.store["IconboxPanel"] == "301"
     assert fake_kconfig.store["PagerPanel"] == "302"
@@ -1300,7 +1307,7 @@ def test_iconbox_non_ascii_digit_marker_never_interpolated(
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
     fake_kconfig.store["IconboxPanel"] = weird
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     assert all(weird not in tok for c in fake_kconfig.calls for tok in c)
     assert fake_kconfig.store["IconboxPanel"] == "301"
 
@@ -1352,7 +1359,7 @@ def test_iconbox_non_digit_marker_never_interpolated(
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
     fake_kconfig.store["IconboxPanel"] = evil
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     assert all(evil not in tok for c in fake_kconfig.calls for tok in c)
     assert fake_kconfig.store["IconboxPanel"] == "301"
 
@@ -1377,7 +1384,7 @@ def test_apply_full_sets_vertical_desktop_grid(
     _install_fake_lnf("e13")
     fake_kconfig.store["Number"] = "2"
     fake_kconfig.store["Rows"] = "1"
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     assert fake_kconfig.store["Rows"] == "2"
     assert fake_kconfig.store["PrevDesktopRows"] == "1"
     i = fake_kconfig.index_of("VirtualDesktopManager", "rows")
@@ -1392,10 +1399,10 @@ def test_apply_full_desktop_rows_marker_written_once(
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
     fake_kconfig.store["Number"] = "2"
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     assert fake_kconfig.store["PrevDesktopRows"] == "@unset"
     fake_kconfig.iconbox_exists_reply = "exists"
-    apply_mod.apply_full("e13")  # Rows now "2" — must not become baseline
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)  # Rows now "2" — must not become baseline
     assert fake_kconfig.store["PrevDesktopRows"] == "@unset"
 
 
@@ -1533,7 +1540,7 @@ def test_apply_full_requires_themey_plasmoids(fake_kconfig: FakeKConfig) -> None
 
     _shutil.rmtree(paths.plasmoids() / plasmoids.DESKBUTTON_ID)
     with pytest.raises(apply_mod.ApplyError, match="themey convert"):
-        apply_mod.apply_full("e13")
+        apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     assert all("new Panel" not in c[-1] for c in fake_kconfig.calls)
 
 
@@ -1544,7 +1551,7 @@ def test_apply_full_warns_on_stale_plasmoid_runtime(
     _install_fake_lnf("e13")
     _install_fake_plasmoids(runtime=None)
     with caplog.at_level("WARNING"):
-        apply_mod.apply_full("e13")
+        apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     assert any("re-run `themey convert`" in r.message for r in caplog.records)
 
 
@@ -1555,7 +1562,7 @@ def test_apply_full_creates_dragbar_panel(fake_kconfig: FakeKConfig) -> None:
     at the end), fill length mode, docked."""
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     i = fake_kconfig.index_of("new Panel", "org.themey.deskbutton")
     script = fake_kconfig.calls[i][-1]
     assert "p.location = 'top'" in script
@@ -1585,7 +1592,7 @@ def test_dragbar_thickness_from_scale_stamp(fake_kconfig: FakeKConfig) -> None:
     _install_fake_deco("e13")
     lnf = _install_fake_lnf("e13")
     (lnf / "metadata.json").write_text(json.dumps({"X-Themey-Scale": 3}))
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     i = fake_kconfig.index_of("new Panel", "org.themey.deskbutton")
     assert "p.height = 48" in fake_kconfig.calls[i][-1]
     assert apply_mod.dragbar_thickness_px(1) == 24  # floor for tray icons
@@ -1596,7 +1603,7 @@ def test_dragbar_thickness_from_scale_stamp(fake_kconfig: FakeKConfig) -> None:
 def test_dragbar_default_32px_without_scale_stamp(fake_kconfig: FakeKConfig) -> None:
     _install_fake_deco("e13")
     _install_fake_lnf("e13")  # metadata.json is "{}"
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     i = fake_kconfig.index_of("new Panel", "org.themey.deskbutton")
     assert "p.height = 32" in fake_kconfig.calls[i][-1]
 
@@ -1607,7 +1614,7 @@ def test_apply_full_parks_top_panels_and_records_once(
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
     fake_kconfig.top_panels_reply = "1911=0:top:none"
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     assert fake_kconfig.store["PrevTopPanels"] == "1911=0:top:none"
     i = fake_kconfig.index_of("panelById(1911)", "'parked'")
     script = fake_kconfig.calls[i][-1]
@@ -1617,7 +1624,7 @@ def test_apply_full_parks_top_panels_and_records_once(
     # recorded — neither is parked again, the marker is untouched.
     fake_kconfig.top_panels_reply = "1911=0:top:none|303=0:top:none"
     fake_kconfig.iconbox_exists_reply = "exists"
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     parks = [c for c in fake_kconfig.calls if "'parked'" in c[-1]]
     assert len(parks) == 1
     assert fake_kconfig.store["PrevTopPanels"] == "1911=0:top:none"
@@ -1635,7 +1642,7 @@ def test_apply_full_parks_new_top_panel_on_later_apply(
     fake_kconfig.iconbox_exists_reply = "exists"
     fake_kconfig.pager_exists_reply = "exists"
     fake_kconfig.top_panels_reply = "1911=1:top:none|303=0:top:none|1960=1:top:autohide"
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     parks = [c[-1] for c in fake_kconfig.calls if "'parked'" in c[-1]]
     assert len(parks) == 1 and "panelById(1960)" in parks[0]
     assert fake_kconfig.store["PrevTopPanels"] == "1911=0:top:none|1960=1:top:autohide"
@@ -1644,7 +1651,7 @@ def test_apply_full_parks_new_top_panel_on_later_apply(
 def test_apply_full_no_top_panels_no_marker(fake_kconfig: FakeKConfig) -> None:
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     assert "PrevTopPanels" not in fake_kconfig.store
 
 
@@ -1654,7 +1661,7 @@ def test_apply_full_park_fallback_logs_warning(fake_kconfig: FakeKConfig, caplog
     fake_kconfig.top_panels_reply = "1911=0:top:none"
     fake_kconfig.park_reply = "fallback"
     with caplog.at_level("WARNING"):
-        apply_mod.apply_full("e13")
+        apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     assert any("right edge" in r.message for r in caplog.records)
     assert fake_kconfig.store["PrevTopPanels"] == "1911=0:top:none"
 
@@ -1665,7 +1672,7 @@ def test_apply_full_park_unconfirmed_raises(fake_kconfig: FakeKConfig) -> None:
     fake_kconfig.top_panels_reply = "1911=0:top:none"
     fake_kconfig.park_reply = ""
     with pytest.raises(apply_mod.ApplyError, match="parking"):
-        apply_mod.apply_full("e13")
+        apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     assert "PrevTopPanels" not in fake_kconfig.store
 
 
@@ -1676,7 +1683,7 @@ def test_apply_full_order_fit_then_park_then_furniture(
     _install_fake_lnf("e13")
     fake_kconfig.panel_read_reply = "1911=fill"
     fake_kconfig.top_panels_reply = "1911=0:top:none"
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     i_fit = fake_kconfig.index_of("p.lengthMode = 'fit'")
     i_park = fake_kconfig.index_of("'parked'")
     i_pager = fake_kconfig.index_of("new Panel", "org.themey.pager")
@@ -1694,7 +1701,7 @@ def test_apply_full_stale_pager_panel_is_recreated(fake_kconfig: FakeKConfig) ->
     fake_kconfig.store["IconboxPanel"] = "301"
     fake_kconfig.iconbox_exists_reply = "exists"
     fake_kconfig.pager_exists_reply = "stale"
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     i_check = fake_kconfig.index_of("panelById(290)", "'stale'")
     assert "p.widgets('org.themey.pager').length" in fake_kconfig.calls[i_check][-1]
     i_remove = fake_kconfig.index_of("panelById(290)", "p.remove()")
@@ -1715,7 +1722,7 @@ def test_apply_full_iconbox_hover_from_style_metadata(
     _install_fake_lnf("e13")
     style = _install_fake_style("e13")
     (style / "metadata.json").write_text(json.dumps({"X-Themey-TasksHover": False}))
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     i = fake_kconfig.index_of("new Panel", "icontasks")
     assert "w.writeConfig('taskHoverEffect', false)" in fake_kconfig.calls[i][-1]
 
@@ -1906,15 +1913,20 @@ def test_revert_icon_theme_write_failure_keeps_marker(
 # --- furniture options: E16 sizes, struts, opt-outs ----------------------
 
 
-def test_furniture_options_defaults_are_e16_sizes() -> None:
-    """E16 1.0.31's own first-run furniture: 48 px pager cells
-    (pager.c:788-796) and a 48 px iconbox (container.c:103 iconsize), all
-    three panels on, struts off (Windows Go Below)."""
+def test_furniture_options_defaults_are_opt_in_at_e16_sizes() -> None:
+    """No panel is built unless it is asked for — every selector defaults
+    to None (leave alone). The SIZES are still E16 1.0.31's own: 48 px
+    pager cells (pager.c:788-796) and a 48 px iconbox (container.c:103
+    iconsize). Struts off (Windows Go Below)."""
     opts = apply_mod.FurnitureOptions()
-    assert (opts.pager, opts.iconbox, opts.dragbar) == (True, True, True)
+    assert (opts.pager, opts.iconbox, opts.dragbar, opts.dock) == (
+        None, None, None, None,
+    )
     assert opts.strut is False
     assert opts.pager_cell_px == 48
     assert opts.iconbox_px == 48
+    # The dock has no E16 ancestor to take a size from; its own spec picks one.
+    assert opts.dock_px is None
 
 
 @pytest.mark.parametrize("value", [0, -1])
@@ -1923,6 +1935,8 @@ def test_furniture_options_rejects_nonpositive_sizes(value: int) -> None:
         apply_mod.FurnitureOptions(pager_cell_px=value)
     with pytest.raises(apply_mod.ApplyError):
         apply_mod.FurnitureOptions(iconbox_px=value)
+    with pytest.raises(apply_mod.ApplyError):
+        apply_mod.FurnitureOptions(dock_px=value)
 
 
 def test_furniture_specs_defaults_return_all_three() -> None:
@@ -1944,7 +1958,7 @@ def test_pager_thickness_follows_screen_aspect(
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
     fake_kconfig.screen_geometry_reply = geometry
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     i = fake_kconfig.index_of("new Panel", "org.themey.pager")
     assert f"p.height = {pager_px}" in fake_kconfig.calls[i][-1]
     j = fake_kconfig.index_of("new Panel", "icontasks")
@@ -1959,7 +1973,7 @@ def test_pager_thickness_falls_back_to_16_9(
     _install_fake_lnf("e13")
     fake_kconfig.screen_geometry_reply = reply
     with caplog.at_level("WARNING"):
-        apply_mod.apply_full("e13")
+        apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     i = fake_kconfig.index_of("new Panel", "org.themey.pager")
     assert "p.height = 85" in fake_kconfig.calls[i][-1]
     assert "16:9" in caplog.text
@@ -1981,7 +1995,7 @@ def test_pager_geometry_script_failure_falls_back(
     fake_kconfig.run = failing_geometry  # type: ignore[method-assign]
     apply_mod.subprocess.run = failing_geometry  # type: ignore[assignment]
     with caplog.at_level("WARNING"):
-        apply_mod.apply_full("e13")
+        apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     i = fake_kconfig.index_of("new Panel", "org.themey.pager")
     assert "p.height = 85" in fake_kconfig.calls[i][-1]
     assert "16:9" in caplog.text
@@ -1992,7 +2006,7 @@ def test_furniture_size_overrides(fake_kconfig: FakeKConfig) -> None:
     _install_fake_lnf("e13")
     apply_mod.apply_full(
         "e13",
-        furniture=apply_mod.FurnitureOptions(pager_cell_px=60, iconbox_px=30),
+        furniture=dataclasses.replace(ALL_FURNITURE, pager_cell_px=60, iconbox_px=30),
     )
     i = fake_kconfig.index_of("new Panel", "org.themey.pager")
     assert "p.height = 107" in fake_kconfig.calls[i][-1]  # 60 * 1920/1080
@@ -2010,7 +2024,7 @@ def test_furniture_default_is_windows_go_below(fake_kconfig: FakeKConfig) -> Non
     """
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     pager = fake_kconfig.calls[
         fake_kconfig.index_of("new Panel", "org.themey.pager")
     ][-1]
@@ -2032,7 +2046,7 @@ def test_furniture_default_is_windows_go_below(fake_kconfig: FakeKConfig) -> Non
 def test_furniture_strut_keeps_normal_panels(fake_kconfig: FakeKConfig) -> None:
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
-    apply_mod.apply_full("e13", furniture=apply_mod.FurnitureOptions(strut=True))
+    apply_mod.apply_full("e13", furniture=dataclasses.replace(ALL_FURNITURE, strut=True))
     for needle in ("org.themey.pager", "icontasks", "org.themey.deskbutton"):
         script = fake_kconfig.calls[fake_kconfig.index_of("new Panel", needle)][-1]
         assert "p.hiding = 'none'" in script
@@ -2049,7 +2063,7 @@ def test_panel_visibility_written_after_all_furniture_scripting(
     2026-09-01: a later scripted hiding did NOT overwrite the file)."""
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     last_script = max(
         fake_kconfig.index_of("new Panel", w)
         for w in ("org.themey.pager", "icontasks", "org.themey.deskbutton")
@@ -2069,7 +2083,7 @@ def test_second_apply_reasserts_size_and_visibility(
     fake_kconfig.store["IconboxPanel"] = "301"
     fake_kconfig.store["DragbarPanel"] = "303"
     fake_kconfig.iconbox_exists_reply = "exists"
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     reassert = fake_kconfig.calls[
         fake_kconfig.index_of("panelById(302)", "p.height")
     ][-1]
@@ -2090,7 +2104,7 @@ def test_reassert_writes_hiding_none_with_strut(fake_kconfig: FakeKConfig) -> No
     _install_fake_lnf("e13")
     fake_kconfig.store["PagerPanel"] = "302"
     fake_kconfig.iconbox_exists_reply = "exists"
-    apply_mod.apply_full("e13", furniture=apply_mod.FurnitureOptions(strut=True))
+    apply_mod.apply_full("e13", furniture=dataclasses.replace(ALL_FURNITURE, strut=True))
     reassert = fake_kconfig.calls[
         fake_kconfig.index_of("panelById(302)", "p.height")
     ][-1]
@@ -2104,7 +2118,7 @@ def test_no_restart_warns_strut_mode_pending(
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
     with caplog.at_level("WARNING"):
-        apply_mod.apply_full("e13", restart_shell=False)
+        apply_mod.apply_full("e13", restart_shell=False, furniture=ALL_FURNITURE)
     assert "restart" in caplog.text.lower()
     assert "panelVisibility" in caplog.text or "strut" in caplog.text.lower()
 
@@ -2115,7 +2129,7 @@ def test_no_pager_skips_creation_and_desktop_grid(
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
     fake_kconfig.store["Number"] = "2"
-    apply_mod.apply_full("e13", furniture=apply_mod.FurnitureOptions(pager=False))
+    apply_mod.apply_full("e13", furniture=dataclasses.replace(ALL_FURNITURE, pager=False))
     assert all(
         "org.themey.pager" not in c[-1]
         for c in fake_kconfig.calls
@@ -2133,7 +2147,7 @@ def test_no_pager_removes_recorded_pager_panel(fake_kconfig: FakeKConfig) -> Non
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
     fake_kconfig.store["PagerPanel"] = "302"
-    apply_mod.apply_full("e13", furniture=apply_mod.FurnitureOptions(pager=False))
+    apply_mod.apply_full("e13", furniture=dataclasses.replace(ALL_FURNITURE, pager=False))
     i = fake_kconfig.index_of("panelById(302)", "p.remove()")
     assert "org.kde.plasmashell" in fake_kconfig.calls[i]
     assert "PagerPanel" not in fake_kconfig.store
@@ -2147,7 +2161,7 @@ def test_no_pager_restores_recorded_desktop_rows(fake_kconfig: FakeKConfig) -> N
     fake_kconfig.store["Number"] = "4"
     fake_kconfig.store["Rows"] = "4"
     fake_kconfig.store["PrevDesktopRows"] = "2"
-    apply_mod.apply_full("e13", furniture=apply_mod.FurnitureOptions(pager=False))
+    apply_mod.apply_full("e13", furniture=dataclasses.replace(ALL_FURNITURE, pager=False))
     assert fake_kconfig.store["Rows"] == "2"
     assert "PrevDesktopRows" not in fake_kconfig.store
     i = fake_kconfig.index_of("VirtualDesktopManager", "rows")
@@ -2160,7 +2174,7 @@ def test_no_iconbox_removes_recorded_iconbox_panel(
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
     fake_kconfig.store["IconboxPanel"] = "301"
-    apply_mod.apply_full("e13", furniture=apply_mod.FurnitureOptions(iconbox=False))
+    apply_mod.apply_full("e13", furniture=dataclasses.replace(ALL_FURNITURE, iconbox=False))
     fake_kconfig.index_of("panelById(301)", "p.remove()")
     assert "IconboxPanel" not in fake_kconfig.store
     assert all(
@@ -2177,7 +2191,7 @@ def test_no_dragbar_skips_parking_and_unparks(fake_kconfig: FakeKConfig) -> None
     fake_kconfig.store["PrevTopPanels"] = "1911=0:top:none"
     fake_kconfig.store["DragbarPanel"] = "303"
     fake_kconfig.top_panels_reply = "1912=0:top:none"
-    apply_mod.apply_full("e13", furniture=apply_mod.FurnitureOptions(dragbar=False))
+    apply_mod.apply_full("e13", furniture=dataclasses.replace(ALL_FURNITURE, dragbar=False))
     assert all("'parked'" not in c[-1] for c in fake_kconfig.calls)
     i_unpark = fake_kconfig.index_of("panelById(1911)", "'unparked'")
     assert "PrevTopPanels" not in fake_kconfig.store
@@ -2206,10 +2220,119 @@ def test_applet_precheck_only_requires_enabled_applets(
     _install_fake_lnf("e13")
     _shutil.rmtree(paths.plasmoids() / plasmoids.PAGER_ID)
     # Pager off: its applet is not needed.
-    apply_mod.apply_full("e13", furniture=apply_mod.FurnitureOptions(pager=False))
+    apply_mod.apply_full("e13", furniture=dataclasses.replace(ALL_FURNITURE, pager=False))
+    # Pager absent from the flags: still not needed — nothing is created.
+    apply_mod.apply_full("e13")
     # Pager on: it is.
     with pytest.raises(apply_mod.ApplyError, match=plasmoids.PAGER_ID):
+        apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
+
+
+# --- tri-state furniture: opt-in flags, absent leaves the desktop alone ---
+
+
+def test_default_apply_creates_no_furniture(fake_kconfig: FakeKConfig) -> None:
+    """The furniture is opt-in: with no flag at all a full apply themes the
+    desktop and leaves its panels, desktop grid and top edge alone."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["Number"] = "2"
+    fake_kconfig.top_panels_reply = "1911=0:top:none"
+    apply_mod.apply_full("e13")
+    assert all("new Panel" not in c[-1] for c in fake_kconfig.calls)
+    for key in ("PagerPanel", "IconboxPanel", "DragbarPanel"):
+        assert key not in fake_kconfig.store
+    # The pager-only and dragbar-only side steps never run either.
+    assert "Rows" not in fake_kconfig.store
+    assert "PrevDesktopRows" not in fake_kconfig.store
+    assert "PrevTopPanels" not in fake_kconfig.store
+    assert all("'parked'" not in c[-1] for c in fake_kconfig.calls)
+    # No pager to size, so the screen-geometry round trip is skipped.
+    assert all("screenGeometry" not in c[-1] for c in fake_kconfig.calls)
+
+
+def test_default_apply_keeps_and_reasserts_recorded_furniture(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """A panel an earlier opt-in apply created is still brought to the NEW
+    theme's spec — thickness and taskHoverEffect — without a flag."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["PagerPanel"] = "302"
+    fake_kconfig.store["IconboxPanel"] = "301"
+    fake_kconfig.store["DragbarPanel"] = "303"
+    fake_kconfig.iconbox_exists_reply = "exists"
+    apply_mod.apply_full("e13")
+    assert all("new Panel" not in c[-1] for c in fake_kconfig.calls)
+    assert all("p.remove()" not in c[-1] for c in fake_kconfig.calls)
+    reasserts = [c[-1] for c in fake_kconfig.calls if "reasserted" in c[-1]]
+    assert any("panelById(301)" in s and "p.height = 48" in s for s in reasserts)
+    assert any("panelById(302)" in s and "p.height = 85" in s for s in reasserts)
+    assert any("panelById(303)" in s for s in reasserts)
+    assert any("taskHoverEffect" in s for s in reasserts)
+    assert fake_kconfig.store["PagerPanel"] == "302"
+    assert fake_kconfig.store["IconboxPanel"] == "301"
+    assert fake_kconfig.store["DragbarPanel"] == "303"
+    assert (
+        fake_kconfig.store["plasmashellrc/PlasmaViews/Panel 302/panelVisibility"]
+        == "3"
+    )
+
+
+@pytest.mark.parametrize("reply", ["missing", "stale"])
+def test_default_apply_drops_dead_marker_without_creating(
+    fake_kconfig: FakeKConfig, caplog, reply: str,
+) -> None:
+    """A marker naming a panel that is gone (or no longer themey's) is
+    cleared and logged — never silently recreated."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["PagerPanel"] = "302"
+    fake_kconfig.pager_exists_reply = reply
+    with caplog.at_level("INFO"):
         apply_mod.apply_full("e13")
+    assert "PagerPanel" not in fake_kconfig.store
+    assert all("new Panel" not in c[-1] for c in fake_kconfig.calls)
+    assert "pager panel" in caplog.text
+
+
+def test_no_flag_removes_recorded_panel(fake_kconfig: FakeKConfig) -> None:
+    """``--no-*`` keeps its old meaning against the tri-state: remove the
+    recorded panel, clear the marker, create nothing."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["IconboxPanel"] = "301"
+    apply_mod.apply_full(
+        "e13", furniture=apply_mod.FurnitureOptions(iconbox=False)
+    )
+    fake_kconfig.index_of("panelById(301)", "p.remove()")
+    assert "IconboxPanel" not in fake_kconfig.store
+    assert all("new Panel" not in c[-1] for c in fake_kconfig.calls)
+
+
+def test_default_apply_undo_steps_untouched(fake_kconfig: FakeKConfig) -> None:
+    """An absent flag runs no UNDO either — only an explicit ``--no-*``
+    restores the desktop grid or unparks the top panels."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["PrevDesktopRows"] = "2"
+    fake_kconfig.store["Rows"] = "4"
+    fake_kconfig.store["PrevTopPanels"] = "1911=0:top:none"
+    apply_mod.apply_full("e13")
+    assert fake_kconfig.store["PrevDesktopRows"] == "2"
+    assert fake_kconfig.store["Rows"] == "4"
+    assert fake_kconfig.store["PrevTopPanels"] == "1911=0:top:none"
+    assert all("'unparked'" not in c[-1] for c in fake_kconfig.calls)
+
+
+def test_furniture_options_wanted_covers_every_marker_key() -> None:
+    """Every panel marker key resolves, the dock's included — Task 3's
+    ``DockPanel`` spec must not read as "unknown" the day it lands."""
+    opts = apply_mod.FurnitureOptions(pager=True, iconbox=False)
+    assert opts.wanted("PagerPanel") is True
+    assert opts.wanted("IconboxPanel") is False
+    assert opts.wanted("DragbarPanel") is None
+    assert opts.wanted("DockPanel") is None
 
 
 # --- WP4: application (widget) style --------------------------------------
@@ -2391,9 +2514,9 @@ def test_second_apply_reasserts_iconbox_task_hover(
     would keep ``false`` through every later apply."""
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     fake_kconfig.iconbox_exists_reply = "exists"
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     reassert = fake_kconfig.calls[
         fake_kconfig.index_of("panelById(301)", "p.height")
     ][-1]
@@ -2414,7 +2537,7 @@ def test_second_apply_reasserts_iconbox_task_hover_off(
     (style / "metadata.json").write_text(json.dumps({"X-Themey-TasksHover": False}))
     fake_kconfig.store["IconboxPanel"] = "301"
     fake_kconfig.iconbox_exists_reply = "exists"
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     reassert = fake_kconfig.calls[
         fake_kconfig.index_of("panelById(301)", "p.height")
     ][-1]
@@ -2428,7 +2551,7 @@ def test_reassert_snippet_only_on_the_iconbox(fake_kconfig: FakeKConfig) -> None
     fake_kconfig.store["PagerPanel"] = "302"
     fake_kconfig.store["DragbarPanel"] = "303"
     fake_kconfig.iconbox_exists_reply = "exists"
-    apply_mod.apply_full("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
     for pid in ("302", "303"):
         script = fake_kconfig.calls[
             fake_kconfig.index_of(f"panelById({pid})", "p.height")

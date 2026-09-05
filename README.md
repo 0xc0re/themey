@@ -178,12 +178,12 @@ download yourself.
 ### Convert
 
 ```bash
-themey Aliens.etheme                     # convert + install + open the preview
+themey Aliens.etheme                     # convert + install; prints the preview path
 themey convert Aliens.etheme --scale 3   # same thing, explicit subcommand
 themey Aliens.etheme --scale 1.5         # fractional scale (QML backend only)
 themey e13.etheme --scale 0.5            # smaller than native — e13's 40 px borders become 20
 themey Aliens.etheme --output /tmp/out   # write to a directory; install nothing
-themey Aliens.etheme --no-open           # skip the browser
+themey Aliens.etheme --open              # open the HTML preview in a browser
 ```
 
 `themey FILE.etheme` is shorthand for `themey convert FILE.etheme`.
@@ -198,17 +198,18 @@ themey Aliens.etheme --no-open           # skip the browser
 | `--widget-style NAME` | Have the Global Theme bundle select a Qt **application** style (`kdeglobals widgetStyle`): `windows`, `fusion`, or `breeze`. Default: leave your application style alone. Qt's built-in `Windows` style is the closest thing to a 2009 widget set that ships with Plasma. |
 | `--apply` | Apply the theme to the live desktop as soon as it is installed — exactly the work a following `themey apply NAME` would do. Rejected with `--output` or `--backend svg`/`both`, and rejected *before* the conversion runs, so a bad combination costs nothing. |
 | `--no-restart-shell` | Only with `--apply`; see the apply flag of the same name. |
-| `--no-pager` / `--no-iconbox` / `--no-dragbar` / `--furniture-strut` / `--pager-cell PX` / `--iconbox-size PX` | Only with `--apply`; the E16 furniture flags, documented in the apply table below. |
+| `--pager` / `--iconbox` / `--dragbar` / `--dock` (and their `--no-` forms) / `--furniture-strut` / `--pager-cell PX` / `--iconbox-size PX` / `--dock-size PX` | Only with `--apply`; the E16 furniture flags, documented in the apply table below. |
 | `--output DIR` | Write the theme tree(s), color scheme, wallpaper packages, cursor theme, Plasma Style, bundle, report, and preview under `DIR` instead of installing. Nothing under `~/.local/share` is touched. |
-| `--no-open` | Do not launch the HTML preview. The preview is also suppressed automatically over SSH and on headless machines. |
+| `--open` | Launch the HTML preview in a browser when the conversion finishes. Off by default — a convert prints the preview's path and leaves your browser alone. The preview is also suppressed automatically over SSH and on headless machines, and `--no-open` still parses (it is the default). |
 | `-v` / `-vv` / `-q` | `-v` and `-vv` both switch to DEBUG (no extra verbosity between them today); `-q` restricts to WARNING+. |
 
 ### Apply
 
 ```bash
 themey Aliens.etheme --apply        # convert, install, and apply in one command
-themey apply Aliens                 # apply the FULL Global Theme (deco, colors, Plasma Style, wallpaper, cursors, panels)
-themey apply Aliens --no-pager --no-iconbox   # ... but keep your own left edge
+themey apply Aliens                 # apply the FULL Global Theme (deco, colors, Plasma Style, wallpaper, cursors) — your panels are left alone
+themey apply Aliens --pager --iconbox --dragbar   # ... and build E16's furniture too
+themey apply Aliens --no-pager      # remove a pager panel an earlier apply created
 themey apply Aliens --deco-only     # just the window decoration, kwinrc-only
 themey apply Aliens --deco-only --backend svg --border-size Huge  # SVG-backend-only: BorderSize is theme-controlled on QML
 themey apply --revert               # restore whatever was active before the last full `themey apply`
@@ -217,7 +218,9 @@ themey apply Breeze                 # legacy escape hatch: switch the decoration
 
 | Flag | Meaning |
 |------|---------|
-| `--no-pager` / `--no-iconbox` / `--no-dragbar` | Leave that piece of E16 furniture out. A panel a previous apply already created is removed, and the desktop change made only for it is undone: the stacked desktop grid for the pager, the parking of your own top panels for the dragbar. |
+| `--pager` / `--iconbox` / `--dragbar` | Build that piece of E16 furniture. Each is off unless you ask for it. |
+| `--no-pager` / `--no-iconbox` / `--no-dragbar` | Remove that piece of furniture: a panel a previous apply created is deleted, and the desktop change made only for it is undone — the stacked desktop grid for the pager, the parking of your own top panels for the dragbar. |
+| `--dock` / `--no-dock` / `--dock-size PX` | Reserved for the dock panel a later change adds. The flags parse and are validated today, but nothing is built yet. |
 | `--furniture-strut` | Let the pager and iconbox panels reserve screen space like ordinary Plasma panels. The default is Windows Go Below, so a maximized window keeps the whole screen and slides under them. |
 | `--pager-cell PX` | Pager cell height; the panel ends up one aspect-true cell thick (85 px for the default 48 px cell on a 16:9 screen). Default `48`, E16's own. |
 | `--iconbox-size PX` | Iconbox panel thickness, which is also the task icon size. Default `48`, E16's own. |
@@ -233,8 +236,8 @@ Plasma Style explicitly (`plasma-apply-colorscheme` /
 `~/.config/kdedefaults/` layer and will not displace an explicit user-layer
 setting), re-asserts the decoration keys in the user-layer `kwinrc` for the
 same reason, sets the Qt application style if the bundle asks for one
-(`--widget-style`), resizes your panels (below), builds E16's furniture
-panels (below), and finally fixes up a tiled
+(`--widget-style`), resizes your panels (below), builds whichever E16
+furniture panels you asked for (below), and finally fixes up a tiled
 default wallpaper if the theme's default background was tiled in E16.
 Because plasmashell (through at least 6.6.6) never repaints a fill-mode
 change made by scripting, and because applets read some Plasma Style
@@ -262,21 +265,31 @@ visibly rearranges your desktop. The previous per-panel modes are recorded
 once in `kdeglobals [Themey] PrevPanelLengthModes` and `PrevPanelFloating`,
 and put back by `themey apply --revert`.
 
-**You get E16's furniture.** A full apply creates three panels, and each
-can be left out with a flag:
+**E16's furniture is opt-in.** Rearranging your panels, desktop grid and
+top edge is the most invasive thing an apply does, so a plain
+`themey apply <name>` does none of it. Ask for a piece by name and you
+get:
 
 - a **pager** hugging the top-left corner, where E16 kept its pager
-  window, running themey's own pager applet (`--no-pager`);
+  window, running themey's own pager applet (`--pager`);
 - an **iconbox** hugging the bottom-left: an icons-only task manager
   showing *only minimized windows*, exactly E16's iconbox — iconify a
   window and its icon appears there, restore it and the icon vanishes
-  (`--no-iconbox`);
+  (`--iconbox`);
 - E16's **dragbar** across the top: a thin full-width panel with a
   next-desktop button at one end, a previous-desktop button at the other,
-  and the tray and clock between them (`--no-dragbar`). The top edge is
+  and the tray and clock between them (`--dragbar`). The top edge is
   the dragbar's alone, so your existing top panels are parked (moved to a
   screen index that does not exist — their config is kept, they are just
   never shown) and `--revert` or `--no-dragbar` brings them back.
+
+Each flag is really a tri-state. `--pager` builds the panel, `--no-pager`
+removes one an earlier apply created (and undoes the desktop-grid change
+made only for it), and leaving both off leaves that panel alone: a panel
+you built earlier is still re-sized and re-configured for the theme you
+are applying now, but nothing new is created and your desktop grid and
+top panels are untouched. If the panel behind a recorded id is gone,
+themey forgets it rather than quietly rebuilding it.
 
 Both left-edge panels are sized the way E16 sized its own: 48 px pager
 cells, which makes the panel 85 px thick on a 16:9 screen, and a 48 px
@@ -292,11 +305,12 @@ and the apply says so.
 
 Your other panels are not touched beyond the fit-content step above. The
 three panel ids are recorded in `kdeglobals [Themey] PagerPanel`,
-`IconboxPanel` and `DragbarPanel`; a second apply reuses the live panels,
-and `themey apply --revert` removes them. To give the pager tall, readable
-cells, apply also stacks your virtual desktops one per row (desktop
-switching becomes up/down); the previous grid is recorded and put back by
-`--revert` or by `--no-pager`.
+`IconboxPanel` and `DragbarPanel`; a later apply reuses the live panels,
+and `themey apply --revert` removes them. With `--pager`, apply also
+stacks your virtual desktops one per row so the pager gets tall, readable
+cells (desktop switching becomes up/down); the previous grid is recorded
+and put back by `--revert` or by `--no-pager`. Without that flag your
+grid is left as it is, in either direction.
 
 The first time you run a full `themey apply`, it snapshots your current
 global theme, decoration, color scheme (`[Themey] PrevColorScheme`), icon

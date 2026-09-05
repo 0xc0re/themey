@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The HTML preview no longer opens a browser on its own.** A convert
+  prints the preview's path and stops; pass `--open` to have it launched.
+  `--no-open` still parses and is now what the default already does.
+
+- **E16's furniture panels are opt-in, and each flag is a tri-state.**
+  Building the pager, iconbox and dragbar rearranges your panels, your
+  desktop grid and your top edge — the most invasive thing an apply does
+  — so a plain `themey apply <name>` now themes the desktop and leaves
+  all of that alone. Ask for a piece by name instead:
+
+  ```sh
+  themey apply Aliens --pager --iconbox --dragbar
+  ```
+
+  Each of `--pager`, `--iconbox` and `--dragbar` has three states. The
+  positive flag builds the panel (or brings a live one back to this
+  theme's spec). `--no-pager` &c. keep their old meaning: remove the
+  panel a previous apply created and undo the change made only for it
+  (the stacked desktop grid for the pager, the parking of your own top
+  panels for the dragbar). Leaving both off leaves that panel alone — a
+  panel you built earlier is still re-sized and re-configured for the
+  theme being applied, but nothing is created, no desktop grid or top
+  panel is touched, and a marker whose panel is gone is quietly dropped
+  rather than rebuilt. `themey apply --revert` is unchanged and still
+  removes everything themey recorded.
+
+  `--dock`, `--no-dock` and `--dock-size` are accepted and validated
+  alongside them, reserved for the dock panel a later change adds; they
+  build nothing today.
+
 ## [0.6.2] - 2026-09-03
 
 ### Changed

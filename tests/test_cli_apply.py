@@ -127,6 +127,8 @@ def test_apply_no_restart_shell_flag_passes_through(monkeypatch) -> None:
 
 
 def test_apply_furniture_flags_build_options(monkeypatch) -> None:
+    """Each furniture flag is tri-state: ``--no-*`` is False, the positive
+    flag is True, and an absent flag stays None (leave that panel alone)."""
     calls: list[tuple] = []
     monkeypatch.setattr(
         apply_mod, "apply_full", lambda name, **kw: calls.append((name, kw))
@@ -140,8 +142,35 @@ def test_apply_furniture_flags_build_options(monkeypatch) -> None:
     )
     assert result.exit_code == 0, result.output
     assert calls[0][1]["furniture"] == apply_mod.FurnitureOptions(
-        pager=False, iconbox=True, dragbar=False, strut=True,
+        pager=False, iconbox=None, dragbar=False, strut=True,
         pager_cell_px=64, iconbox_px=32,
+    )
+
+
+def test_apply_positive_furniture_flags_opt_in(monkeypatch) -> None:
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        apply_mod, "apply_full", lambda name, **kw: calls.append((name, kw))
+    )
+    result = CliRunner().invoke(
+        app, ["apply", "e13", "--pager", "--iconbox", "--dragbar", "--dock"]
+    )
+    assert result.exit_code == 0, result.output
+    assert calls[0][1]["furniture"] == apply_mod.FurnitureOptions(
+        pager=True, iconbox=True, dragbar=True, dock=True,
+    )
+
+
+def test_apply_without_furniture_flags_leaves_every_panel_alone(monkeypatch) -> None:
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        apply_mod, "apply_full", lambda name, **kw: calls.append((name, kw))
+    )
+    result = CliRunner().invoke(app, ["apply", "e13"])
+    assert result.exit_code == 0, result.output
+    furniture = calls[0][1]["furniture"]
+    assert (furniture.pager, furniture.iconbox, furniture.dragbar, furniture.dock) == (
+        None, None, None, None,
     )
 
 
@@ -155,8 +184,28 @@ def test_apply_no_iconbox_flag(monkeypatch) -> None:
     assert calls[0][1]["furniture"].iconbox is False
 
 
+def test_apply_no_dock_flag(monkeypatch) -> None:
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        apply_mod, "apply_full", lambda name, **kw: calls.append((name, kw))
+    )
+    result = CliRunner().invoke(app, ["apply", "e13", "--no-dock"])
+    assert result.exit_code == 0, result.output
+    assert calls[0][1]["furniture"].dock is False
+
+
+def test_apply_dock_size_passes_through(monkeypatch) -> None:
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        apply_mod, "apply_full", lambda name, **kw: calls.append((name, kw))
+    )
+    result = CliRunner().invoke(app, ["apply", "e13", "--dock-size", "64"])
+    assert result.exit_code == 0, result.output
+    assert calls[0][1]["furniture"].dock_px == 64
+
+
 @pytest.mark.parametrize(
-    "flag", ["--pager-cell", "--iconbox-size"]
+    "flag", ["--pager-cell", "--iconbox-size", "--dock-size"]
 )
 @pytest.mark.parametrize("value", ["0", "-8"])
 def test_apply_rejects_nonpositive_furniture_sizes(
@@ -172,13 +221,13 @@ def test_apply_rejects_nonpositive_furniture_sizes(
 
 
 def test_furniture_options_helper_is_reusable() -> None:
-    """WP4's ``convert --apply`` builds its options through the same
-    helper, so it takes the six flag values and nothing else."""
+    """``convert --apply`` builds its options through the same helper, so
+    it takes the furniture flag values and nothing else."""
     opts = cli_mod._furniture_options(
-        no_pager=False, no_iconbox=True, no_dragbar=False,
-        furniture_strut=False, pager_cell=48, iconbox_size=48,
+        pager=None, iconbox=False, dragbar=True, dock=None,
+        furniture_strut=False, pager_cell=48, iconbox_size=48, dock_size=None,
     )
-    assert opts == apply_mod.FurnitureOptions(iconbox=False)
+    assert opts == apply_mod.FurnitureOptions(iconbox=False, dragbar=True)
 
 
 def test_apply_widget_style_passes_through(monkeypatch) -> None:

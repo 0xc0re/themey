@@ -268,19 +268,38 @@ was measured in force AFTER one (KWin's MaximizeArea on that screen went
 x=130 → x=60); whether it applies without one is untested, so an apply
 that ends without a restart warns that the struts stand until it.
 `--furniture-strut` puts both panels back to NormalPanel and the scripted
-`hiding = 'none'`. `--no-pager`/`--no-iconbox`/`--no-dragbar` leave a
-panel out AND remove an already-recorded live one with its marker
+`hiding = 'none'`. EVERY panel is OPT-IN since 2026-09-04 and each
+selector is a TRI-STATE (`FurnitureOptions.wanted(key) -> bool | None`,
+replacing `enabled()`; an unrecognized key reads None so a spec added
+ahead of its flag is inert): `True` (`--pager`/`--iconbox`/`--dragbar`/
+`--dock`) creates the panel or re-asserts an already-recorded live one;
+`False` (`--no-pager`…) removes the recorded panel with its marker
 (`_remove_furniture`, the extracted revert-loop body — on the apply path
-it warns and keeps the marker rather than failing the whole apply), and
-the step that exists only for that panel is undone: the stacked desktop
+it warns and keeps the marker rather than failing the whole apply) and
+undoes the step that exists only for that panel — the stacked desktop
 grid for the pager (`_undo_desktop_grid_column`, restoring
 `PrevDesktopRows` when a baseline exists), the top-panel parking for the
-dragbar (`_undo_top_panel_parking`). `_furniture_specs()` with defaults
-still returns all three, which is what revert enumerates. apply refuses to
-run without the applet packages the ENABLED panels host (`org.themey.pager`
-for the pager, `org.themey.deskbutton` for the dragbar)
+dragbar (`_undo_top_panel_parking`); `None` (the default, no flag) leaves
+the panel alone — a recorded panel that is still alive is RE-ASSERTED, so
+its thickness and `taskHoverEffect` follow the theme being applied now,
+while a marker whose panel is `missing` or `stale` is dropped with a log
+line and nothing is created, and neither the side step nor its undo runs.
+Rearranging someone's panels, desktop grid and top edge is the most
+invasive thing an apply does, which is why it has to be asked for.
+`_furniture_specs()` with defaults still returns all three, which is what
+revert enumerates — revert is unchanged and still removes everything
+recorded. apply refuses to run without the applet packages the panels it
+will BUILD host (`_require_applets`, extracted: `org.themey.pager`
+for the pager, `org.themey.deskbutton` for the dragbar; a re-asserted
+panel already has its widget)
 under `paths.plasmoids()` and warns when their `X-Themey-Runtime` is
-behind the code's. Just before the furniture, when the pager is on, `_set_desktop_grid_column` stacks the
+behind the code's. The `_read_screen_aspect` round trip is likewise
+skipped unless a pager will be built or a recorded one re-asserted, and
+the no-restart strut warning names the panels actually pending
+(`_write_furniture_visibility` returns their names, not a bool).
+`--dock`/`--no-dock`/`--dock-size` are wired through the CLI and
+`FurnitureOptions` (`dock`, `dock_px`, marker key `DockPanel`) but build
+nothing yet — the dock panel itself is a later change. Just before the furniture, when the pager is asked for, `_set_desktop_grid_column` stacks the
 desktops one per row (kwinrc `[Desktops] Rows=Number` AND the writable
 `VirtualDesktopManager.rows` D-Bus property — KWin reads the config key
 only at startup, verified live 2026-08-31; `PrevDesktopRows` baseline,
@@ -347,7 +366,9 @@ by any of this.
 there is no pure-Python XCursor writer — so callers check
 `xcursorgen_available()` first and skip the whole cursor stage with a
 `cursors:` note when it's absent, mirroring the `xdg-open` graceful-skip
-already there for preview auto-open. `run_xcursorgen` doesn't trust the
+already there for preview auto-open — which is itself opt-in since
+2026-09-04: `cli.convert_cmd` takes `--open/--no-open` (`open_preview`,
+default False) and a bare convert just prints the preview's path. `run_xcursorgen` doesn't trust the
 return code alone: xcursorgen can exit 0 and write nothing, so it also
 verifies the output file exists and is non-empty before returning, raising
 `XcursorgenError` (stderr tail attached) otherwise. `apply.py`'s

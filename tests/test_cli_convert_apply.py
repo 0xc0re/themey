@@ -65,12 +65,13 @@ def test_convert_apply_rejects_non_qml_backend(
     assert "--backend" in result.output
 
 
+@pytest.mark.parametrize("flag", ["--pager-cell", "--iconbox-size", "--dock-size"])
 def test_convert_apply_rejects_nonpositive_furniture_size(
-    recorded_apply, fake_home,
+    recorded_apply, fake_home, flag: str,
 ) -> None:
     """A usage error must not cost a whole conversion first."""
     result = CliRunner().invoke(
-        app, [ALIENS, "--apply", "--pager-cell", "0", "--no-open"]
+        app, [ALIENS, "--apply", flag, "0", "--no-open"]
     )
     assert result.exit_code != 0
     assert recorded_apply == []
@@ -103,7 +104,7 @@ def test_convert_apply_forwards_furniture_and_restart_flags(
         app,
         [
             ALIENS, "--apply", "--no-open", "--no-restart-shell", "--no-pager",
-            "--no-iconbox", "--no-dragbar", "--furniture-strut",
+            "--no-iconbox", "--no-dragbar", "--no-dock", "--furniture-strut",
             "--pager-cell", "64", "--iconbox-size", "32",
             "--widget-style", "fusion",
         ],
@@ -114,8 +115,25 @@ def test_convert_apply_forwards_furniture_and_restart_flags(
     assert kwargs["restart_shell"] is False
     assert kwargs["widget_style"] == "fusion"
     assert kwargs["furniture"] == apply_mod.FurnitureOptions(
-        pager=False, iconbox=False, dragbar=False, strut=True,
+        pager=False, iconbox=False, dragbar=False, dock=False, strut=True,
         pager_cell_px=64, iconbox_px=32,
+    )
+
+
+def test_convert_apply_forwards_opt_in_furniture_flags(
+    recorded_apply, fake_home,
+) -> None:
+    """The positive flags are how the E16 furniture is asked for now."""
+    result = CliRunner().invoke(
+        app,
+        [
+            ALIENS, "--apply", "--no-open", "--pager", "--iconbox", "--dragbar",
+            "--dock", "--dock-size", "64",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert recorded_apply[0][1]["furniture"] == apply_mod.FurnitureOptions(
+        pager=True, iconbox=True, dragbar=True, dock=True, dock_px=64,
     )
 
 
