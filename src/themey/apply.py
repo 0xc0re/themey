@@ -67,7 +67,12 @@ machine: a friendly no-op, not an error.
 
 :func:`apply_full` also creates E16's furniture via plasmashell desktop
 scripting (:func:`_ensure_furniture`), as selected and sized by
-:class:`FurnitureOptions`: TWO vertical content-sized
+:class:`FurnitureOptions`. Every panel is OPT-IN — rearranging someone's
+panels, desktop grid and top edge is the most invasive thing an apply
+does — so each selector is a tri-state: ``True`` (``--pager`` &c.)
+builds it, ``False`` (``--no-pager`` &c.) removes an already-created one,
+and absent (the default) leaves that panel alone. The pieces on offer are
+THREE E16 ones and a modern fourth. TWO vertical content-sized
 left-edge panels — a thick pager panel hugging the top-left corner
 (E16's pager window spot, hosting themey's OWN ``org.themey.pager``
 applet; two panels because pager cell size is panel thickness ÷
@@ -77,22 +82,32 @@ bottom-left whose icons-only task manager shows only MINIMIZED windows,
 E16's iconbox behavior — plus E16's DRAGBAR: a full-width top panel
 ``scale_px(16)`` px thick (the bundle's ``X-Themey-Scale``; floor 24 px)
 carrying ``org.themey.deskbutton`` next/prev ends around the tray and
-clock. The top edge is E16's dragbar alone, so
+clock. The fourth, the DOCK (``--dock``, :func:`_dock_spec`), is the one
+piece with no E16 ancestor: a floating, centred, bottom-edge panel
+``scale_px(32)`` px thick (floor 48) hosting themey's own
+``org.themey.dock`` across every virtual desktop. It is also the one
+panel with a command of its own — :func:`apply_dock` (``themey dock``)
+builds or removes just that panel, for a desktop that wants the dock
+without a converted theme. The top edge is E16's dragbar alone, so
 :func:`_park_top_panels` first moves every pre-existing top panel to a
 nonexistent screen index (config kept, never shown — verified live
 2026-09-01) and records ``id=screen:location:hiding`` once in
 ``[Themey] PrevTopPanels``; :func:`revert` puts them back. The
-``[Themey] PagerPanel``/``IconboxPanel``/``DragbarPanel`` markers are the
+``[Themey] PagerPanel``/``IconboxPanel``/``DragbarPanel``/``DockPanel``
+markers are the
 ones that are NOT ``Prev*`` baselines: each records a themey-CREATED
 artifact (that panel's containment id), so it is overwritten when the
 recorded panel no longer exists (recreate), left alone when it does
 (idempotent second apply) — a pager panel still hosting the STOCK pager
 counts as stale and is recreated — and deleted when :func:`revert`
-removes the panel. Existing panels are never touched beyond the
-fit-content step and the parking. The applet packages the ENABLED panels
-host must be installed (any ``themey convert`` installs them; apply
-refuses otherwise and warns
-when their ``X-Themey-Runtime`` is behind). The desktop grid is set to one
+removes the panel. When the panel is not asked for at all, a marker whose
+panel is gone or stale is simply dropped: it no longer names anything
+themey owns, and an absent flag never creates. Existing panels are never
+touched beyond the fit-content step and the parking. The applet packages
+the panels being BUILT host must be installed (any ``themey convert``
+installs them; apply refuses otherwise — :func:`_require_applets` — and
+warns when their ``X-Themey-Runtime`` is behind). With the pager asked
+for, the desktop grid is set to one
 column (kwinrc ``[Desktops] Rows = Number`` plus the live D-Bus rows —
 :func:`_set_desktop_grid_column`) so the stacked pager cells fill the
 panel box; ``PrevDesktopRows`` is the record-once baseline and
@@ -112,7 +127,9 @@ has no string for that mode, so the creation/re-assert scripts leave
 ``hiding`` alone and :func:`_write_furniture_visibility` writes
 ``plasmashellrc [PlasmaViews][Panel <id>] panelVisibility`` — 3
 (WindowsGoBelow) for those two, 0 (NormalPanel) for the dragbar, which
-keeps its strut — for every live furniture panel AFTER
+keeps its strut, 2 (DodgeWindows) for the dock, which the scripting
+engine CAN spell (:data:`_HIDING_TOKENS`) and which is therefore live
+immediately — for every live furniture panel AFTER
 every script that touches a panel's ``hiding`` — the furniture ones and
 the dragbar-opt-out unparking alike, since plasmashell flushes a scripted
 ``hiding`` lazily and would rewrite the file over an earlier write. That mode is only read at
@@ -120,13 +137,16 @@ plasmashell start-up, so an apply that does not end in a restart warns.
 ``FurnitureOptions.strut`` puts the panels back to NormalPanel and the
 scripted ``hiding = 'none'``.
 
-Any of the three panels can be left out (:class:`FurnitureOptions`, CLI
-``--no-pager``/``--no-iconbox``/``--no-dragbar``): an already-created one
+Any of the four panels can be opted OUT (:class:`FurnitureOptions`, CLI
+``--no-pager``/``--no-iconbox``/``--no-dragbar``/``--no-dock``): an
+already-created one
 is removed and its marker cleared (:func:`_remove_furniture`, shared with
-:func:`revert`), and the step that exists only for it is skipped and its
+:func:`revert`), and the step that exists only for it is undone and its
 baseline restored — the stacked desktop grid for the pager
 (:func:`_undo_desktop_grid_column`), the top-panel parking for the
-dragbar (:func:`_undo_top_panel_parking`).
+dragbar (:func:`_undo_top_panel_parking`). Neither the step nor its undo
+runs for a panel no flag mentions. The dock has no such side step: it
+claims the bottom edge, which nothing else here touches.
 
 Legacy revert path: ``themey apply Breeze`` (which selects
 ``org.kde.breeze``, restores the recorded button layout) or System
@@ -385,6 +405,21 @@ _DEFAULT_SCREEN_ASPECT = 16 / 9
 #: parked top panel used to carry.
 _DRAGBAR_KEY = "DragbarPanel"
 _DRAGBAR_WIDGET = plasmoids.DESKBUTTON_ID
+#: The macOS-style dock (:func:`_dock_spec`, ``themey dock``): the one
+#: furniture panel with no E16 ancestor. A floating, centred, bottom-edge
+#: content-sized panel hosting themey's own ``org.themey.dock`` — an
+#: icons-only task manager with a zoom-on-hover row — showing tasks from
+#: EVERY virtual desktop (``showOnlyCurrentDesktop`` off; the applet's
+#: own default is on), because a dock is the machine-wide window list
+#: while E16's iconbox is the per-desktop minimized one.
+_DOCK_KEY = "DockPanel"
+_DOCK_WIDGET = plasmoids.DOCK_ID
+#: Dock thickness: 32 reference px at the conversion scale, floored so a
+#: scale-1 theme still gets a usable icon row (48/48/64/96 px at scale
+#: 1/1.5/2/3 — :func:`dock_thickness_px`). No E16 source to quote here;
+#: 32 ref px is simply twice E16's dragbar and two thirds of its iconbox.
+_DOCK_THICKNESS_REF = 32
+_DOCK_MIN_PX = 48
 _DRAGBAR_THICKNESS_REF = 16
 _DRAGBAR_MIN_PX = 24
 #: Widgets re-homed into the dragbar between the two desk buttons.
@@ -430,48 +465,103 @@ _PLASMASHELLRC = "plasmashellrc"
 _PLASMA_VIEWS_GROUP = "PlasmaViews"
 _PANEL_VISIBILITY_KEY = "panelVisibility"
 _VISIBILITY_NORMAL = 0
+_VISIBILITY_DODGE = 2
 _VISIBILITY_WINDOWS_GO_BELOW = 3
+#: The visibility modes the plasmashell SCRIPTING engine can also spell,
+#: as its ``p.hiding`` token — verified against plasma-workspace
+#: ``shell/scripting/panel.cpp`` (branch Plasma/6.6). The setter and the
+#: getter are ASYMMETRIC there: ``Panel::setHiding`` (323-340) matches
+#: ``autohide``, ``dodgewindows`` AND ``windowsgobelow`` case-insensitively
+#: and calls ``setVisibilityMode`` straight away, while ``Panel::hiding``
+#: (303-321) has cases only for NormalPanel/AutoHide/DodgeWindows and
+#: answers ``"none"`` for WindowsGoBelow — which is what the earlier live
+#: probe of the WindowsGoBelow spellings actually measured: the write
+#: took, the read-back could not name it. themey still routes
+#: WindowsGoBelow through :data:`_PANEL_VISIBILITY_KEY` alone (unchanged
+#: here), so only the modes listed below are scripted, and a panel
+#: created in one of them needs no plasmashell restart to behave. Every
+#: other mode is file-only and read at start-up, which is what
+#: :func:`_write_furniture_visibility` reports back as pending.
+_HIDING_TOKENS: dict[int, str] = {
+    _VISIBILITY_NORMAL: "none",
+    _VISIBILITY_DODGE: "dodgewindows",
+}
 
 
 @dataclass(frozen=True)
 class FurnitureOptions:
     """Which E16 furniture panels ``apply_full`` builds, and how big.
 
-    The defaults are E16 1.0.31's own: a 48 px pager cell
-    (:data:`_PAGER_CELL_PX`), a 48 px iconbox (:data:`_ICONBOX_HEIGHT`),
-    all three panels on. *strut* is off by default — E16's default
-    maximize was ``MAX_AVAILABLE`` (mod-misc.c:160), which stepped around
-    the pager instead of shrinking every window for it, so themey's
-    left-edge panels let windows go below them; ``strut=True`` keeps them
-    reserving screen space like an ordinary Plasma panel.
+    Every panel is OPT-IN, and each selector is a tri-state
+    (:meth:`wanted`), because rearranging someone's panels, desktop grid
+    and top edge is the most invasive thing an apply does and must be
+    asked for rather than assumed:
+
+    - ``True`` (CLI ``--pager``/``--iconbox``/``--dragbar``/``--dock``):
+      create the panel, or bring an already-recorded live one back to
+      this theme's spec.
+    - ``False`` (``--no-pager`` &c.): remove the recorded panel, clear its
+      marker, and undo the step that exists only for it (the stacked
+      desktop grid for the pager, the top-panel parking for the dragbar).
+    - ``None`` (no flag, the default): leave that panel alone. A recorded
+      panel that is still alive is re-asserted, so the panels an earlier
+      opt-in apply created follow the NEW theme (thickness,
+      ``taskHoverEffect``); a marker whose panel is gone (or no longer
+      themey's) is dropped with a log line and nothing is created. The
+      side steps and their undos are skipped entirely.
+
+    The SIZES are E16 1.0.31's own: a 48 px pager cell
+    (:data:`_PAGER_CELL_PX`) and a 48 px iconbox
+    (:data:`_ICONBOX_HEIGHT`). *dock_px* is the one size with no E16
+    ancestor — the dock is a modern addition — so it defaults to None and
+    the dock's own spec picks the thickness.
+
+    *strut* is off by default — E16's default maximize was
+    ``MAX_AVAILABLE`` (mod-misc.c:160), which stepped around the pager
+    instead of shrinking every window for it, so themey's left-edge panels
+    let windows go below them; ``strut=True`` keeps them reserving screen
+    space like an ordinary Plasma panel.
     """
 
-    pager: bool = True
-    iconbox: bool = True
-    dragbar: bool = True
+    pager: bool | None = None
+    iconbox: bool | None = None
+    dragbar: bool | None = None
+    dock: bool | None = None
     strut: bool = False
     pager_cell_px: int = _PAGER_CELL_PX
     iconbox_px: int = _ICONBOX_HEIGHT
+    dock_px: int | None = None
 
     def __post_init__(self) -> None:
-        for field, value in (
+        sizes: list[tuple[str, int | None]] = [
             ("pager_cell_px", self.pager_cell_px),
             ("iconbox_px", self.iconbox_px),
-        ):
+            ("dock_px", self.dock_px),
+        ]
+        for field, value in sizes:
+            if value is None:
+                continue
             if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
                 raise ApplyError(f"{field} must be a positive number of pixels")
 
-    def enabled(self, key: str) -> bool:
-        """Whether the panel behind the marker *key* is wanted."""
+    def wanted(self, key: str) -> bool | None:
+        """This selector's tri-state for the panel behind the marker *key*.
+
+        A key no selector covers reads as ``None`` — leave that panel
+        alone — so a :class:`FurnitureSpec` added ahead of its flag is
+        inert rather than silently created.
+        """
         return {
             _PAGER_KEY: self.pager,
             _ICONBOX_KEY: self.iconbox,
             _DRAGBAR_KEY: self.dragbar,
-        }[key]
+            _DOCK_KEY: self.dock,
+        }.get(key)
 
 
-#: The default furniture selection and sizes, as a module-level singleton
-#: so the frozen dataclass can safely be an argument default (ruff B008).
+#: The default furniture selection and sizes — every panel absent (leave
+#: it alone), E16's own sizes — as a module-level singleton so the frozen
+#: dataclass can safely be an argument default (ruff B008).
 DEFAULT_FURNITURE = FurnitureOptions()
 
 
@@ -719,7 +809,16 @@ def _set_panels_fit(kw: str, kr: str) -> None:
     the previous modes once.
 
     E16 bars are docked strips — a floating panel adds an 8 px transparent
-    halo that rounds the E16 look away. The markers mirror the other
+    halo that rounds the E16 look away.
+
+    This loop un-floats EVERY panel, themey's dock included, so the dock's
+    own creation/re-assert has to come strictly later in
+    :func:`apply_full` and float it back
+    (:func:`_furniture_reassert_script`). That ordering is safe because a
+    scripted property assignment is synchronous — only the flush to
+    plasmashellrc is lazy — so the last writer wins.
+
+    The markers mirror the other
     ``[Themey]`` baselines: written only on the first themey apply
     (``id=mode`` / ``id=true|false`` pairs joined by ``|``), restored and
     cleared by :func:`revert`. No panels (plasmashell not running is
@@ -799,6 +898,7 @@ def _panel_script(
     location: str = "left",
     length_mode: str = "fit",
     visibility: int = _VISIBILITY_NORMAL,
+    floating: bool = False,
 ) -> str:
     """Creation script for one furniture panel; prints the new panel id.
 
@@ -806,20 +906,25 @@ def _panel_script(
     the real success signal. ``p.floating`` is wrapped in try/catch: an
     unscriptable property assignment would otherwise kill the whole
     script. ``length_mode='fill'`` (the dragbar) spans the screen edge
-    like E16's strip; ``'fit'`` (pager/iconbox) is content-sized.
+    like E16's strip; ``'fit'`` (pager/iconbox/dock) is content-sized.
 
-    ``hiding`` is written ONLY for a normal (strut-bearing) panel: a
-    windows-go-below panel has no scripting spelling at all
-    (:data:`_VISIBILITY_WINDOWS_GO_BELOW`), and a scripted
-    ``p.hiding = 'none'`` would be flushed to plasmashellrc after the
+    *floating* is False for every E16 panel — they are docked strips, and
+    a floating one wears an 8 px transparent halo that rounds the E16 look
+    away — and True for the dock, whose whole idiom is the floating slab.
+
+    ``hiding`` is written only for a mode the scripting engine can spell
+    (:data:`_HIDING_TOKENS`): a windows-go-below panel has no scripting
+    spelling at all (:data:`_VISIBILITY_WINDOWS_GO_BELOW`), and a scripted
+    ``p.hiding`` for it would be flushed to plasmashellrc after the
     ``panelVisibility`` write that sets the mode and undo it.
     """
+    hiding = _HIDING_TOKENS.get(visibility)
     return (
         "var p = new Panel;"
         f" p.location = '{location}';"
         f" p.alignment = '{alignment}';"
         f" p.height = {height};"
-        + (" p.hiding = 'none';" if visibility == _VISIBILITY_NORMAL else "")
+        + (f" p.hiding = '{hiding}';" if hiding is not None else "")
         + f" p.lengthMode = '{length_mode}';"
         # A scripted `new Panel` starts with minimumLength == maximumLength
         # == the full screen dimension, and setting lengthMode='fit' does
@@ -827,7 +932,7 @@ def _panel_script(
         # around a few px of content (verified live 2026-08-31). Only the
         # minimum needs clearing; fit computes the real length.
         + (" p.minimumLength = 0;" if length_mode == "fit" else "")
-        + " try { p.floating = false; } catch (e) {}"
+        + f" try {{ p.floating = {'true' if floating else 'false'}; }} catch (e) {{}}"
         f"{widgets}"
         " print(p.id);"
     )
@@ -837,6 +942,13 @@ def dragbar_thickness_px(scale: float) -> int:
     """Dragbar panel thickness: E16's 16 ref px at the conversion scale,
     floored at ``_DRAGBAR_MIN_PX``."""
     return max(scale_px(_DRAGBAR_THICKNESS_REF, scale), _DRAGBAR_MIN_PX)
+
+
+def dock_thickness_px(scale: float) -> int:
+    """Dock panel thickness: :data:`_DOCK_THICKNESS_REF` ref px at the
+    conversion scale, floored at :data:`_DOCK_MIN_PX` so the icon row
+    stays usable on a scale-1 theme — 48/48/64/96 px at scale 1/1.5/2/3."""
+    return max(scale_px(_DOCK_THICKNESS_REF, scale), _DOCK_MIN_PX)
 
 
 def pager_thickness_px(cell_px: int, screen_aspect: float) -> int:
@@ -855,8 +967,9 @@ class FurnitureSpec:
     """One themey-created panel: marker key, human name, creation script,
     thickness, length mode, plasmashell visibility mode, and the widget
     its recorded panel MUST host to count as alive (None = any live panel
-    counts), plus the widget-config snippet every apply re-writes into a
-    live panel (``reassert``, empty for a panel with none)."""
+    counts), whether the panel floats, plus the widget-config snippet
+    every apply re-writes into a live panel (``reassert``, empty for a
+    panel with none)."""
 
     key: str
     name: str
@@ -866,6 +979,61 @@ class FurnitureSpec:
     required_widget: str | None = None
     visibility: int = _VISIBILITY_NORMAL
     reassert: str = ""
+    floating: bool = False
+
+
+def _dock_spec(
+    *, scale: float, size_px: int | None, tasks_hover: bool | None,
+) -> FurnitureSpec:
+    """The dock panel's spec: floating, centred, bottom edge,
+    content-sized, dodging windows.
+
+    *size_px* (CLI ``--dock-size``) overrides the scale-derived thickness
+    (:func:`dock_thickness_px`). The applet's ``showOnlyCurrentDesktop``
+    default is ON, which would make the dock a second per-desktop iconbox,
+    so the creation script turns it off.
+
+    *tasks_hover* follows the Plasma Style's ``X-Themey-TasksHover``
+    exactly as the iconbox's does, and is re-written on every apply
+    (``FurnitureSpec.reassert``) because the style changes under a panel
+    that outlives it. None means NOBODY has an opinion — no themey global
+    theme is active (:func:`apply_dock` on a stock desktop) — and then the
+    key is left out of both scripts entirely, so the applet's own
+    ``main.xml`` default stands and a later run cannot silently undo a
+    theme-derived value. Everything else about the dock — pinned
+    launchers, grouping, the zoom settings — is the applet's default and
+    then the user's.
+
+    It is the only spec built OUTSIDE :func:`_furniture_specs` as well as
+    in it: :func:`apply_dock` needs this one panel without touching (or
+    even reading) the other three.
+    """
+    px = dock_thickness_px(scale) if size_px is None else size_px
+    hover_write = "" if tasks_hover is None else (
+        f" w.writeConfig('taskHoverEffect', {'true' if tasks_hover else 'false'});"
+    )
+    script = _panel_script(
+        "center",
+        px,
+        f" var w = p.addWidget('{_DOCK_WIDGET}');"
+        " w.currentConfigGroup = ['General'];"
+        " w.writeConfig('showOnlyCurrentDesktop', false);"
+        + hover_write
+        + " w.reloadConfig();",
+        location="bottom",
+        visibility=_VISIBILITY_DODGE,
+        floating=True,
+    )
+    reassert = "" if not hover_write else (
+        f" var w = p.widgets('{_DOCK_WIDGET}')[0];"
+        " if (w) { w.currentConfigGroup = ['General'];"
+        f"{hover_write} w.reloadConfig(); }}"
+    )
+    return FurnitureSpec(
+        _DOCK_KEY, "dock panel", script, px,
+        required_widget=_DOCK_WIDGET, visibility=_VISIBILITY_DODGE,
+        reassert=reassert, floating=True,
+    )
 
 
 def _furniture_specs(
@@ -890,12 +1058,17 @@ def _furniture_specs(
     none, which is nearly always). Dragbar panel: E16's top strip
     (``_DRAGBAR_KEY``) — full width, ``dragbar_thickness_px(scale)``
     thick, desk-next button, spacer, tray, clock, desk-prev button (E16's
-    default ordering: RAISE at the start, LOWER at the end). Created LAST
-    so it comes after :func:`_park_top_panels` and is never parked.
+    default ordering: RAISE at the start, LOWER at the end). Created after
+    :func:`_park_top_panels` so it is never parked. Dock panel
+    (``_DOCK_KEY``, :func:`_dock_spec`): the one panel with no E16
+    ancestor — floating, centred, bottom edge — returned LAST because it
+    claims the bottom edge and is never parked either.
 
-    ALL three specs are returned whatever *furniture* says — :func:`revert`
-    enumerates them to find its markers, and :func:`_ensure_furniture`
-    filters. *furniture* only shapes the panels: their sizes and, for the
+    ALL four specs are returned whatever *furniture* selects —
+    :func:`revert` enumerates them to find its markers, and
+    :func:`_ensure_furniture` reads each one's
+    :meth:`FurnitureOptions.wanted` tri-state. *furniture* only shapes the
+    panels here: their sizes (``dock_px`` included) and, for the
     two left-edge ones, whether they reserve screen space
     (:data:`_VISIBILITY_WINDOWS_GO_BELOW` unless ``strut``; the dragbar is
     E16's own top strip and always keeps its strut).
@@ -963,6 +1136,9 @@ def _furniture_specs(
                       reassert=iconbox_reassert),
         FurnitureSpec(_DRAGBAR_KEY, "dragbar panel", dragbar, dragbar_px,
                       length_mode="fill"),
+        _dock_spec(
+            scale=scale, size_px=furniture.dock_px, tasks_hover=tasks_hover,
+        ),
     )
 
 
@@ -972,6 +1148,7 @@ def _furniture_reassert_script(
     length_mode: str = "fit",
     visibility: int = _VISIBILITY_NORMAL,
     reassert: str = "",
+    floating: bool = False,
 ) -> str:
     """Bring a live furniture panel back to themey's spec.
 
@@ -979,14 +1156,19 @@ def _furniture_reassert_script(
     to — chris's iconbox panel sat at 120 px (twice ``_ICONBOX_HEIGHT``)
     across several applies (live 2026-09-01), and the panels earlier
     applies created are 130/60 px rather than the E16 sizes. Thickness,
-    length mode, visibility and (for fit panels) the cleared minimum are
-    themey's spec, so every apply re-asserts them; widget config and
-    alignment are left to the user.
+    length mode, visibility, float and (for fit panels) the cleared
+    minimum are themey's spec, so every apply re-asserts them; widget
+    config and alignment are left to the user.
 
-    ``hiding`` is written only for a strut-bearing panel, for the same
-    reason as in :func:`_panel_script` — a windows-go-below panel is
-    switched through plasmashellrc instead, and reads back ``'none'``
-    anyway.
+    *floating* is not merely re-asserted, it is REPAIRED:
+    :func:`_set_panels_fit` un-floats every panel on the desktop, the
+    dock included, so the dock's own re-assert (strictly later in
+    :func:`apply_full`) is what puts its float back.
+
+    ``hiding`` is written only for a mode the scripting engine can spell
+    (:data:`_HIDING_TOKENS`), for the same reason as in
+    :func:`_panel_script` — a windows-go-below panel is switched through
+    plasmashellrc instead, and reads back ``'none'`` anyway.
 
     *reassert* is the spec's own widget-config snippet
     (:class:`FurnitureSpec`), run inside the same live-panel block. It
@@ -999,13 +1181,14 @@ def _furniture_reassert_script(
     else about the widgets — alignment, pinned launchers — stays the
     user's.
     """
+    hiding = _HIDING_TOKENS.get(visibility)
     return (
         f"var p = panelById({panel_id});"
         f" if (p) {{ p.height = {height};"
         f" p.lengthMode = '{length_mode}';"
-        + (" p.hiding = 'none';" if visibility == _VISIBILITY_NORMAL else "")
+        + (f" p.hiding = '{hiding}';" if hiding is not None else "")
         + (" p.minimumLength = 0;" if length_mode == "fit" else "")
-        + " try { p.floating = false; } catch (e) {}"
+        + f" try {{ p.floating = {'true' if floating else 'false'}; }} catch (e) {{}}"
         + f"{reassert} }}"
         " print(p ? 'reasserted' : 'missing');"
     )
@@ -1075,9 +1258,16 @@ def _remove_furniture(
 
 def _write_furniture_visibility(
     kw: str, live: tuple[tuple[FurnitureSpec, str], ...]
-) -> bool:
+) -> tuple[str, ...]:
     """Write each live furniture panel's ``panelVisibility`` into
-    plasmashellrc; True when any panel was set to a non-strut mode.
+    plasmashellrc; returns the names of the panels whose mode only lands
+    at the next plasmashell start (empty when none), so the caller's
+    warning can name them.
+
+    A mode the scripting engine can also spell (:data:`_HIDING_TOKENS` —
+    the dock's dodge-windows, the dragbar's normal) was already assigned
+    live by the panel's own script, so it is NOT pending; only the
+    file-only WindowsGoBelow of the left-edge panels is.
 
     Must run AFTER every script that assigns a panel's ``hiding`` — the
     furniture scripts and the ``--no-dragbar`` unparking alike:
@@ -1088,7 +1278,7 @@ def _write_furniture_visibility(
     apply is not ending in one; the written value does survive that
     restart.
     """
-    pending = False
+    pending: list[str] = []
     for spec, panel_id in live:
         _run_checked(
             [
@@ -1100,8 +1290,47 @@ def _write_furniture_visibility(
             f"writing {_PLASMASHELLRC} [{_PLASMA_VIEWS_GROUP}]"
             f"[Panel {panel_id}] {_PANEL_VISIBILITY_KEY}",
         )
-        pending = pending or spec.visibility != _VISIBILITY_NORMAL
-    return pending
+        if spec.visibility not in _HIDING_TOKENS:
+            pending.append(spec.name)
+    return tuple(pending)
+
+
+def _require_applets(needed: tuple[str, ...]) -> None:
+    """Refuse the apply unless every applet package in *needed* is
+    installed, and warn about any whose runtime is behind this themey's.
+
+    *needed* is the applets the panels this apply will BUILD host — a
+    panel that is opted out, or simply not asked for, never touches its
+    package (:meth:`FurnitureOptions.wanted`).
+    """
+    missing = [
+        pid for pid in needed
+        if not (paths.plasmoids() / pid / "metadata.json").is_file()
+    ]
+    if missing:
+        raise ApplyError(
+            f"themey's applet packages are not installed under "
+            f"{paths.plasmoids()} ({', '.join(missing)}) — run "
+            "`themey convert` first (any theme installs them)"
+        )
+    for pid in needed:
+        installed_rt = plasmoids.installed_runtime_version(paths.plasmoids() / pid)
+        if installed_rt is None or installed_rt < plasmoids.RUNTIME_VERSION:
+            log.warning(
+                "installed applet %s is runtime %s, this themey is %s — "
+                "re-run `themey convert` to refresh it",
+                pid, installed_rt, plasmoids.RUNTIME_VERSION,
+            )
+
+
+def _has_furniture_marker(kr: str, key: str) -> bool:
+    """Whether *key* records a panel id this apply could still act on.
+
+    A tampered (non-digit) marker names nothing, so it counts as absent —
+    :func:`_ensure_furniture` drops it rather than scripting it.
+    """
+    marker = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, key)
+    return marker is not None and _is_panel_id(marker)
 
 
 def _ensure_furniture(
@@ -1112,19 +1341,38 @@ def _ensure_furniture(
     tasks_hover: bool = True,
     furniture: FurnitureOptions = DEFAULT_FURNITURE,
     screen_aspect: float = _DEFAULT_SCREEN_ASPECT,
+    specs: tuple[FurnitureSpec, ...] | None = None,
 ) -> tuple[tuple[FurnitureSpec, str], ...]:
-    """Create each WANTED E16 furniture panel unless its recorded one is
-    alive — in which case its thickness/length/visibility spec and its
-    themey-owned widget config are re-asserted
-    (:func:`_furniture_reassert_script`). A recorded panel
-    that is alive but ``stale`` (:func:`_furniture_exists_script` —
-    hosting the stock pager instead of themey's) is removed and
-    recreated, its marker overwritten. Returns ``(spec, panel_id)`` for
-    every panel that is now live, for :func:`_write_furniture_visibility`.
+    """Bring each E16 furniture panel to what *furniture* asks of it.
 
-    A panel *furniture* does NOT want is removed if a marker names one
-    (:func:`_remove_furniture`, which warns rather than raising — an
+    The three cases are :meth:`FurnitureOptions.wanted`'s tri-state.
+
+    ``False`` — the panel is removed if a marker names one
+    (:func:`_remove_furniture`, which warns rather than raising: an
     opt-out that cannot take must not fail the whole apply).
+
+    ``True`` — the panel is created unless its recorded one is alive, in
+    which case its thickness/length/visibility spec and its themey-owned
+    widget config are re-asserted (:func:`_furniture_reassert_script`); a
+    recorded panel that is alive but ``stale``
+    (:func:`_furniture_exists_script` — hosting the stock pager instead of
+    themey's) is removed and recreated, its marker overwritten.
+
+    ``None`` — nothing is created. A recorded panel that is still alive is
+    re-asserted exactly as in the ``True`` case, so an earlier opt-in
+    apply's panels follow the theme being applied now; a marker whose
+    panel is gone or stale is dropped with a log line, since it no longer
+    names anything themey owns.
+
+    Returns ``(spec, panel_id)`` for every panel that is now live, for
+    :func:`_write_furniture_visibility`.
+
+    *specs*, when given, replaces :func:`_furniture_specs` — the ONLY
+    caller that passes it is :func:`apply_dock`, which hands in the dock
+    spec alone so ``themey dock`` never reads, drops or removes another
+    panel's marker. *scale*, *tasks_hover* and *screen_aspect* only shape
+    the specs this function would otherwise have built, so they are
+    ignored when *specs* is given.
 
     Each marker is validated :func:`_is_panel_id` before it is ever
     interpolated into a plasmashell script — kdeglobals is user-editable,
@@ -1134,15 +1382,20 @@ def _ensure_furniture(
     stale marker (an earlier panel's marker survives the failure, so a
     retry skips it instead of doubling it).
     """
-    specs = _furniture_specs(
-        scale=scale, tasks_hover=tasks_hover,
-        furniture=furniture, screen_aspect=screen_aspect,
-    )
-    unwanted = tuple(s for s in specs if not furniture.enabled(s.key))
+    if specs is None:
+        specs = _furniture_specs(
+            scale=scale, tasks_hover=tasks_hover,
+            furniture=furniture, screen_aspect=screen_aspect,
+        )
+    unwanted = tuple(s for s in specs if furniture.wanted(s.key) is False)
     if unwanted:
         _remove_furniture(kw, kr, unwanted)
     live: list[tuple[FurnitureSpec, str]] = []
-    for spec in (s for s in specs if furniture.enabled(s.key)):
+    for spec in specs:
+        want = furniture.wanted(spec.key)
+        if want is False:
+            continue
+        create = want is True
         marker = _cfg_read(kr, _KDEGLOBALS, _THEMEY_GROUP, spec.key)
         if marker is not None and _is_panel_id(marker):
             alive = _evaluate_plasma_script(
@@ -1153,11 +1406,22 @@ def _ensure_furniture(
                 _evaluate_plasma_script(
                     _furniture_reassert_script(
                         marker, spec.height, spec.length_mode, spec.visibility,
-                        spec.reassert,
+                        spec.reassert, spec.floating,
                     ),
                     f"plasmashell {spec.name} re-assert script",
                 )
                 live.append((spec, marker))
+                continue
+            if not create:
+                # Not asked for, and the recorded panel is gone (or is no
+                # longer themey's): the marker names nothing themey owns,
+                # so it is dropped rather than acted on.
+                log.info(
+                    "the recorded %s (%s) is %s — dropping the marker; pass "
+                    "the panel's own flag to build it again",
+                    spec.name, marker, alive,
+                )
+                _cfg_delete(kw, _KDEGLOBALS, _THEMEY_GROUP, spec.key)
                 continue
             if alive == "stale":
                 log.info(
@@ -1168,6 +1432,12 @@ def _ensure_furniture(
                     f"var p = panelById({marker}); if (p) {{ p.remove(); }}",
                     f"plasmashell stale {spec.name} removal script",
                 )
+        elif not create:
+            # No usable marker (absent, or tampered so it names no panel)
+            # and no flag asking for the panel: there is nothing to act
+            # on, and this path writes nothing. `revert` drops a tampered
+            # marker when it next runs.
+            continue
         reply = _evaluate_plasma_script(
             spec.script, f"plasmashell {spec.name} creation script"
         )
@@ -1754,6 +2024,50 @@ def _read_theme_scale(lnf_dir: Path) -> float:
     return float(value)
 
 
+def _active_themey_bundle(kr: str) -> str | None:
+    """The themey Look-and-Feel package kdeglobals ``[KDE]
+    LookAndFeelPackage`` names right now, or None when the active global
+    theme is not one of themey's.
+
+    ``themey dock`` takes no theme name — the dock is useful with or
+    without a themey global theme — so it reads its per-theme settings off
+    whatever is active. The value is user-editable config, so it is only
+    accepted as a path segment when it is a single ``themey_``-prefixed
+    component: no traversal out of ``paths.look_and_feel()``.
+    """
+    pkg = _cfg_read(kr, _KDEGLOBALS, _KDE_GROUP, _LOOKANDFEEL_PACKAGE_KEY)
+    if pkg is None or not pkg.startswith("themey_") or "/" in pkg:
+        return None
+    return pkg
+
+
+def _active_theme_scale(bundle: str | None) -> float:
+    """Conversion scale of the active themey bundle
+    (:func:`_active_themey_bundle`) — its ``X-Themey-Scale``
+    (:func:`_read_theme_scale`) — or :data:`_DEFAULT_THEME_SCALE` when no
+    themey global theme is active."""
+    if bundle is None:
+        return _DEFAULT_THEME_SCALE
+    return _read_theme_scale(paths.look_and_feel() / bundle)
+
+
+def _active_tasks_hover(bundle: str | None) -> bool | None:
+    """The active themey Plasma Style's ``X-Themey-TasksHover``, or None
+    when there is no such style to have an opinion.
+
+    None is the load-bearing case: ``taskHoverEffect`` is themey's
+    per-theme spec, so a :func:`apply_dock` run under a stock desktop (or
+    a themey bundle whose Plasma Style is not installed) must leave the
+    applet's own default alone rather than assert True over a value some
+    earlier theme-driven apply chose (:func:`_dock_spec`)."""
+    if bundle is None:
+        return None
+    style_dir = paths.desktop_themes() / bundle
+    if not (style_dir / "metadata.json").is_file():
+        return None
+    return _read_tasks_hover(style_dir)
+
+
 def _read_widget_style(lnf_dir: Path) -> str | None:
     """The ``X-Themey-WidgetStyle`` stamp from an installed bundle's
     ``metadata.json`` (``generate/lookandfeel.py``) — the Qt application
@@ -1847,12 +2161,18 @@ def apply_full(
     without one leaves the Qt application style untouched.
 
     *furniture* (:class:`FurnitureOptions`) selects and sizes the E16
-    panels: any of the three can be left out (an already-created one is
-    then removed, and the steps that exist only for it — the stacked
-    desktop grid for the pager, the top-panel parking for the dragbar —
-    are skipped and their baselines restored), the pager cell and iconbox
-    thicknesses are overridable, and ``strut`` turns the left-edge panels
-    back into screen-reserving ones.
+    panels. Every panel is OPT-IN and each selector is a tri-state: asked
+    for (``--pager``) it is created or re-asserted; opted out
+    (``--no-pager``) an already-created one is removed and the step that
+    exists only for it — the stacked desktop grid for the pager, the
+    top-panel parking for the dragbar — is undone and its baseline
+    restored; absent (the default) the panel is left alone, meaning a
+    live recorded one still follows this theme's spec but nothing is
+    created and no side step runs either way. The pager cell, iconbox and
+    dock thicknesses are overridable, and ``strut`` turns the left-edge
+    panels back into screen-reserving ones. The dock (``--dock``) is the
+    one panel with no side step and no E16 ancestor; :func:`apply_dock`
+    builds it on its own.
 
     Order (see module docstring): verify both the Look-and-Feel bundle and
     the QML decoration package are installed → record the pre-themey
@@ -1936,32 +2256,17 @@ def apply_full(
             f"under {paths.kwin_decorations()} — run `themey convert` first"
         )
 
-    # Only the applets the ENABLED panels host are required: with
-    # --no-pager/--no-dragbar the missing package is simply never used.
-    needed_applets = tuple(
-        pid for pid, wanted in (
+    # Only the applets the panels being BUILT host are required: a panel
+    # left out (--no-pager) or simply not asked for never uses its
+    # package, and a recorded panel that is only re-asserted already has
+    # its widget in place.
+    _require_applets(tuple(
+        pid for pid, want in (
             (plasmoids.PAGER_ID, furniture.pager),
             (plasmoids.DESKBUTTON_ID, furniture.dragbar),
-        ) if wanted
-    )
-    missing_applets = [
-        pid for pid in needed_applets
-        if not (paths.plasmoids() / pid / "metadata.json").is_file()
-    ]
-    if missing_applets:
-        raise ApplyError(
-            f"themey's applet packages are not installed under "
-            f"{paths.plasmoids()} ({', '.join(missing_applets)}) — run "
-            "`themey convert` first (any theme installs them)"
-        )
-    for pid in needed_applets:
-        installed_rt = plasmoids.installed_runtime_version(paths.plasmoids() / pid)
-        if installed_rt is None or installed_rt < plasmoids.RUNTIME_VERSION:
-            log.warning(
-                "installed applet %s is runtime %s, this themey is %s — "
-                "re-run `themey convert` to refresh it",
-                pid, installed_rt, plasmoids.RUNTIME_VERSION,
-            )
+            (plasmoids.DOCK_ID, furniture.dock),
+        ) if want is True
+    ))
 
     scheme_file = paths.color_schemes() / f"{pkg_id}.colors"
     has_colors = scheme_file.is_file()
@@ -2071,19 +2376,26 @@ def apply_full(
     # step (so the created panels never pollute the PrevPanelLengthModes
     # baseline snapshotted there) and, like it, before the wallpaper
     # fix-up.
-    if furniture.pager:
+    # Each side step belongs to exactly one panel, so it follows that
+    # panel's tri-state: asked for -> do it, opted out -> undo it, absent
+    # -> leave the user's desktop grid and top edge as they are.
+    if furniture.pager is True:
         _set_desktop_grid_column(kw, kr)
-    else:
+    elif furniture.pager is False:
         _undo_desktop_grid_column(kw, kr)
     # Park the pre-themey top panel(s) BEFORE creating the furniture: the
     # dragbar is created last, so it is never itself parked, and after
     # the fit step, so it never enters PrevPanelLengthModes.
-    if furniture.dragbar:
+    if furniture.dragbar is True:
         _park_top_panels(kw, kr)
-    # Only the pager's thickness depends on the screen shape, so the
-    # extra scripting round-trip is skipped when it is opted out.
+    # Only the pager's thickness depends on the screen shape, so the extra
+    # scripting round-trip is skipped unless a pager is going to be built
+    # or an already-recorded one re-asserted.
+    needs_pager_size = furniture.pager is True or (
+        furniture.pager is None and _has_furniture_marker(kr, _PAGER_KEY)
+    )
     screen_aspect = (
-        _read_screen_aspect() if furniture.pager else _DEFAULT_SCREEN_ASPECT
+        _read_screen_aspect() if needs_pager_size else _DEFAULT_SCREEN_ASPECT
     )
     live_furniture = _ensure_furniture(
         kw, kr, scale=theme_scale, tasks_hover=tasks_hover,
@@ -2096,7 +2408,7 @@ def apply_full(
     # assigns `p.hiding` on the user's panels, and plasmashell's lazy
     # flush of that would rewrite plasmashellrc over the panelVisibility
     # values.
-    if not furniture.dragbar:
+    if furniture.dragbar is False:
         _undo_top_panel_parking(kw, kr)
     # Dead last of the panel work — plasmashell flushes a scripted
     # `hiding` lazily and would undo this write.
@@ -2135,9 +2447,9 @@ def apply_full(
         # the restart the panels keep reserving screen space until the
         # next login (the config itself has landed).
         log.warning(
-            "the pager/iconbox panels keep their screen struts until "
-            "plasmashell restarts — the windows-go-below panelVisibility "
-            "is written but only read at start-up"
+            "the %s keep their screen struts until plasmashell restarts — "
+            "the windows-go-below panelVisibility is written but only read "
+            "at start-up", " and ".join(visibility_pending),
         )
 
 
@@ -2425,4 +2737,78 @@ def revert() -> bool:
             f"could not be reapplied: {failed} — run "
             "`themey apply --revert` again to retry it"
         )
+    return True
+
+
+def apply_dock(*, size_px: int | None = None, remove: bool = False) -> bool:
+    """``themey dock``: build (or remove) JUST the dock panel.
+
+    The dock is the one piece of themey furniture that is useful without
+    a themey global theme, so this path does far less than
+    :func:`apply_full`: it verifies nothing about a Look-and-Feel bundle
+    or decoration package, runs no ``plasma-apply-*`` tool, no KWin
+    reconfigure and no plasmashell restart, and — the important omission
+    — never calls :func:`_set_panels_fit`, so the user's own panels keep
+    their length modes and floats and no ``PrevPanel*`` baseline is
+    recorded off them.
+
+    It also passes :func:`_ensure_furniture` the dock spec ALONE, so the
+    pager/iconbox/dragbar markers are neither read, re-asserted nor
+    dropped by a command that was only ever asked about the dock.
+
+    Adding: the applet package must be installed
+    (:func:`_require_applets` — any ``themey convert`` installs it), the
+    per-theme settings come off whatever global theme is active
+    (:func:`_active_themey_bundle`, read once) — the thickness from
+    *size_px* or that bundle's conversion scale
+    (:func:`_active_theme_scale`), the hover frame from its Plasma Style
+    (:func:`_active_tasks_hover`, None under a stock desktop, which leaves
+    the applet's own default alone) — and the panel is created, or, when
+    the ``[Themey] DockPanel`` marker still names a live one, re-asserted
+    to that spec. Returns True.
+
+    Removing (*remove*): the recorded panel is removed and its marker
+    cleared (:func:`_remove_furniture`, so a failure keeps the marker for
+    a later retry — it is raised here rather than only warned, since
+    removing the dock is the whole point of the call). Returns whether a
+    marker named a panel to act on; a tampered (non-digit) marker names
+    none, so it is simply cleared and reported as nothing to remove. No
+    applet package is needed to get rid of a panel.
+
+    A dock created before the first full apply is in place when
+    :func:`apply_full` next snapshots ``PrevPanelLengthModes`` /
+    ``PrevPanelFloating``, so it appears in those baselines. That is
+    harmless: :func:`revert` removes the dock BEFORE it restores the
+    recorded modes, so the clause naming the dock's id matches no
+    surviving panel.
+    """
+    kw = _which("kwriteconfig6", "kwriteconfig5")
+    kr = _which("kreadconfig6", "kreadconfig5")
+
+    if remove:
+        had_panel = _has_furniture_marker(kr, _DOCK_KEY)
+        # Removal reads only the spec's marker key and name, so neither
+        # the size nor the hover setting this spec would have built with
+        # matters.
+        spec = _dock_spec(
+            scale=_DEFAULT_THEME_SCALE, size_px=None, tasks_hover=None
+        )
+        error = _remove_furniture(kw, kr, (spec,))
+        if error is not None:
+            raise error
+        return had_panel
+
+    _require_applets((_DOCK_WIDGET,))
+    # Constructed for the size validation (`--dock-size 0`) as much as for
+    # the tri-state `_ensure_furniture` reads off it.
+    furniture = FurnitureOptions(dock=True, dock_px=size_px)
+    # One config read, two per-theme settings off it.
+    bundle = _active_themey_bundle(kr)
+    spec = _dock_spec(
+        scale=_active_theme_scale(bundle),
+        size_px=furniture.dock_px,
+        tasks_hover=_active_tasks_hover(bundle),
+    )
+    live = _ensure_furniture(kw, kr, furniture=furniture, specs=(spec,))
+    _write_furniture_visibility(kw, live)
     return True

@@ -1,0 +1,495 @@
+/*
+    SPDX-FileCopyrightText: 2024 Custom Developer
+    SPDX-FileCopyrightText: 2026 themey contributors
+    Based on KDE Plasma Task Manager by Eike Hein
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
+
+import QtQuick
+import QtQuick.Layouts
+
+import org.kde.plasma.plasmoid
+import org.kde.plasma.core as PlasmaCore
+import org.kde.ksvg as KSvg
+import org.kde.kirigami as Kirigami
+
+import org.kde.taskmanager as TaskManager
+import org.kde.plasma.private.mpris as Mpris
+
+PlasmoidItem {
+    id: root
+
+    readonly property bool vertical: Plasmoid.formFactor === PlasmaCore.Types.Vertical
+    readonly property int location: Plasmoid.location
+    readonly property bool iconsOnly: true  // Always icons only for this widget
+
+    // Zoom properties from config
+    readonly property bool zoomEnabled: Plasmoid.configuration.zoomEnabled
+    readonly property real zoomFactor: Plasmoid.configuration.zoomFactor
+    readonly property int zoomDuration: Plasmoid.configuration.zoomDuration
+    readonly property bool zoomNeighbors: Plasmoid.configuration.zoomNeighbors
+    readonly property real neighborZoomFactor: Plasmoid.configuration.neighborZoomFactor
+    readonly property bool parabolicEnabled: Plasmoid.configuration.parabolicEnabled
+    readonly property int maxParabolicRise: Plasmoid.configuration.maxParabolicRise
+
+    // Audio properties from config
+    readonly property bool showAudioIndicator: Plasmoid.configuration.showAudioIndicator
+    readonly property bool allowVolumeControl: Plasmoid.configuration.allowVolumeControl
+
+    // Anti-clip property
+    readonly property bool antiClip: Plasmoid.configuration.antiClip
+
+    // Icon size normalization
+    readonly property int iconSizePercent: Plasmoid.configuration.iconSizePercent
+
+    // Upstream's hover-appearance switch, which themey apply writes from
+    // the Plasma Style's X-Themey-TasksHover stamp (main.xml:137-140 in
+    // plasma-desktop Plasma/6.6).
+    readonly property bool hoverEffect: Plasmoid.configuration.taskHoverEffect
+
+    // Does the active Plasma Style carry task art? themey's
+    // generate/plasmastyle synthesizes widgets/tasks.svg from the E16
+    // iconbox button art; a style without it (stock Breeze, or an E16
+    // theme with no iconbox art) leaves the dock on the fork's own
+    // Kirigami rectangles. Re-probed on every repaint, because a plain
+    // binding on hasElement() would only run once — the same idiom the
+    // themey pager uses (runtime/pager/contents/ui/main.qml:83-97).
+    property bool hasTaskArt: false
+
+    function refreshArt() {
+        hasTaskArt = tasksSvg.isValid() && tasksSvg.hasElement("center");
+    }
+
+    Component.onCompleted: refreshArt()
+
+    KSvg.Svg {
+        id: tasksSvg
+        imagePath: "widgets/tasks"
+        onRepaintNeeded: root.refreshArt()
+    }
+
+    // Plasmoid.backgroundHints is deliberately left at its default: on a
+    // dock panel the containment paints widgets/panel-background.svg, which
+    // is the theme's own trough art, and NoBackground would drop it.
+
+    preferredRepresentation: fullRepresentation
+
+    Plasmoid.constraintHints: Plasmoid.CanFillArea
+
+    Layout.fillWidth: vertical ? true : Plasmoid.configuration.fill
+    Layout.fillHeight: !vertical ? true : Plasmoid.configuration.fill
+
+    Layout.minimumWidth: {
+        if (tasksModel.count === 0) {
+            return Kirigami.Units.gridUnit;
+        }
+        return taskList.implicitWidth;
+    }
+    Layout.minimumHeight: {
+        if (tasksModel.count === 0) {
+            return Kirigami.Units.gridUnit;
+        }
+        return taskList.implicitHeight;
+    }
+
+    Layout.preferredWidth: {
+        if (tasksModel.count === 0) {
+            return 0.01;
+        }
+        if (vertical) {
+            return Kirigami.Units.gridUnit * 3;
+        }
+        return taskList.implicitWidth;
+    }
+    Layout.preferredHeight: {
+        if (tasksModel.count === 0) {
+            return 0.01;
+        }
+        if (vertical) {
+            return taskList.implicitHeight;
+        }
+        return Kirigami.Units.gridUnit * 3;
+    }
+
+    property Item dragSource
+
+    // Context menu component
+    readonly property Component contextMenuComponent: Qt.createComponent("ContextMenu.qml")
+
+    // Group dialog component
+    readonly property Component groupDialogComponent: Qt.createComponent("GroupDialog.qml")
+    property var activeGroupDialog: null
+
+    // MPRIS source for media controls in context menu
+    Mpris.Mpris2Model {
+        id: mpris2Source
+    }
+
+    // PulseAudio for volume control
+    PulseAudio {
+        id: pulseAudio
+    }
+
+    LauncherDrop {
+        id: launcherDrop
+        tasksModel: tasksModel
+    }
+
+    // TaskManager Model
+    TaskManager.TasksModel {
+        id: tasksModel
+
+        virtualDesktop: virtualDesktopInfo.currentDesktop
+        screenGeometry: Plasmoid.containment.screenGeometry
+        activity: activityInfo.currentActivity
+
+        filterByVirtualDesktop: Plasmoid.configuration.showOnlyCurrentDesktop
+        filterByScreen: Plasmoid.configuration.showOnlyCurrentScreen
+        filterByActivity: Plasmoid.configuration.showOnlyCurrentActivity
+        filterNotMinimized: Plasmoid.configuration.showOnlyMinimized
+
+        sortMode: sortModeEnumValue(Plasmoid.configuration.sortingStrategy)
+        separateLaunchers: Plasmoid.configuration.separateLaunchers
+        groupMode: groupModeEnumValue(Plasmoid.configuration.groupingStrategy)
+        groupInline: false
+        hideActivatedLaunchers: true
+        launchInPlace: Plasmoid.configuration.sortingStrategy === 1
+
+        onLauncherListChanged: {
+            Plasmoid.configuration.launchers = launcherList;
+        }
+
+        onGroupingAppIdBlacklistChanged: {
+            Plasmoid.configuration.groupingAppIdBlacklist = groupingAppIdBlacklist;
+        }
+
+        onGroupingLauncherUrlBlacklistChanged: {
+            Plasmoid.configuration.groupingLauncherUrlBlacklist = groupingLauncherUrlBlacklist;
+        }
+
+        function sortModeEnumValue(index) {
+            switch (index) {
+            case 0:
+                return TaskManager.TasksModel.SortDisabled;
+            case 1:
+                return TaskManager.TasksModel.SortManual;
+            case 2:
+                return TaskManager.TasksModel.SortAlpha;
+            case 3:
+                return TaskManager.TasksModel.SortVirtualDesktop;
+            case 4:
+                return TaskManager.TasksModel.SortActivity;
+            default:
+                return TaskManager.TasksModel.SortDisabled;
+            }
+        }
+
+        function groupModeEnumValue(index) {
+            switch (index) {
+            case 0:
+                return TaskManager.TasksModel.GroupDisabled;
+            case 1:
+                return TaskManager.TasksModel.GroupApplications;
+            default:
+                return TaskManager.TasksModel.GroupDisabled;
+            }
+        }
+
+        Component.onCompleted: {
+            launcherList = Plasmoid.configuration.launchers;
+            groupingAppIdBlacklist = Plasmoid.configuration.groupingAppIdBlacklist;
+            groupingLauncherUrlBlacklist = Plasmoid.configuration.groupingLauncherUrlBlacklist;
+        }
+    }
+
+    TaskManager.VirtualDesktopInfo {
+        id: virtualDesktopInfo
+    }
+
+    TaskManager.ActivityInfo {
+        id: activityInfo
+    }
+
+    // Main content
+    Item {
+        anchors.fill: parent
+
+        // Reliable hover tracking for the entire widget area
+        HoverHandler {
+            id: widgetHoverHandler
+            onHoveredChanged: {
+                if (!hovered) {
+                    taskList.forceResetHover();
+                }
+            }
+        }
+
+        // Empty dock / gutter: pin the default app (or the .desktop app itself)
+        DropArea {
+            id: launcherDropArea
+            anchors.fill: parent
+            z: 0  // Below task icons
+
+            onEntered: function(drag) {
+                if (drag.hasUrls) {
+                    drag.accepted = true;
+                }
+            }
+
+            onDropped: function(drop) {
+                if (drop.hasUrls) {
+                    launcherDrop.addFromUrls(drop.urls);
+                    drop.accepted = true;
+                }
+            }
+        }
+
+        TaskList {
+            id: taskList
+            // Fixed positioning - no centerIn to avoid recalculation on hover
+            anchors.left: root.vertical ? undefined : parent.left
+            anchors.top: root.vertical ? parent.top : undefined
+            anchors.verticalCenter: root.vertical ? undefined : parent.verticalCenter
+            anchors.horizontalCenter: root.vertical ? parent.horizontalCenter : undefined
+
+            // Pass the actual panel size to TaskList
+            width: root.vertical ? parent.width : implicitWidth
+            height: root.vertical ? implicitHeight : parent.height
+
+            model: tasksModel
+            vertical: root.vertical
+            panelLocation: root.location
+            panelThickness: root.vertical ? root.width : root.height
+            zoomEnabled: root.zoomEnabled
+            zoomFactor: root.zoomFactor
+            zoomDuration: root.zoomDuration
+            pulseAudio: pulseAudio
+            showAudioIndicator: root.showAudioIndicator
+            allowVolumeControl: root.allowVolumeControl
+            zoomNeighbors: root.zoomNeighbors
+            neighborZoomFactor: root.neighborZoomFactor
+            iconSpacing: Plasmoid.configuration.iconSpacing
+            widgetHovered: widgetHoverHandler.hovered
+            parabolicEnabled: root.parabolicEnabled
+            maxParabolicRise: root.maxParabolicRise
+            shrinkDistant: false
+            distantShrinkFactor: 1.0
+            antiClip: root.antiClip
+            iconSizePercent: root.iconSizePercent
+            hasTaskArt: root.hasTaskArt
+            hoverEffect: root.hoverEffect
+            autoShrink: false
+            minIconSize: 24
+            availableSpace: root.vertical ? root.height : root.width
+
+            onTaskClicked: function(index, button, modifiers) {
+                var modelIndex = tasksModel.makeModelIndex(index);
+                var isActive = tasksModel.data(modelIndex, TaskManager.AbstractTasksModel.IsActive);
+                var isLauncher = tasksModel.data(modelIndex, TaskManager.AbstractTasksModel.IsLauncher);
+                var isMinimized = tasksModel.data(modelIndex, TaskManager.AbstractTasksModel.IsMinimized);
+                var isGroupParent = tasksModel.data(modelIndex, TaskManager.AbstractTasksModel.IsGroupParent);
+
+                if (button === Qt.LeftButton) {
+                    if (modifiers & Qt.ShiftModifier) {
+                        tasksModel.requestNewInstance(modelIndex);
+                    } else if (isGroupParent) {
+                        // Cycle through group windows on click
+                        root.cycleGroupWindows(index);
+                    } else if (isLauncher) {
+                        tasksModel.requestActivate(modelIndex);
+                    } else if (isActive) {
+                        tasksModel.requestToggleMinimized(modelIndex);
+                    } else {
+                        tasksModel.requestActivate(modelIndex);
+                    }
+                } else if (button === Qt.MiddleButton) {
+                    handleMiddleClick(modelIndex);
+                }
+            }
+
+            onTaskContextMenu: function(index) {
+                var modelIndex = tasksModel.makeModelIndex(index);
+                var task = taskList.getTaskAt(index);
+                if (task) {
+                    var menu = root.createContextMenu(task, modelIndex);
+                    if (menu) {
+                        menu.show();
+                    }
+                }
+            }
+
+            onTaskLauncherDropped: function(urls) {
+                launcherDrop.addFromUrls(urls);
+            }
+
+            onTaskFilesDropped: function(index, urls) {
+                var modelIndex = tasksModel.makeModelIndex(index);
+                var isLauncher = tasksModel.data(modelIndex, TaskManager.AbstractTasksModel.IsLauncher);
+
+                if (urls.length === 0) {
+                    // Empty urls = just activate the window (hover activation during drag)
+                    if (!isLauncher) {
+                        tasksModel.requestActivate(modelIndex);
+                    }
+                } else {
+                    tasksModel.requestOpenUrls(modelIndex, urls);
+                }
+            }
+
+            onTaskDragHover: function(index, isDragHovered) {
+                var modelIndex = tasksModel.makeModelIndex(index);
+                var isGroupParent = tasksModel.data(modelIndex, TaskManager.AbstractTasksModel.IsGroupParent);
+
+                if (isDragHovered && isGroupParent) {
+                    // Show group dialog immediately for drag-n-drop
+                    root.showGroupDialog(index);
+                }
+            }
+
+        }
+
+        // Watch hoveredIndex changes for group preview
+        Connections {
+            target: taskList
+            function onHoveredIndexChanged() {
+                var index = taskList.hoveredIndex;
+                if (index >= 0) {
+                    var modelIndex = tasksModel.makeModelIndex(index);
+                    var isGroupParent = tasksModel.data(modelIndex, TaskManager.AbstractTasksModel.IsGroupParent);
+                    if (isGroupParent) {
+                        groupHoverTimer.taskIndex = index;
+                        groupHoverTimer.start();
+                    } else {
+                        groupHoverTimer.stop();
+                    }
+                } else {
+                    groupHoverTimer.stop();
+                }
+            }
+        }
+
+        // Timer for delayed group preview (to avoid flickering)
+        Timer {
+            id: groupHoverTimer
+            property int taskIndex: -1
+            interval: 400
+            onTriggered: {
+                // Check if still hovering same task
+                if (taskIndex >= 0 && taskList.hoveredIndex === taskIndex) {
+                    root.showGroupDialog(taskIndex);
+                }
+            }
+        }
+    }
+
+    function showGroupDialog(index) {
+        if (activeGroupDialog) {
+            activeGroupDialog.visible = false;
+            activeGroupDialog = null;
+        }
+        var task = taskList.getTaskAt(index);
+        if (task) {
+            activeGroupDialog = groupDialogComponent.createObject(root, {
+                visualParent: task,
+                tasksModel: tasksModel,
+                groupIndex: index,
+            });
+        }
+    }
+
+    function cycleGroupWindows(index) {
+        var modelIndex = tasksModel.makeModelIndex(index);
+        var childCount = tasksModel.rowCount(modelIndex);
+        if (childCount === 0) return;
+
+        // Find the currently active window in the group
+        var activeChildIndex = -1;
+        for (var i = 0; i < childCount; i++) {
+            var childIndex = tasksModel.index(i, 0, modelIndex);
+            if (tasksModel.data(childIndex, TaskManager.AbstractTasksModel.IsActive)) {
+                activeChildIndex = i;
+                break;
+            }
+        }
+
+        // Activate the next window in the group (cycle)
+        var nextIndex = (activeChildIndex + 1) % childCount;
+        var nextChildIndex = tasksModel.index(nextIndex, 0, modelIndex);
+        tasksModel.requestActivate(nextChildIndex);
+    }
+
+    function createContextMenu(task, modelIndex, args = {}) {
+        if (contextMenuComponent.status !== Component.Ready) {
+            console.warn("ContextMenu component error:", contextMenuComponent.errorString());
+            return null;
+        }
+        const initialArgs = Object.assign(args, {
+            visualParent: task,
+            modelIndex: modelIndex,
+            mpris2Source: mpris2Source,
+            tasksModel: tasksModel,
+            virtualDesktopInfo: virtualDesktopInfo,
+            activityInfo: activityInfo,
+        });
+        var menu = contextMenuComponent.createObject(task, initialArgs);
+        if (!menu) {
+            console.warn("Failed to create context menu, component error:", contextMenuComponent.errorString());
+        }
+        return menu;
+    }
+
+    function handleMiddleClick(modelIndex) {
+        switch (Plasmoid.configuration.middleClickAction) {
+        case 0: // None
+            break;
+        case 1: // Close
+            tasksModel.requestClose(modelIndex);
+            break;
+        case 2: // New Instance
+            tasksModel.requestNewInstance(modelIndex);
+            break;
+        case 3: // Toggle Minimized
+            tasksModel.requestToggleMinimized(modelIndex);
+            break;
+        case 4: // Toggle Grouping
+            tasksModel.requestToggleGrouping(modelIndex);
+            break;
+        case 5: // Bring to Current Desktop
+            tasksModel.requestVirtualDesktops(modelIndex, [virtualDesktopInfo.currentDesktop]);
+            break;
+        }
+    }
+
+    // Upstream main.qml:264-282: the panel has not settled into its new
+    // position when either of these fires, which is what TaskList's settle
+    // timer is for.
+    Connections {
+        target: Plasmoid
+
+        function onLocationChanged() {
+            taskList.schedulePublishGeometries();
+        }
+    }
+
+    Connections {
+        target: Plasmoid.containment
+
+        function onScreenGeometryChanged() {
+            taskList.schedulePublishGeometries();
+        }
+    }
+
+    Connections {
+        target: Plasmoid.configuration
+
+        function onLaunchersChanged() {
+            tasksModel.launcherList = Plasmoid.configuration.launchers;
+        }
+        function onGroupingAppIdBlacklistChanged() {
+            tasksModel.groupingAppIdBlacklist = Plasmoid.configuration.groupingAppIdBlacklist;
+        }
+        function onGroupingLauncherUrlBlacklistChanged() {
+            tasksModel.groupingLauncherUrlBlacklist = Plasmoid.configuration.groupingLauncherUrlBlacklist;
+        }
+    }
+}

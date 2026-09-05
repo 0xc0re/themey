@@ -117,6 +117,31 @@ def test_cli_no_open_suppresses_browser(fake_home, monkeypatch):
     assert calls == []
 
 
+def test_cli_default_does_not_open_browser(fake_home, monkeypatch):
+    """The preview is opt-in: a bare convert prints its path and stops."""
+    monkeypatch.setenv("DISPLAY", ":0")
+    calls: list = []
+    monkeypatch.setattr(
+        "themey.external.open_preview_unless_headless",
+        lambda p: calls.append(p) or True,
+    )
+    result = CliRunner().invoke(app, [str(FIXTURES / "Aliens.etheme")])
+    assert result.exit_code == 0, result.output
+    assert calls == []
+
+
+def test_cli_open_flag_opens_browser(fake_home, monkeypatch):
+    monkeypatch.setenv("DISPLAY", ":0")
+    calls: list = []
+    monkeypatch.setattr(
+        "themey.external.open_preview_unless_headless",
+        lambda p: calls.append(p) or True,
+    )
+    result = CliRunner().invoke(app, ["--open", str(FIXTURES / "Aliens.etheme")])
+    assert result.exit_code == 0, result.output
+    assert len(calls) == 1
+
+
 def test_cli_fractional_scale_accepted_for_qml(tmp_path, monkeypatch):
     monkeypatch.delenv("DISPLAY", raising=False)
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
@@ -219,3 +244,37 @@ def test_cli_iconbox_frames_invalid_rejected():
         app, ["--iconbox-frames", "bogus", str(FIXTURES / "Aliens.etheme")]
     )
     assert result.exit_code != 0
+
+
+def test_cli_render_dispatches_the_dock_target(monkeypatch, tmp_path):
+    from themey import render as render_mod
+
+    seen = {}
+
+    def fake_render_dock(theme, **kwargs):
+        seen["theme"] = theme
+        seen.update(kwargs)
+        return tmp_path / "dock.png"
+
+    monkeypatch.setattr(render_mod, "render_dock", fake_render_dock)
+    out = tmp_path / "picked.png"
+    result = CliRunner().invoke(
+        app,
+        [
+            "render", str(FIXTURES / "e13.etheme"), "--target", "dock",
+            "-o", str(out), "--scale", "1.5", "--upscale", "quality",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert seen["theme"] == str(FIXTURES / "e13.etheme")
+    assert seen["out"] == out
+    assert seen["scale"] == 1.5
+    assert seen["upscale"] == "quality"
+
+
+def test_cli_render_unknown_target_names_the_known_ones():
+    result = CliRunner().invoke(
+        app, ["render", str(FIXTURES / "e13.etheme"), "--target", "nope"]
+    )
+    assert result.exit_code != 0
+    assert "dock" in result.output

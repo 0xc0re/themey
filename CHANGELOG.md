@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A dock**, in the theme's own iconbox art. `themey dock` builds a
+  floating, centred, bottom-edge panel running `org.themey.dock` — an
+  icons-only task manager whose row zooms and rises under the pointer,
+  showing windows from every virtual desktop where E16's iconbox shows
+  only the minimized ones on the current desktop. It carries no art:
+  every plate comes at run time from the active Plasma Style's
+  `widgets/tasks`, so one dock survives converting and applying any
+  number of themes and re-plates itself when you switch Plasma Style in
+  System Settings.
+
+  `themey dock` is its own command because the dock needs no converted
+  theme. It touches that one panel and nothing else — no global theme, no
+  decoration, no other furniture panel, and, unlike a full apply, it does
+  not resize or un-float your existing panels. `themey dock --remove`
+  takes it away, `--dock-size PX` sets its thickness, and `themey apply
+  --revert` removes it with the rest of themey's furniture. It does need
+  the applet package under
+  `~/.local/share/plasma/plasmoids/org.themey.dock/`, which any `themey
+  convert` installs.
+
+- **`--dock` / `--no-dock` / `--dock-size PX`** on `themey apply` and on
+  `themey <theme>.etheme --apply`, building the same panel as part of a
+  full apply.
+
+- **The `org.themey.dock` applet**, vendored under **GPL-2.0+** — a fork
+  of a third-party macOS-style dock which is itself a fork of KDE's
+  Icons-Only Task Manager, where themey's own two applets are MIT. The
+  licence text, the provenance and the list of themey's changes ship
+  inside the package (`COPYING` and `README.md`). `RUNTIME_VERSION` 1 →
+  2; re-convert installed packages to pick it up.
+
+- **`themey render --target dock`** — the dock applet screenshotted in a
+  bottom-edge panel inside the nested headless KWin, with two client
+  windows open so the row has real tasks to plate.
+
+### Changed
+
+- **The HTML preview no longer opens a browser on its own.** A convert
+  prints the preview's path and stops; pass `--open` to have it launched.
+  `--no-open` still parses and is now what the default already does.
+
+- **E16's furniture panels are opt-in, and each flag is a tri-state.**
+  Building the pager, iconbox, dragbar and dock rearranges your panels, your
+  desktop grid and your top edge — the most invasive thing an apply does
+  — so a plain `themey apply <name>` now themes the desktop and leaves
+  all of that alone. Ask for a piece by name instead:
+
+  ```sh
+  themey apply Aliens --pager --iconbox --dragbar
+  ```
+
+  Each of `--pager`, `--iconbox` and `--dragbar` has three states. The
+  positive flag builds the panel (or brings a live one back to this
+  theme's spec). `--no-pager` &c. keep their old meaning: remove the
+  panel a previous apply created and undo the change made only for it
+  (the stacked desktop grid for the pager, the parking of your own top
+  panels for the dragbar). Leaving both off leaves that panel alone — a
+  panel you built earlier is still re-sized and re-configured for the
+  theme being applied, but nothing is created, no desktop grid or top
+  panel is touched, and a marker whose panel is gone is quietly dropped
+  rather than rebuilt. `themey apply --revert` is unchanged and still
+  removes everything themey recorded.
+
+  `--dock`, `--no-dock` and `--dock-size` join them as a fourth
+  tri-state, and now build the dock panel described above.
+
 ## [0.6.2] - 2026-09-03
 
 ### Changed

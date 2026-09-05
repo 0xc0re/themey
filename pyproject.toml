@@ -3,8 +3,12 @@ name = "themey"
 version = "0.6.2"
 description = "Convert Enlightenment DR16 (E16) .etheme archives into installable KDE Plasma 6 themes"
 readme = "README.md"
-license = "MIT"
-license-files = ["LICENSE"]
+license = "MIT AND GPL-2.0-or-later"
+license-files = [
+    "LICENSE",
+    # The vendored GPL-2.0+ dock applet keeps its own licence.
+    "src/themey/generate/plasmoids/runtime/dock/COPYING",
+]
 authors = [
     { name = "Christopher Story", email = "c0re@merle.io" }
 ]

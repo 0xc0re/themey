@@ -90,9 +90,13 @@ Working today:
 - `themey apply <name>` — apply the full Global Theme (or `--deco-only` for
   just the window decoration) to the live KWin session, including E16's
   pager, iconbox and dragbar panels, plus `themey apply --revert`
+- A floating, centred **dock** in the theme's own iconbox art
+  (`themey dock`, or `--dock` on apply/convert) — themey's `org.themey.dock`
+  applet, an icons-only task manager that zooms on hover
 - `themey <theme>.etheme --apply` — convert, install and apply in one
   command
 - `themey render` — screenshot a theme inside a headless nested KWin
+  (`--target deco`/`style`/`pager`/`dock`)
 
 Not built: batch conversion (`themey --all <dir>`).
 
@@ -178,12 +182,12 @@ download yourself.
 ### Convert
 
 ```bash
-themey Aliens.etheme                     # convert + install + open the preview
+themey Aliens.etheme                     # convert + install; prints the preview path
 themey convert Aliens.etheme --scale 3   # same thing, explicit subcommand
 themey Aliens.etheme --scale 1.5         # fractional scale (QML backend only)
 themey e13.etheme --scale 0.5            # smaller than native — e13's 40 px borders become 20
 themey Aliens.etheme --output /tmp/out   # write to a directory; install nothing
-themey Aliens.etheme --no-open           # skip the browser
+themey Aliens.etheme --open              # open the HTML preview in a browser
 ```
 
 `themey FILE.etheme` is shorthand for `themey convert FILE.etheme`.
@@ -198,17 +202,18 @@ themey Aliens.etheme --no-open           # skip the browser
 | `--widget-style NAME` | Have the Global Theme bundle select a Qt **application** style (`kdeglobals widgetStyle`): `windows`, `fusion`, or `breeze`. Default: leave your application style alone. Qt's built-in `Windows` style is the closest thing to a 2009 widget set that ships with Plasma. |
 | `--apply` | Apply the theme to the live desktop as soon as it is installed — exactly the work a following `themey apply NAME` would do. Rejected with `--output` or `--backend svg`/`both`, and rejected *before* the conversion runs, so a bad combination costs nothing. |
 | `--no-restart-shell` | Only with `--apply`; see the apply flag of the same name. |
-| `--no-pager` / `--no-iconbox` / `--no-dragbar` / `--furniture-strut` / `--pager-cell PX` / `--iconbox-size PX` | Only with `--apply`; the E16 furniture flags, documented in the apply table below. |
+| `--pager` / `--iconbox` / `--dragbar` / `--dock` (and their `--no-` forms) / `--furniture-strut` / `--pager-cell PX` / `--iconbox-size PX` / `--dock-size PX` | Only with `--apply`; the E16 furniture flags, documented in the apply table below. |
 | `--output DIR` | Write the theme tree(s), color scheme, wallpaper packages, cursor theme, Plasma Style, bundle, report, and preview under `DIR` instead of installing. Nothing under `~/.local/share` is touched. |
-| `--no-open` | Do not launch the HTML preview. The preview is also suppressed automatically over SSH and on headless machines. |
+| `--open` | Launch the HTML preview in a browser when the conversion finishes. Off by default — a convert prints the preview's path and leaves your browser alone. The preview is also suppressed automatically over SSH and on headless machines, and `--no-open` still parses (it is the default). |
 | `-v` / `-vv` / `-q` | `-v` and `-vv` both switch to DEBUG (no extra verbosity between them today); `-q` restricts to WARNING+. |
 
 ### Apply
 
 ```bash
 themey Aliens.etheme --apply        # convert, install, and apply in one command
-themey apply Aliens                 # apply the FULL Global Theme (deco, colors, Plasma Style, wallpaper, cursors, panels)
-themey apply Aliens --no-pager --no-iconbox   # ... but keep your own left edge
+themey apply Aliens                 # apply the FULL Global Theme (deco, colors, Plasma Style, wallpaper, cursors) — your panels are left alone
+themey apply Aliens --pager --iconbox --dragbar   # ... and build E16's furniture too
+themey apply Aliens --no-pager      # remove a pager panel an earlier apply created
 themey apply Aliens --deco-only     # just the window decoration, kwinrc-only
 themey apply Aliens --deco-only --backend svg --border-size Huge  # SVG-backend-only: BorderSize is theme-controlled on QML
 themey apply --revert               # restore whatever was active before the last full `themey apply`
@@ -217,7 +222,9 @@ themey apply Breeze                 # legacy escape hatch: switch the decoration
 
 | Flag | Meaning |
 |------|---------|
-| `--no-pager` / `--no-iconbox` / `--no-dragbar` | Leave that piece of E16 furniture out. A panel a previous apply already created is removed, and the desktop change made only for it is undone: the stacked desktop grid for the pager, the parking of your own top panels for the dragbar. |
+| `--pager` / `--iconbox` / `--dragbar` | Build that piece of E16 furniture. Each is off unless you ask for it. |
+| `--no-pager` / `--no-iconbox` / `--no-dragbar` | Remove that piece of furniture: a panel a previous apply created is deleted, and the desktop change made only for it is undone — the stacked desktop grid for the pager, the parking of your own top panels for the dragbar. |
+| `--dock` / `--no-dock` / `--dock-size PX` | Build (or remove) the dock — a floating, centred bottom panel running themey's own `org.themey.dock`. `--dock-size` overrides its thickness, which is otherwise derived from the conversion's scale (64 px at the default `--scale 2`). See [Dock](#dock). |
 | `--furniture-strut` | Let the pager and iconbox panels reserve screen space like ordinary Plasma panels. The default is Windows Go Below, so a maximized window keeps the whole screen and slides under them. |
 | `--pager-cell PX` | Pager cell height; the panel ends up one aspect-true cell thick (85 px for the default 48 px cell on a 16:9 screen). Default `48`, E16's own. |
 | `--iconbox-size PX` | Iconbox panel thickness, which is also the task icon size. Default `48`, E16's own. |
@@ -233,8 +240,8 @@ Plasma Style explicitly (`plasma-apply-colorscheme` /
 `~/.config/kdedefaults/` layer and will not displace an explicit user-layer
 setting), re-asserts the decoration keys in the user-layer `kwinrc` for the
 same reason, sets the Qt application style if the bundle asks for one
-(`--widget-style`), resizes your panels (below), builds E16's furniture
-panels (below), and finally fixes up a tiled
+(`--widget-style`), resizes your panels (below), builds whichever E16
+furniture panels you asked for (below), and finally fixes up a tiled
 default wallpaper if the theme's default background was tiled in E16.
 Because plasmashell (through at least 6.6.6) never repaints a fill-mode
 change made by scripting, and because applets read some Plasma Style
@@ -262,21 +269,34 @@ visibly rearranges your desktop. The previous per-panel modes are recorded
 once in `kdeglobals [Themey] PrevPanelLengthModes` and `PrevPanelFloating`,
 and put back by `themey apply --revert`.
 
-**You get E16's furniture.** A full apply creates three panels, and each
-can be left out with a flag:
+**E16's furniture is opt-in.** Rearranging your panels, desktop grid and
+top edge is the most invasive thing an apply does, so a plain
+`themey apply <name>` does none of it. Ask for a piece by name and you
+get:
 
 - a **pager** hugging the top-left corner, where E16 kept its pager
-  window, running themey's own pager applet (`--no-pager`);
+  window, running themey's own pager applet (`--pager`);
 - an **iconbox** hugging the bottom-left: an icons-only task manager
   showing *only minimized windows*, exactly E16's iconbox — iconify a
   window and its icon appears there, restore it and the icon vanishes
-  (`--no-iconbox`);
+  (`--iconbox`);
 - E16's **dragbar** across the top: a thin full-width panel with a
   next-desktop button at one end, a previous-desktop button at the other,
-  and the tray and clock between them (`--no-dragbar`). The top edge is
+  and the tray and clock between them (`--dragbar`). The top edge is
   the dragbar's alone, so your existing top panels are parked (moved to a
   screen index that does not exist — their config is kept, they are just
   never shown) and `--revert` or `--no-dragbar` brings them back.
+- a **dock** floating at the bottom centre, running themey's own
+  icons-only task manager with a zoom-on-hover row (`--dock`). It is the
+  one piece of furniture with no E16 ancestor — see [Dock](#dock).
+
+Each flag is really a tri-state. `--pager` builds the panel, `--no-pager`
+removes one an earlier apply created (and undoes the desktop-grid change
+made only for it), and leaving both off leaves that panel alone: a panel
+you built earlier is still re-sized and re-configured for the theme you
+are applying now, but nothing new is created and your desktop grid and
+top panels are untouched. If the panel behind a recorded id is gone,
+themey forgets it rather than quietly rebuilding it.
 
 Both left-edge panels are sized the way E16 sized its own: 48 px pager
 cells, which makes the panel 85 px thick on a 16:9 screen, and a 48 px
@@ -291,12 +311,13 @@ carrying a Plasma Style — which every themey conversion has. With
 and the apply says so.
 
 Your other panels are not touched beyond the fit-content step above. The
-three panel ids are recorded in `kdeglobals [Themey] PagerPanel`,
-`IconboxPanel` and `DragbarPanel`; a second apply reuses the live panels,
-and `themey apply --revert` removes them. To give the pager tall, readable
-cells, apply also stacks your virtual desktops one per row (desktop
-switching becomes up/down); the previous grid is recorded and put back by
-`--revert` or by `--no-pager`.
+four panel ids are recorded in `kdeglobals [Themey] PagerPanel`,
+`IconboxPanel`, `DragbarPanel` and `DockPanel`; a later apply reuses the
+live panels, and `themey apply --revert` removes them. With `--pager`, apply also
+stacks your virtual desktops one per row so the pager gets tall, readable
+cells (desktop switching becomes up/down); the previous grid is recorded
+and put back by `--revert` or by `--no-pager`. Without that flag your
+grid is left as it is, in either direction.
 
 The first time you run a full `themey apply`, it snapshots your current
 global theme, decoration, color scheme (`[Themey] PrevColorScheme`), icon
@@ -321,6 +342,44 @@ the System Settings "Border size" bracket; `--deco-only --backend svg` reads
 the installed `<name>rc` and picks the smallest bracket that fits unless
 `--border-size` overrides it. The QML backend (the default) never clamps —
 it draws its own unclamped borders and ignores `--border-size` entirely.
+
+### Dock
+
+```bash
+themey dock                  # build the dock, using whatever Plasma Style is active
+themey dock --dock-size 72   # ... at a thickness you pick
+themey dock --remove         # take it away again
+```
+
+A floating, centred, bottom-edge panel running `org.themey.dock`: an
+icons-only task manager whose row zooms and rises under the pointer. It
+shows windows from *every* virtual desktop, where E16's iconbox shows only
+the minimized ones on the current desktop, so the two complement each
+other rather than duplicate.
+
+It carries no art of its own. Every plate comes at run time from the
+active Plasma Style's `widgets/tasks` — the E16 iconbox button art on a
+themey theme, Breeze's own frames on a stock desktop — so one dock
+survives converting and applying any number of themes, and switching the
+Plasma Style in System Settings re-plates it with no themey command at
+all.
+
+`themey dock` is its own command rather than another apply flag because it
+needs no converted theme. It touches that one panel and nothing else: no
+global theme, no decoration, no other furniture panel, and — unlike a full
+apply — it does not resize or un-float your existing panels. What it does
+need is the applet package under
+`~/.local/share/plasma/plasmoids/org.themey.dock/`, which any `themey
+convert` installs. The thickness comes from the active themey theme's
+conversion scale (64 px at the default `--scale 2`) unless `--dock-size`
+overrides it, and the hover frame follows that theme's Plasma Style; under
+a stock desktop the applet's own defaults stand.
+
+The dock dodges windows rather than reserving screen space, and it is
+recorded in `kdeglobals [Themey] DockPanel` like the other furniture, so
+`themey apply --revert` removes it. `--dock` on `themey apply` (or on
+`themey <theme>.etheme --apply`) builds the same panel as part of a full
+apply.
 
 ### waifu2x upscaling (optional)
 
@@ -433,6 +492,9 @@ correctly.
 themey render Aliens.etheme -o /tmp/aliens.png
 themey render Aliens --plugin qml               # the default backend's truth
 themey render Aliens --maximized --plugin v2 --border-size Large
+themey render Aliens --target style             # the Plasma Style's FrameSvg sets
+themey render Aliens --target pager             # themey's pager applet
+themey render Aliens --target dock              # themey's dock applet
 ```
 
 `render` launches a private `kwin_wayland --virtual` session with its own XDG
@@ -442,6 +504,15 @@ argument is either a `.etheme` path (converted on the fly) or the name of an
 installed theme. `--plugin` selects `legacy` (`org.kde.kwin.aurorae` SVG,
 default), `v2` (`org.kde.kwin.aurorae.v2` SVG), or `qml` (the QML decoration
 package backend).
+
+`--target` picks what is screenshotted: `deco` (the default, a decorated
+window), `style` (the Plasma Style's frame sets, laid out in a labelled
+grid), `pager` (themey's pager applet against that style) or `dock`
+(themey's dock applet in a bottom-edge panel, with two client windows
+open so the row has real tasks to plate). The applet targets need
+`plasmoidviewer`. Nothing hovers in a nested session, so zoom and hover
+plates do not appear in a `dock` shot; `--target style` paints the hover
+frame directly instead.
 
 ### Shell helper
 
@@ -594,3 +665,11 @@ and `spectacle` are unavailable.
 MIT — see [LICENSE](LICENSE). The bundled E16 test fixtures are third-party
 work under their own terms; see
 [tests/fixtures/ATTRIBUTION.md](tests/fixtures/ATTRIBUTION.md).
+
+One shipped component is **not** MIT: the `org.themey.dock` applet
+(`src/themey/generate/plasmoids/runtime/dock/`) is a fork of a third-party
+macOS-style dock — itself a fork of KDE's Icons-Only Task Manager — and is
+**GPL-2.0-or-later**. Its licence text
+([COPYING](src/themey/generate/plasmoids/runtime/dock/COPYING)) and provenance
+([README](src/themey/generate/plasmoids/runtime/dock/README.md)) ship inside
+the installed package.
