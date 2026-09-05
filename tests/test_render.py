@@ -187,3 +187,28 @@ def test_dock_target_converts_with_visible_task_plates(tmp_path, monkeypatch):
     with pytest.raises(render.RenderError):
         render.render_dock(str(FIXTURES / "e13.etheme"), out=tmp_path / "d.png")
     assert seen["iconbox_frames"] == "on"
+
+
+def test_session_script_can_open_clients_after_the_viewer(tmp_path):
+    """The dock target needs the LAST window opened to be a kdialog, so
+    one of its two cells is the focused task. plasmoidviewer takes focus
+    when it starts, so its clients must follow it."""
+    script = render._style_session_script(
+        tmp_path, tmp_path / "o.png", tmp_path / "s.log",
+        applet="org.themey.dock", clients=2, clients_last=True,
+    )
+    txt = script.read_text()
+    assert txt.count("kdialog ") == 2
+    assert txt.index("plasmoidviewer") < txt.index("kdialog")
+    assert txt.index("kdialog") < txt.index("spectacle")
+    # The pager keeps the original order: its client must exist before
+    # the applet reads the window list.
+    txt = render._style_session_script(
+        tmp_path, tmp_path / "o.png", tmp_path / "s.log",
+        applet="org.themey.pager", clients=1,
+    ).read_text()
+    assert txt.index("kdialog") < txt.index("plasmoidviewer")
+
+
+def test_dock_target_opens_its_clients_last():
+    assert render._DOCK_RENDER_CLIENTS_LAST is True

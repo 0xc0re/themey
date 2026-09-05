@@ -26,9 +26,9 @@ swapping kdialog for ``plasmoidviewer`` against the theme's Plasma Style:
 cell per interesting set), :func:`render_pager` and :func:`render_dock`
 (themey's own applets, resolved by :func:`resolve_plasmoid_dir`). They
 differ only in the plasmoidviewer containment flags and in how many
-kdialog clients open first — the pager wants one window to draw a rect
-for, the dock two so the task row has a focused plate beside an
-unfocused one.
+kdialog clients open, and when — the pager wants one window to draw a
+rect for, the dock two, opened after plasmoidviewer so one task is
+active.
 """
 from __future__ import annotations
 
@@ -443,15 +443,25 @@ def resolve_style_dir(
 
 def _style_session_script(
     work: Path, out: Path, log_path: Path, *, applet: str = _STYLE_PROBE_ID,
-    clients: int = 0, viewer_args: tuple[str, ...] = (),
+    clients: int = 0, clients_last: bool = False,
+    viewer_args: tuple[str, ...] = (),
 ) -> Path:
     """Session script: plasmoidviewer on *applet*, *clients* kdialog
-    windows first, then spectacle.
+    windows, then spectacle.
 
     ``clients`` is a COUNT, not a flag: the pager target wants ONE window
-    to draw a rect for, the dock target TWO so the task row shows the
-    focused plate (the last window opened takes focus) beside an
-    unfocused one.
+    to draw a rect for, the dock target TWO so the task row plates more
+    than a single cell.
+
+    ``clients_last`` moves those windows AFTER plasmoidviewer. The order
+    decides which window is ACTIVE when spectacle fires, because the last
+    one mapped takes focus: with the default (clients first) plasmoidviewer
+    itself holds it and no task is active, which is what the dock target's
+    first shot showed — every cell byte-identical. With ``clients_last``
+    the last kdialog is active instead (measured 2026-09-05 off the
+    applet's own ``TasksModel``: ``IsActive`` true on "themey client 2").
+    The pager target keeps the default — its applet reads the window list,
+    so its client has to exist before it starts.
     """
     script = work / "session.sh"
     lines = [
@@ -460,14 +470,23 @@ def _style_session_script(
         'echo "WAYLAND_DISPLAY=$WAYLAND_DISPLAY"',
         "export QT_QPA_PLATFORM=wayland",
     ]
-    for i in range(clients):
-        lines += [
-            f"kdialog --title 'themey client {i + 1}' "
-            f"--msgbox 'themey client {i + 1}' &",
-            "sleep 1",
-        ]
+
+    def _clients() -> list[str]:
+        out: list[str] = []
+        for i in range(clients):
+            out += [
+                f"kdialog --title 'themey client {i + 1}' "
+                f"--msgbox 'themey client {i + 1}' &",
+                "sleep 1",
+            ]
+        return out
+
+    if not clients_last:
+        lines += _clients()
+    lines.append(f"plasmoidviewer -a {applet} {' '.join(viewer_args)} &")
+    if clients_last:
+        lines += [f"sleep {SETTLE_SECONDS}", *_clients()]
     lines += [
-        f"plasmoidviewer -a {applet} {' '.join(viewer_args)} &",
         f"sleep {SETTLE_SECONDS + 2}",
         f"spectacle -b -n -o {_q(out)}",
         'echo "spectacle rc=$?"',
@@ -500,10 +519,14 @@ _PAGER_VIEWER_ARGS: tuple[str, ...] = (
     "-s", f"{_PAGER_RENDER_THICKNESS}x420",
 )
 #: Clients the ``--target dock`` session opens: two kdialogs, so the task
-#: row shows the FOCUSED plate (the second window takes focus) next to an
-#: unfocused one — the ``focus-`` vs the plain ``widgets/tasks`` set, and
-#: the Selection-colour accent bar that only the focused set carries.
+#: row plates more than a single cell.
 _DOCK_RENDER_CLIENTS = 2
+#: ...and they are opened AFTER plasmoidviewer, so the last window mapped
+#: is a kdialog and its cell wears the ``focus-`` ``widgets/tasks`` set.
+#: Opened first (the pager target's order) plasmoidviewer holds focus, no
+#: task is active and every cell is the plain set — measured 2026-09-05,
+#: the two fully visible cells were byte-identical.
+_DOCK_RENDER_CLIENTS_LAST = True
 #: plasmoidviewer flags for the dock target: a horizontal BOTTOM-edge
 #: panel containment, because the fork's zoom and rise math is written
 #: against a bottom dock (icons grow upward out of the bar) and reads the
@@ -526,6 +549,7 @@ def _run_applet_session(
     work: Path,
     extra_packages: tuple[Path, ...] = (),
     clients: int = 0,
+    clients_last: bool = False,
     desktops: int | None = None,
     viewer_args: tuple[str, ...] = (),
 ) -> Path:
@@ -560,7 +584,7 @@ def _run_applet_session(
     session_log = work / "session.log"
     script = _style_session_script(
         work, out, session_log, applet=applet, clients=clients,
-        viewer_args=viewer_args,
+        clients_last=clients_last, viewer_args=viewer_args,
     )
 
     env = dict(os.environ)
@@ -758,11 +782,20 @@ def render_dock(
     ``org.themey.dock`` package copied next to the probe applet, a
     horizontal bottom-edge panel containment at the real dock thickness
     (``_DOCK_VIEWER_ARGS``) and ``_DOCK_RENDER_CLIENTS`` kdialog windows so
-    the row has real tasks to plate — the focused one and an unfocused
-    one, which is the ``widgets/tasks`` ``focus-`` set beside the plain
-    one (verified 2026-09-05: the two cells differ). plasmoidviewer's own
-    window is a task too, so the row holds three; the third sits under
-    plasmoidviewer's toolbar.
+    the row has real tasks to plate, opened after the viewer
+    (``_DOCK_RENDER_CLIENTS_LAST``) so the last of them is the ACTIVE task.
+
+    What the shot actually shows, measured on e13 2026-09-05:
+    plasmoidviewer's own window is a task too, so the row holds THREE
+    cells. The first two — plasmoidviewer and the first kdialog — are
+    unfocused and byte-identical (difference bbox ``None``, extrema
+    ``(0, 0)`` per channel). The third is the focused one: the vertically
+    flipped ``focus-`` plate with no running dot, differing from cell one
+    over the columns that are visible (extrema up to 247). Only its first
+    16 px clear plasmoidviewer's centred toolbar, which is the harness's
+    real limit here — dropping to ONE client would put a focused plate
+    beside an unfocused one entirely in frame, since the viewer itself
+    supplies the second task.
 
     A ``.etheme`` is converted with ``iconbox_frames`` forced to
     :data:`_DOCK_RENDER_ICONBOX_FRAMES`, not the pipeline default — see
@@ -800,7 +833,9 @@ def render_dock(
         return _run_applet_session(
             name=name, style_dir=style_dir, applet=DOCK_ID, out=out,
             work=work, extra_packages=(dock_dir,),
-            clients=_DOCK_RENDER_CLIENTS, viewer_args=_DOCK_VIEWER_ARGS,
+            clients=_DOCK_RENDER_CLIENTS,
+            clients_last=_DOCK_RENDER_CLIENTS_LAST,
+            viewer_args=_DOCK_VIEWER_ARGS,
         )
     finally:
         if keep_work:

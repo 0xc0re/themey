@@ -256,12 +256,20 @@ def test_cli_render_dispatches_the_dock_target(monkeypatch, tmp_path):
         seen.update(kwargs)
         return tmp_path / "dock.png"
 
-    monkeypatch.setattr(render_mod, "render_dock", fake_render_dock, raising=False)
+    monkeypatch.setattr(render_mod, "render_dock", fake_render_dock)
+    out = tmp_path / "picked.png"
     result = CliRunner().invoke(
-        app, ["render", str(FIXTURES / "e13.etheme"), "--target", "dock"]
+        app,
+        [
+            "render", str(FIXTURES / "e13.etheme"), "--target", "dock",
+            "-o", str(out), "--scale", "1.5", "--upscale", "quality",
+        ],
     )
     assert result.exit_code == 0, result.output
     assert seen["theme"] == str(FIXTURES / "e13.etheme")
+    assert seen["out"] == out
+    assert seen["scale"] == 1.5
+    assert seen["upscale"] == "quality"
 
 
 def test_cli_render_unknown_target_names_the_known_ones():
