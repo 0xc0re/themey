@@ -1409,9 +1409,13 @@ def test_apply_full_desktop_rows_marker_written_once(
 def test_apply_full_no_desktop_count_skips_grid(
     fake_kconfig: FakeKConfig,
 ) -> None:
+    """The pager IS asked for here — the grid step is reached and returns
+    early because [Desktops] Number is unreadable, not because nothing
+    ran (which is what an absent --pager would prove)."""
     _install_fake_deco("e13")
     _install_fake_lnf("e13")
-    apply_mod.apply_full("e13")  # no [Desktops] Number readable
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)  # no Number readable
+    fake_kconfig.index_of("new Panel", "org.themey.pager")
     assert "Rows" not in fake_kconfig.store
     assert "PrevDesktopRows" not in fake_kconfig.store
 
