@@ -7,6 +7,7 @@ Subcommands:
     themey convert <theme.etheme> ...      same as the default form
     themey render  <theme.etheme|name> ... headless KWin screenshot (see render.py)
     themey apply   <name> ...              point the live KWin at an installed theme
+    themey dock    [--remove]              build just the dock panel, no theme needed
 
 Flags (convert):
     --scale=N     in [0.5, 3]; fractional (e.g. 1.5 or 0.5) is
@@ -45,14 +46,12 @@ absent flag leaves that panel alone:
     --iconbox / --no-iconbox
     --dragbar / --no-dragbar
     --dock / --no-dock
-                  reserved for the dock panel a later change adds; it
-                  parses and validates today but builds nothing
     --furniture-strut
                   let the pager/iconbox panels reserve screen space
                   (default: Windows Go Below)
     --pager-cell PX / --iconbox-size PX / --dock-size PX
                   override E16's own 48 px cell / iconbox sizes, and the
-                  dock's thickness
+                  dock's scale-derived thickness
 
 Flags (apply, other):
     --widget-style windows|fusion|breeze
@@ -109,16 +108,13 @@ _DRAGBAR_HELP = (
     "Create E16's top dragbar; --no-dragbar removes one a previous apply "
     "created (and unparks your own top panels); absent = leave it alone"
 )
-#: The dock panel itself lands in a later change; until then the flag is
-#: accepted and validated but builds nothing, and its help says so rather
-#: than promising a panel.
 _DOCK_HELP = (
-    "Reserved for the macOS-style dock panel a later release adds; "
-    "accepted today, but no dock is built yet"
+    "Create the macOS-style dock panel (see also `themey dock`); --no-dock "
+    "removes one a previous apply created; absent = leave it alone"
 )
 _DOCK_SIZE_HELP = (
-    "Dock panel thickness in px; reserved alongside --dock and has no "
-    "effect yet"
+    "Dock panel thickness in px; default = 32 px at the theme's conversion "
+    "scale, floored at 48"
 )
 
 #: Lone flags that belong to the group itself, not to the implicit
@@ -817,6 +813,58 @@ def apply_cmd(
         logging.getLogger(__name__).error("apply failed: %s", exc)
         raise typer.Exit(code=1) from exc
     typer.echo(f"Applied {name} (revert: themey apply --revert)")
+
+
+@app.command("dock")
+def dock_cmd(
+    remove: Annotated[
+        bool,
+        typer.Option(
+            "--remove",
+            help="Remove the dock panel this command created and clear its "
+            "marker, instead of building one",
+        ),
+    ] = False,
+    dock_size: Annotated[
+        int | None,
+        typer.Option("--dock-size", help=_DOCK_SIZE_HELP),
+    ] = None,
+    verbose: Annotated[
+        int,
+        typer.Option(
+            "-v", "--verbose", count=True,
+            help="Increase verbosity (use -v for DEBUG)",
+        ),
+    ] = 0,
+    quiet: Annotated[
+        bool,
+        typer.Option(
+            "-q", "--quiet", help="Suppress info messages (WARNING+ only)",
+        ),
+    ] = False,
+) -> None:
+    """Build (or, with --remove, remove) just themey's dock panel.
+
+    The dock needs no converted theme — it takes its art from whatever
+    Plasma Style is active — so it is its own command rather than another
+    `themey apply` flag. It touches nothing but that one panel: no global
+    theme, no decoration, and none of the other furniture panels.
+    `themey apply --revert` removes it along with everything else.
+    """
+    log.setup_logging(verbose=verbose, quiet=quiet)
+    if dock_size is not None and dock_size <= 0:
+        raise typer.BadParameter("--dock-size must be a positive number of pixels")
+    try:
+        acted = apply.apply_dock(size_px=dock_size, remove=remove)
+    except apply.ApplyError as exc:
+        logging.getLogger(__name__).error("dock failed: %s", exc)
+        raise typer.Exit(code=1) from exc
+    if not remove:
+        typer.echo("Dock panel ready (remove: themey dock --remove)")
+    elif acted:
+        typer.echo("Dock panel removed.")
+    else:
+        typer.echo("No themey dock panel to remove.")
 
 
 if __name__ == "__main__":

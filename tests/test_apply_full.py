@@ -56,11 +56,16 @@ class FakeKConfig:
         self.pager_create_reply: str = "302"
         #: stdout served for the dragbar-panel CREATE script.
         self.dragbar_create_reply: str = "303"
+        #: stdout served for the dock-panel CREATE script.
+        self.dock_create_reply: str = "304"
         #: stdout served for the furniture existence-check scripts.
         self.iconbox_exists_reply: str = "missing"
         #: stdout served for the PAGER existence check (which also
         #: reports 'stale'); None = same as iconbox_exists_reply.
         self.pager_exists_reply: str | None = None
+        #: stdout served for the DOCK existence check (which also reports
+        #: 'stale'); None = same as iconbox_exists_reply.
+        self.dock_exists_reply: str | None = None
         #: stdout served for the top-panel READ script
         #: ("id=screen:location:hiding|..."; "" = no top panels).
         self.top_panels_reply: str = ""
@@ -95,7 +100,13 @@ class FakeKConfig:
                 reply = self.panel_read_reply
             return subprocess.CompletedProcess(cmd, 0, stdout=reply + "\n")
         if any("evaluateScript" in tok for tok in cmd) and "new Panel" in cmd[-1]:
-            if "icontasks" in cmd[-1]:
+            # The dock branch comes FIRST: the fallthrough below is the
+            # pager's, so without it a dock create would be answered with
+            # the pager's panel id and every dock assertion would pass
+            # against the wrong script.
+            if "org.themey.dock" in cmd[-1]:
+                reply = self.dock_create_reply
+            elif "icontasks" in cmd[-1]:
                 reply = self.iconbox_create_reply
             elif "org.themey.deskbutton" in cmd[-1]:
                 reply = self.dragbar_create_reply
@@ -104,7 +115,9 @@ class FakeKConfig:
             return subprocess.CompletedProcess(cmd, 0, stdout=reply + "\n")
         if any("evaluateScript" in tok for tok in cmd) and "'exists'" in cmd[-1]:
             reply = self.iconbox_exists_reply
-            if "org.themey.pager" in cmd[-1] and self.pager_exists_reply is not None:
+            if "org.themey.dock" in cmd[-1] and self.dock_exists_reply is not None:
+                reply = self.dock_exists_reply
+            elif "org.themey.pager" in cmd[-1] and self.pager_exists_reply is not None:
                 reply = self.pager_exists_reply
             return subprocess.CompletedProcess(cmd, 0, stdout=reply + "\n")
         if any("evaluateScript" in tok for tok in cmd) and "'parked'" in cmd[-1]:
@@ -1943,11 +1956,11 @@ def test_furniture_options_rejects_nonpositive_sizes(value: int) -> None:
         apply_mod.FurnitureOptions(dock_px=value)
 
 
-def test_furniture_specs_defaults_return_all_three() -> None:
+def test_furniture_specs_defaults_return_all_four() -> None:
     """revert enumerates the specs to find its markers, so the default
     call must still describe every panel themey can create."""
     keys = [s.key for s in apply_mod._furniture_specs()]
-    assert keys == ["PagerPanel", "IconboxPanel", "DragbarPanel"]
+    assert keys == ["PagerPanel", "IconboxPanel", "DragbarPanel", "DockPanel"]
 
 
 @pytest.mark.parametrize(
@@ -2244,7 +2257,7 @@ def test_default_apply_creates_no_furniture(fake_kconfig: FakeKConfig) -> None:
     fake_kconfig.top_panels_reply = "1911=0:top:none"
     apply_mod.apply_full("e13")
     assert all("new Panel" not in c[-1] for c in fake_kconfig.calls)
-    for key in ("PagerPanel", "IconboxPanel", "DragbarPanel"):
+    for key in ("PagerPanel", "IconboxPanel", "DragbarPanel", "DockPanel"):
         assert key not in fake_kconfig.store
     # The pager-only and dragbar-only side steps never run either.
     assert "Rows" not in fake_kconfig.store
@@ -2562,3 +2575,222 @@ def test_reassert_snippet_only_on_the_iconbox(fake_kconfig: FakeKConfig) -> None
         ][-1]
         assert "taskHoverEffect" not in script
         assert "widgets(" not in script
+
+
+# --- dock panel -----------------------------------------------------------
+#
+# The one furniture panel with no E16 ancestor: a floating, centred,
+# bottom-edge icons-only dock hosting themey's own org.themey.dock. It
+# dodges windows (visibility 2 — a mode the scripting engine CAN spell,
+# unlike the left-edge panels' WindowsGoBelow) and is created after the
+# fit-all loop, which un-floats every panel.
+
+#: ALL_FURNITURE plus the dock, for the tests that want all four panels.
+ALL_FURNITURE_WITH_DOCK = dataclasses.replace(ALL_FURNITURE, dock=True)
+
+
+@pytest.mark.parametrize(
+    "scale,px", [(1.0, 48), (1.5, 48), (2.0, 64), (3.0, 96)],
+)
+def test_dock_thickness_px(scale: float, px: int) -> None:
+    """32 ref px at the conversion scale, floored at 48 so the icons stay
+    usable at scale 1."""
+    assert apply_mod.dock_thickness_px(scale) == px
+
+
+def test_apply_full_creates_dock_panel(fake_kconfig: FakeKConfig) -> None:
+    """Floating, centred, bottom edge, content-sized, dodging windows —
+    and hosting themey's own dock across every virtual desktop."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE_WITH_DOCK)
+    i = fake_kconfig.index_of("new Panel", "org.themey.dock")
+    script = fake_kconfig.calls[i][-1]
+    assert "p.location = 'bottom'" in script
+    assert "p.alignment = 'center'" in script
+    assert "p.height = 64" in script  # scale_px(32, 2)
+    assert "p.hiding = 'dodgewindows'" in script
+    assert "p.lengthMode = 'fit'" in script
+    assert "p.minimumLength = 0" in script
+    assert "p.floating = true" in script
+    assert "var w = p.addWidget('org.themey.dock')" in script
+    assert "w.currentConfigGroup = ['General']" in script
+    assert "w.writeConfig('showOnlyCurrentDesktop', false)" in script
+    assert "w.reloadConfig()" in script
+    assert "print(p.id)" in script
+    assert fake_kconfig.store["DockPanel"] == "304"
+    assert (
+        fake_kconfig.store["plasmashellrc/PlasmaViews/Panel 304/panelVisibility"]
+        == "2"
+    )
+
+
+def test_apply_full_dock_off_by_default(fake_kconfig: FakeKConfig) -> None:
+    """The dock is opt-in like every other panel: asking for the three E16
+    ones does not bring it along."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
+    assert all("org.themey.dock" not in c[-1] for c in fake_kconfig.calls)
+    assert "DockPanel" not in fake_kconfig.store
+
+
+def test_apply_full_dock_size_override(fake_kconfig: FakeKConfig) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    apply_mod.apply_full(
+        "e13", furniture=dataclasses.replace(ALL_FURNITURE_WITH_DOCK, dock_px=72),
+    )
+    i = fake_kconfig.index_of("new Panel", "org.themey.dock")
+    assert "p.height = 72" in fake_kconfig.calls[i][-1]
+
+
+@pytest.mark.parametrize("scale,px", [(1.0, 48), (3, 96)])
+def test_apply_full_dock_thickness_from_scale_stamp(
+    fake_kconfig: FakeKConfig, scale: float, px: int,
+) -> None:
+    _install_fake_deco("e13")
+    lnf = _install_fake_lnf("e13")
+    (lnf / "metadata.json").write_text(json.dumps({"X-Themey-Scale": scale}))
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE_WITH_DOCK)
+    i = fake_kconfig.index_of("new Panel", "org.themey.dock")
+    assert f"p.height = {px}" in fake_kconfig.calls[i][-1]
+
+
+def test_apply_full_dock_created_after_the_fit_loop(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """``_set_panels_fit`` un-floats EVERY panel, so the dock's own
+    creation has to come after it and set the float itself."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.panel_read_reply = "1911=fill"
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE_WITH_DOCK)
+    i_fit = fake_kconfig.index_of("for (const p of panels())", "p.floating = false")
+    i_dock = fake_kconfig.index_of("new Panel", "org.themey.dock")
+    assert i_fit < i_dock
+
+
+def test_apply_full_dock_reassert_refloats_a_live_panel(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """Same on a second apply: the fit loop un-floated the live dock, and
+    its re-assert floats it again (and re-writes taskHoverEffect)."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["DockPanel"] = "304"
+    fake_kconfig.iconbox_exists_reply = "exists"
+    fake_kconfig.panel_read_reply = "304=fit"
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE_WITH_DOCK)
+    i_fit = fake_kconfig.index_of("for (const p of panels())", "p.floating = false")
+    i_reassert = fake_kconfig.index_of("panelById(304)", "p.height")
+    assert i_fit < i_reassert
+    reassert = fake_kconfig.calls[i_reassert][-1]
+    assert "p.floating = true" in reassert
+    assert "p.hiding = 'dodgewindows'" in reassert
+    assert "p.height = 64" in reassert
+    assert "p.widgets('org.themey.dock')[0]" in reassert
+    assert "w.writeConfig('taskHoverEffect', true)" in reassert
+    assert all(
+        "new Panel" not in c[-1]
+        for c in fake_kconfig.calls
+        if "org.themey.dock" in c[-1]
+    )
+    assert fake_kconfig.store["DockPanel"] == "304"
+
+
+def test_apply_full_stale_dock_panel_is_recreated(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """A recorded dock panel that no longer hosts themey's dock applet is
+    removed and rebuilt, its marker overwritten."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["DockPanel"] = "999"
+    fake_kconfig.iconbox_exists_reply = "exists"
+    fake_kconfig.dock_exists_reply = "stale"
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE_WITH_DOCK)
+    fake_kconfig.index_of("panelById(999)", "p.remove()")
+    fake_kconfig.index_of("new Panel", "org.themey.dock")
+    assert fake_kconfig.store["DockPanel"] == "304"
+
+
+def test_no_dock_removes_the_recorded_dock_panel(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    fake_kconfig.store["DockPanel"] = "304"
+    apply_mod.apply_full("e13", furniture=apply_mod.FurnitureOptions(dock=False))
+    fake_kconfig.index_of("panelById(304)", "p.remove()")
+    assert "DockPanel" not in fake_kconfig.store
+    assert all("new Panel" not in c[-1] for c in fake_kconfig.calls)
+
+
+def test_dock_applet_required_only_when_the_dock_is_asked_for(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    import shutil as _shutil
+
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    _shutil.rmtree(paths.plasmoids() / plasmoids.DOCK_ID)
+    # Dock off, and dock absent: its package is never needed.
+    apply_mod.apply_full("e13", furniture=apply_mod.FurnitureOptions(dock=False))
+    apply_mod.apply_full("e13", furniture=ALL_FURNITURE)
+    with pytest.raises(apply_mod.ApplyError, match=plasmoids.DOCK_ID):
+        apply_mod.apply_full("e13", furniture=ALL_FURNITURE_WITH_DOCK)
+
+
+def test_dock_only_apply_without_restart_does_not_warn(
+    fake_kconfig: FakeKConfig, caplog,
+) -> None:
+    """A dodge-windows panel's ``hiding`` IS scripted, so it is live
+    immediately — only the left-edge panels' WindowsGoBelow waits for a
+    plasmashell start."""
+    _install_fake_deco("e13")
+    _install_fake_lnf("e13")
+    with caplog.at_level("WARNING"):
+        apply_mod.apply_full(
+            "e13", restart_shell=False,
+            furniture=apply_mod.FurnitureOptions(dock=True),
+        )
+    assert "strut" not in caplog.text.lower()
+    # ... while a pager in the same apply still does wait for one.
+    caplog.clear()
+    with caplog.at_level("WARNING"):
+        apply_mod.apply_full(
+            "e13", restart_shell=False,
+            furniture=apply_mod.FurnitureOptions(pager=True, dock=True),
+        )
+    assert "strut" in caplog.text.lower()
+    assert "dock panel" not in caplog.text
+
+
+def test_dock_is_the_only_floating_furniture_spec() -> None:
+    """Every E16 panel is a docked strip; the dock is the modern addition
+    that floats."""
+    assert [s.floating for s in apply_mod._furniture_specs()] == [
+        False, False, False, True,
+    ]
+
+
+def test_revert_removes_the_dock_panel_and_clears_its_marker(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    fake_kconfig.store["DockPanel"] = "304"
+    fake_kconfig.store["PrevLookAndFeelPackage"] = "org.kde.breeze.desktop"
+    assert apply_mod.revert() is True
+    fake_kconfig.index_of("panelById(304)", "p.remove()")
+    assert "DockPanel" not in fake_kconfig.store
+
+
+def test_revert_with_only_a_dock_marker_is_a_revert(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """A dock built by `themey dock` before any full apply is still
+    themey's to remove."""
+    fake_kconfig.store["DockPanel"] = "304"
+    assert apply_mod.revert() is True
+    fake_kconfig.index_of("panelById(304)", "p.remove()")
+    assert "DockPanel" not in fake_kconfig.store

@@ -265,3 +265,70 @@ def test_widget_style_enum_matches_the_generator_map() -> None:
     """The CLI's choices and lookandfeel's token->Qt-name map are one
     vocabulary — a new style is added in exactly one place."""
     assert {m.value for m in cli_mod.WidgetStyle} == set(WIDGET_STYLES)
+
+
+# --- themey dock ----------------------------------------------------------
+
+
+def test_dock_cmd_routes_to_apply_dock(monkeypatch) -> None:
+    """``themey dock`` is its own subcommand, so the implicit-``convert``
+    rewrite leaves it alone."""
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        apply_mod, "apply_dock", lambda **kw: calls.append(kw) or True
+    )
+    result = CliRunner().invoke(app, ["dock"])
+    assert result.exit_code == 0, result.output
+    assert calls == [{"size_px": None, "remove": False}]
+    assert "themey dock --remove" in result.output
+
+
+def test_dock_cmd_remove_flag(monkeypatch) -> None:
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        apply_mod, "apply_dock", lambda **kw: calls.append(kw) or True
+    )
+    result = CliRunner().invoke(app, ["dock", "--remove"])
+    assert result.exit_code == 0, result.output
+    assert calls == [{"size_px": None, "remove": True}]
+    assert "Dock panel removed." in result.output
+
+
+def test_dock_cmd_remove_with_nothing_to_remove(monkeypatch) -> None:
+    monkeypatch.setattr(apply_mod, "apply_dock", lambda **kw: False)
+    result = CliRunner().invoke(app, ["dock", "--remove"])
+    assert result.exit_code == 0, result.output
+    assert "No themey dock panel to remove." in result.output
+
+
+def test_dock_cmd_size_passes_through(monkeypatch) -> None:
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        apply_mod, "apply_dock", lambda **kw: calls.append(kw) or True
+    )
+    result = CliRunner().invoke(app, ["dock", "--dock-size", "72"])
+    assert result.exit_code == 0, result.output
+    assert calls == [{"size_px": 72, "remove": False}]
+
+
+@pytest.mark.parametrize("value", ["0", "-8"])
+def test_dock_cmd_rejects_nonpositive_size(monkeypatch, value: str) -> None:
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        apply_mod, "apply_dock", lambda **kw: calls.append(kw) or True
+    )
+    result = CliRunner().invoke(app, ["dock", "--dock-size", value])
+    assert result.exit_code != 0
+    assert calls == []
+
+
+def test_dock_cmd_apply_error_exits_nonzero(monkeypatch) -> None:
+    """A typed ApplyError is a failed command, not a traceback — and the
+    success line is never printed."""
+    def boom(**kw):
+        raise apply_mod.ApplyError("no plasmashell")
+
+    monkeypatch.setattr(apply_mod, "apply_dock", boom)
+    result = CliRunner().invoke(app, ["dock"])
+    assert result.exit_code == 1
+    assert "Dock panel" not in result.output
