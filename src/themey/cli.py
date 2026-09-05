@@ -92,9 +92,9 @@ class WidgetStyle(StrEnum):
     breeze = "breeze"
 
 
-#: Help for the four E16 furniture flags, shared by ``convert --apply``
-#: and ``apply`` so both spell the same tri-state the same way: the
-#: positive form builds the panel, ``--no-*`` removes one a previous apply
+#: Help for the furniture flags, shared by ``convert --apply`` and
+#: ``apply`` so both spell the same tri-state the same way: the positive
+#: form builds the panel, ``--no-*`` removes one a previous apply
 #: created, and an absent flag leaves it alone
 #: (:meth:`themey.apply.FurnitureOptions.wanted`).
 _PAGER_HELP = (
@@ -109,11 +109,17 @@ _DRAGBAR_HELP = (
     "Create E16's top dragbar; --no-dragbar removes one a previous apply "
     "created (and unparks your own top panels); absent = leave it alone"
 )
+#: The dock panel itself lands in a later change; until then the flag is
+#: accepted and validated but builds nothing, and its help says so rather
+#: than promising a panel.
 _DOCK_HELP = (
-    "Create the macOS-style dock panel; --no-dock removes one a previous "
-    "apply created; absent = leave it alone"
+    "Reserved for the macOS-style dock panel a later release adds; "
+    "accepted today, but no dock is built yet"
 )
-_DOCK_SIZE_HELP = "Dock panel thickness in px (default: the dock's own size)"
+_DOCK_SIZE_HELP = (
+    "Dock panel thickness in px; reserved alongside --dock and has no "
+    "effect yet"
+)
 
 #: Lone flags that belong to the group itself, not to the implicit
 #: ``convert``. Without this exemption ``_DefaultConvertGroup`` would rewrite
