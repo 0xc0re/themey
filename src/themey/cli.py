@@ -511,8 +511,10 @@ def render_cmd(
             help=(
                 "'deco' (default: window decoration via a kdialog client), "
                 "'style' (the Plasma Style's FrameSvg sets — panel/popup/"
-                "tooltip/tasks/pager — via a plasmoidviewer probe applet) or "
-                "'pager' (themey's own E16 pager applet in the same harness)"
+                "tooltip/tasks/pager — via a plasmoidviewer probe applet), "
+                "'pager' (themey's own E16 pager applet in the same harness) "
+                "or 'dock' (themey's dock applet in a bottom-edge panel, "
+                "two client windows deep)"
             ),
         ),
     ] = "deco",
@@ -576,6 +578,10 @@ def render_cmd(
             png = render.render_pager(
                 theme, out=out, scale=scale, upscale=upscale
             )
+        elif target == "dock":
+            png = render.render_dock(
+                theme, out=out, scale=scale, upscale=upscale
+            )
         elif target == "deco":
             png = render.render(
                 theme,
@@ -588,7 +594,8 @@ def render_cmd(
             )
         else:
             raise render.RenderError(
-                f"unknown --target {target!r}; expected 'deco', 'style' or 'pager'"
+                f"unknown --target {target!r}; expected 'deco', 'style', "
+                "'pager' or 'dock'"
             )
     except render.RenderError as exc:
         logging.getLogger(__name__).error("render failed: %s", exc)

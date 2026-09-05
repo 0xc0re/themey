@@ -114,3 +114,76 @@ def test_style_probe_paints_wide_and_tall_viewitem_cells(tmp_path):
     assert '"shape": "wide"' in qml and '"shape": "tall"' in qml
     # The grid must hold every cell: rows x columns >= cells.
     assert render._STYLE_PROBE_ROWS * render._STYLE_PROBE_COLUMNS >= len(render._STYLE_PROBE_CELLS)
+
+
+def _dock_tools_available() -> bool:
+    import shutil
+
+    return all(shutil.which(t) for t in (*render.REQUIRED_STYLE_TOOLS, "kdialog"))
+
+
+@pytest.mark.skipif(
+    not _dock_tools_available(),
+    reason="dock target needs kwin_wayland+spectacle+plasmoidviewer+kdialog",
+)
+def test_render_dock_headless(tmp_path):
+    out = tmp_path / "e13-dock.png"
+    png = render.render_dock(str(FIXTURES / "e13.etheme"), out=out)
+    assert png == out and png.is_file()
+    assert png.stat().st_size > 5_000
+    with Image.open(png) as im:
+        assert im.size == (render.SCREEN_W, render.SCREEN_H)
+
+
+def test_dock_viewer_args_are_a_bottom_edge_panel():
+    """The dock target must host the applet in a HORIZONTAL bottom-edge
+    panel containment, since the fork's zoom/rise math keys off the panel
+    edge."""
+    args = render._DOCK_VIEWER_ARGS
+    assert args[:2] == ("-c", "org.kde.panel")
+    assert "horizontal" in args and "bottomedge" in args
+    assert f"{render.SCREEN_W}x" in args[args.index("-s") + 1]
+
+
+def test_session_script_writes_one_kdialog_per_client(tmp_path):
+    """``clients`` is a COUNT: the dock target wants two windows so the
+    row shows a focused plate beside an unfocused one."""
+    script = render._style_session_script(
+        tmp_path, tmp_path / "o.png", tmp_path / "s.log",
+        applet="org.themey.dock", clients=2,
+    )
+    txt = script.read_text()
+    assert txt.count("kdialog ") == 2
+    script = render._style_session_script(
+        tmp_path, tmp_path / "o.png", tmp_path / "s.log",
+        applet="org.themey.dock", clients=0,
+    )
+    assert "kdialog" not in script.read_text()
+
+
+def test_resolve_plasmoid_dir_prefers_the_converted_package(tmp_path, fake_home):
+    from themey.generate.plasmoids import DOCK_ID
+
+    with pytest.raises(render.RenderError):
+        render.resolve_plasmoid_dir(DOCK_ID, work=tmp_path)
+    converted = tmp_path / "convert" / "plasmoids" / DOCK_ID
+    converted.mkdir(parents=True)
+    (converted / "metadata.json").write_text("{}", encoding="utf-8")
+    assert render.resolve_plasmoid_dir(DOCK_ID, work=tmp_path) == converted
+
+
+def test_dock_target_converts_with_visible_task_plates(tmp_path, monkeypatch):
+    """The dock target must NOT use the pipeline's ``iconbox_frames``
+    default: ``off`` ships a near-transparent wash that the nested
+    session's black desktop cannot show, so the shot would be empty."""
+    assert render._DOCK_RENDER_ICONBOX_FRAMES == "on"
+    seen = {}
+
+    def fake_convert(path, **kwargs):
+        seen.update(kwargs)
+        raise render.RenderError("stop here")
+
+    monkeypatch.setattr(render, "convert", fake_convert)
+    with pytest.raises(render.RenderError):
+        render.render_dock(str(FIXTURES / "e13.etheme"), out=tmp_path / "d.png")
+    assert seen["iconbox_frames"] == "on"

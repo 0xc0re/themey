@@ -19,6 +19,16 @@ Mechanism:
 
 ``--maximized`` is implemented via a ``kwinrulesrc`` force rule matched on
 the kdialog window class, so no scripting/D-Bus round-trip is needed.
+
+Three more targets share that session through :func:`_run_applet_session`,
+swapping kdialog for ``plasmoidviewer`` against the theme's Plasma Style:
+:func:`render_style` (a scratch probe applet painting one labeled FrameSvg
+cell per interesting set), :func:`render_pager` and :func:`render_dock`
+(themey's own applets, resolved by :func:`resolve_plasmoid_dir`). They
+differ only in the plasmoidviewer containment flags and in how many
+kdialog clients open first — the pager wants one window to draw a rect
+for, the dock two so the task row has a focused plate beside an
+unfocused one.
 """
 from __future__ import annotations
 
@@ -396,10 +406,15 @@ def _write_style_probe(data: Path) -> None:
 
 
 def resolve_style_dir(
-    theme: str, *, scale: float, work: Path, upscale: str = "nearest"
+    theme: str, *, scale: float, work: Path, upscale: str = "nearest",
+    iconbox_frames: str = "off",
 ) -> tuple[str, Path]:
     """Return ``(desktop_theme_id, package_dir)`` for a ``.etheme`` path or
-    an installed Plasma Style name under ``plasma/desktoptheme/``."""
+    an installed Plasma Style name under ``plasma/desktoptheme/``.
+
+    *iconbox_frames* is the conversion's ``widgets/tasks`` mode and only
+    reaches a ``.etheme`` path; an installed style is taken as it stands.
+    """
     from .slug import plugin_id
 
     p = Path(theme)
@@ -408,7 +423,7 @@ def resolve_style_dir(
             raise RenderError(f"no such file: {p}")
         result = convert(
             p, scale=scale, output_dir=work / "convert", backend="qml",
-            upscale=upscale,
+            upscale=upscale, iconbox_frames=iconbox_frames,
         )
         if result.desktop_theme_id is None or result.desktop_theme_dir is None:
             raise RenderError(
@@ -428,11 +443,16 @@ def resolve_style_dir(
 
 def _style_session_script(
     work: Path, out: Path, log_path: Path, *, applet: str = _STYLE_PROBE_ID,
-    client: bool = False, viewer_args: tuple[str, ...] = (),
+    clients: int = 0, viewer_args: tuple[str, ...] = (),
 ) -> Path:
-    """Session script: plasmoidviewer on *applet*, optionally a kdialog
-    client first (the pager target wants a real window to draw a rect
-    for), then spectacle."""
+    """Session script: plasmoidviewer on *applet*, *clients* kdialog
+    windows first, then spectacle.
+
+    ``clients`` is a COUNT, not a flag: the pager target wants ONE window
+    to draw a rect for, the dock target TWO so the task row shows the
+    focused plate (the last window opened takes focus) beside an
+    unfocused one.
+    """
     script = work / "session.sh"
     lines = [
         "#!/bin/bash",
@@ -440,9 +460,10 @@ def _style_session_script(
         'echo "WAYLAND_DISPLAY=$WAYLAND_DISPLAY"',
         "export QT_QPA_PLATFORM=wayland",
     ]
-    if client:
+    for i in range(clients):
         lines += [
-            "kdialog --title 'themey pager client' --msgbox 'E16 pager rect' &",
+            f"kdialog --title 'themey client {i + 1}' "
+            f"--msgbox 'themey client {i + 1}' &",
             "sleep 1",
         ]
     lines += [
@@ -478,6 +499,22 @@ _PAGER_VIEWER_ARGS: tuple[str, ...] = (
     "-c", "org.kde.panel", "-f", "vertical", "-l", "leftedge",
     "-s", f"{_PAGER_RENDER_THICKNESS}x420",
 )
+#: Clients the ``--target dock`` session opens: two kdialogs, so the task
+#: row shows the FOCUSED plate (the second window takes focus) next to an
+#: unfocused one — the ``focus-`` vs the plain ``widgets/tasks`` set, and
+#: the Selection-colour accent bar that only the focused set carries.
+_DOCK_RENDER_CLIENTS = 2
+#: plasmoidviewer flags for the dock target: a horizontal BOTTOM-edge
+#: panel containment, because the fork's zoom and rise math is written
+#: against a bottom dock (icons grow upward out of the bar) and reads the
+#: containment's ``formFactor``/``location``. Full screen width at the
+#: dock thickness ``apply`` builds for the default scale-2 conversion
+#: (``apply.dock_thickness_px``), so the plates render at their real size.
+_DOCK_RENDER_THICKNESS = apply.dock_thickness_px(2.0)
+_DOCK_VIEWER_ARGS: tuple[str, ...] = (
+    "-c", "org.kde.panel", "-f", "horizontal", "-l", "bottomedge",
+    "-s", f"{SCREEN_W}x{_DOCK_RENDER_THICKNESS}",
+)
 
 
 def _run_applet_session(
@@ -488,7 +525,7 @@ def _run_applet_session(
     out: Path,
     work: Path,
     extra_packages: tuple[Path, ...] = (),
-    client: bool = False,
+    clients: int = 0,
     desktops: int | None = None,
     viewer_args: tuple[str, ...] = (),
 ) -> Path:
@@ -522,7 +559,7 @@ def _run_applet_session(
 
     session_log = work / "session.log"
     script = _style_session_script(
-        work, out, session_log, applet=applet, client=client,
+        work, out, session_log, applet=applet, clients=clients,
         viewer_args=viewer_args,
     )
 
@@ -626,21 +663,24 @@ def render_style(
             shutil.rmtree(work, ignore_errors=True)
 
 
-def resolve_pager_dir(theme: str, *, work: Path) -> Path:
-    """The ``org.themey.pager`` package to render: the one a
-    ``.etheme`` conversion just wrote under *work* (``resolve_style_dir``
-    ran ``convert`` with ``output_dir=work/convert``), else the installed
-    copy under ``paths.plasmoids()``."""
-    from .generate.plasmoids import PAGER_ID
+def resolve_plasmoid_dir(plugin_id: str, *, work: Path) -> Path:
+    """The themey applet package to render: the one a ``.etheme``
+    conversion just wrote under *work* (``resolve_style_dir`` ran
+    ``convert`` with ``output_dir=work/convert``), else the installed copy
+    under ``paths.plasmoids()``.
 
-    converted = work / "convert" / "plasmoids" / PAGER_ID
+    *plugin_id* is one of ``generate.plasmoids.PLASMOID_IDS``; every
+    convert writes all of them, so the installed fallback is only ever
+    stale, never partial.
+    """
+    converted = work / "convert" / "plasmoids" / plugin_id
     if (converted / "metadata.json").is_file():
         return converted
-    installed = paths.plasmoids() / PAGER_ID
+    installed = paths.plasmoids() / plugin_id
     if (installed / "metadata.json").is_file():
         return installed
     raise RenderError(
-        f"no {PAGER_ID} package: convert a theme first (it is written on "
+        f"no {plugin_id} package: convert a theme first (it is written on "
         f"every convert under {paths.plasmoids()})"
     )
 
@@ -677,17 +717,94 @@ def render_pager(
     try:
         name, style_dir = resolve_style_dir(theme, scale=scale, work=work,
                                             upscale=upscale)
-        pager_dir = resolve_pager_dir(theme, work=work)
+        pager_dir = resolve_plasmoid_dir(PAGER_ID, work=work)
         if out is None:
             out = paths.themey_previews() / f"{name}-pager.png"
         return _run_applet_session(
             name=name, style_dir=style_dir, applet=PAGER_ID, out=out,
-            work=work, extra_packages=(pager_dir,), client=True,
+            work=work, extra_packages=(pager_dir,), clients=1,
             desktops=_PAGER_RENDER_DESKTOPS, viewer_args=_PAGER_VIEWER_ARGS,
         )
     finally:
         if keep_work:
             log.info("render pager: work dir kept at %s", work)
+        else:
+            shutil.rmtree(work, ignore_errors=True)
+
+
+#: ``iconbox_frames`` the dock target converts a ``.etheme`` with. The
+#: pipeline default is ``off``, whose ``widgets/tasks`` sets are a
+#: near-transparent white wash (``plasmastyle._TASKS_OFF_ALPHA``) meant to
+#: read as a highlight over a live wallpaper — against the nested
+#: session's black desktop it is invisible, and the shot showed nothing
+#: but the running-task indicator dots (measured 2026-09-05: the applet
+#: was correctly laid out at 880x64 with three 49 px cells and
+#: ``hasTaskArt`` true, and still looked empty). ``on`` ships the E16
+#: iconbox button art itself, which is what this target exists to check.
+_DOCK_RENDER_ICONBOX_FRAMES = "on"
+
+
+def render_dock(
+    theme: str,
+    *,
+    out: Path | None = None,
+    scale: float = 2,
+    upscale: str = "nearest",
+    keep_work: bool = False,
+) -> Path:
+    """Screenshot themey's dock applet against the theme's Plasma Style.
+
+    Same nested-KWin harness as :func:`render_pager`, with the
+    ``org.themey.dock`` package copied next to the probe applet, a
+    horizontal bottom-edge panel containment at the real dock thickness
+    (``_DOCK_VIEWER_ARGS``) and ``_DOCK_RENDER_CLIENTS`` kdialog windows so
+    the row has real tasks to plate — the focused one and an unfocused
+    one, which is the ``widgets/tasks`` ``focus-`` set beside the plain
+    one (verified 2026-09-05: the two cells differ). plasmoidviewer's own
+    window is a task too, so the row holds three; the third sits under
+    plasmoidviewer's toolbar.
+
+    A ``.etheme`` is converted with ``iconbox_frames`` forced to
+    :data:`_DOCK_RENDER_ICONBOX_FRAMES`, not the pipeline default — see
+    that constant.
+
+    Three limits of the harness, all deliberate:
+
+    * plasmoidviewer REWRITES its ``appletsrc`` on start, so the applet's
+      config cannot be pre-seeded — the shot shows the package's own
+      ``main.xml`` defaults, not what ``apply`` writes into a live dock
+      (``showOnlyCurrentDesktop`` off, ``taskHoverEffect``).
+    * the nested session has no pointer, so nothing hovers: the zoom, the
+      rise and the hover plate cannot appear here. ``--target style``
+      covers the hover art itself by painting the ``hover-`` FrameSvg set
+      directly.
+    * the private ``XDG_DATA_HOME`` carries no icon theme, so the task
+      cells come out as bare plates — the plate is what this target
+      checks; the icon inside it is the window's own and is not themey's.
+    """
+    missing = [t for t in (*REQUIRED_STYLE_TOOLS, "kdialog") if shutil.which(t) is None]
+    if missing:
+        raise RenderError(f"missing tools on PATH: {', '.join(missing)}")
+
+    from .generate.plasmoids import DOCK_ID
+
+    work = Path(tempfile.mkdtemp(prefix="themey-render-dock-"))
+    try:
+        name, style_dir = resolve_style_dir(
+            theme, scale=scale, work=work, upscale=upscale,
+            iconbox_frames=_DOCK_RENDER_ICONBOX_FRAMES,
+        )
+        dock_dir = resolve_plasmoid_dir(DOCK_ID, work=work)
+        if out is None:
+            out = paths.themey_previews() / f"{name}-dock.png"
+        return _run_applet_session(
+            name=name, style_dir=style_dir, applet=DOCK_ID, out=out,
+            work=work, extra_packages=(dock_dir,),
+            clients=_DOCK_RENDER_CLIENTS, viewer_args=_DOCK_VIEWER_ARGS,
+        )
+    finally:
+        if keep_work:
+            log.info("render dock: work dir kept at %s", work)
         else:
             shutil.rmtree(work, ignore_errors=True)
 

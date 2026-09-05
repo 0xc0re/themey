@@ -244,3 +244,29 @@ def test_cli_iconbox_frames_invalid_rejected():
         app, ["--iconbox-frames", "bogus", str(FIXTURES / "Aliens.etheme")]
     )
     assert result.exit_code != 0
+
+
+def test_cli_render_dispatches_the_dock_target(monkeypatch, tmp_path):
+    from themey import render as render_mod
+
+    seen = {}
+
+    def fake_render_dock(theme, **kwargs):
+        seen["theme"] = theme
+        seen.update(kwargs)
+        return tmp_path / "dock.png"
+
+    monkeypatch.setattr(render_mod, "render_dock", fake_render_dock, raising=False)
+    result = CliRunner().invoke(
+        app, ["render", str(FIXTURES / "e13.etheme"), "--target", "dock"]
+    )
+    assert result.exit_code == 0, result.output
+    assert seen["theme"] == str(FIXTURES / "e13.etheme")
+
+
+def test_cli_render_unknown_target_names_the_known_ones():
+    result = CliRunner().invoke(
+        app, ["render", str(FIXTURES / "e13.etheme"), "--target", "nope"]
+    )
+    assert result.exit_code != 0
+    assert "dock" in result.output
