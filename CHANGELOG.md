@@ -29,6 +29,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `~/.local/share/plasma/plasmoids/org.themey.dock/`, which any `themey
   convert` installs.
 
+  The applet also works dropped onto any existing panel. It sizes its
+  cells so the hovered icon's peak (zoom plus twice the rise, since the
+  rise lifts a centred icon) never exceeds the panel thickness — a
+  docked panel's window is exactly that thick, and the upstream widget's
+  sizing assumed a floating panel's margin, so on a 60 px docked bar
+  every hover was clipped at the top. Rise defaults to 6 px (upstream
+  18) and the anti-clip shrink is off, both still adjustable in the
+  widget's settings.
+
 - **`--dock` / `--no-dock` / `--dock-size PX`** on `themey apply` and on
   `themey <theme>.etheme --apply`, building the same panel as part of a
   full apply.

@@ -76,12 +76,20 @@ contributors` line; no existing header was removed.
 * **`contents/ui/TaskList.qml`**
   * An invisible `KSvg.FrameSvgItem` on the `normal` prefix (upstream
     `main.qml:356-363`) passed to every delegate as `metricFrame`.
-  * `baseIconSize` is `panelThickness / zoomFactor` when there is art: the
-    plate's own margins are the padding (no Kirigami spacing on top of
-    them), but the cell must still budget the zoom headroom the fork's
-    `- smallSpacing * 4` was buying, or a hovered plate is clipped by the
-    panel. At full zoom the plate then equals the panel thickness exactly,
-    and the parabolic rise overflows into the floating margin.
+  * `baseIconSize` budgets the hover PEAK into the cell for art and no-art
+    alike: `floor((panelThickness - 2 * rise) / zoomFactor)`, floored at
+    the small icon size. Task centres the icon, scales it by up to
+    `zoomFactor` and lifts it by the parabolic rise, so the top edge clears
+    the panel only while `size * zoom + 2 * rise <= panelThickness` — and a
+    DOCKED panel's window is exactly its thickness. The fork's
+    `- smallSpacing * 4` rest margin and its 10 % anti-clip shrink only ever
+    approximated the zoom and never budgeted the rise, which clipped every
+    hover on a 60 px docked panel (2026-09-05). The rise itself is also
+    clamped to the headroom the zoomed cell leaves (`riseHeadroom`), so no
+    configuration can push an icon past the panel edge; on a floating panel
+    the margin is slack on top of the budget. Defaults follow: rise 6 px
+    (upstream 18 assumed that margin) and anti-clip off (still honoured
+    when turned on).
   * **Delegate geometry publishing restored** (upstream `main.qml:120-132,
     248-316`): `requestPublishDelegateGeometry` per task on a 500 ms settle
     timer, restarted on size / position / location / count changes and on the

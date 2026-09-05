@@ -106,13 +106,13 @@
     </entry>
     <entry name="maxParabolicRise" type="Int">
       <label>Maximum rise height in pixels for parabolic effect.</label>
-      <default>18</default>
+      <default>6</default>
     </entry>
 
     <!-- Anti-clip Setting -->
     <entry name="antiClip" type="Bool">
       <label>Whether to reduce icon size by 10% to prevent clipping during zoom.</label>
-      <default>true</default>
+      <default>false</default>
     </entry>
 
     <!-- Icon size normalization -->

@@ -190,18 +190,29 @@ Item {
         prefix: TaskTools.taskPrefix("normal", taskListRoot.panelLocation)
     }
 
-    // With theme art the padding is the plate's own margins, not Kirigami
-    // spacing — but the cell still has to budget the ZOOM HEADROOM the
-    // fork's `- smallSpacing * 4` was really buying: Task sizes itself
-    // baseSize square and scales the icon by up to maxZoomFactor, so a
-    // cell equal to the panel thickness would be clipped the moment it
-    // was hovered. Dividing by that factor makes the plate exactly fill
-    // the panel at FULL zoom, and the parabolic rise then overflows into
-    // the floating panel's margin as the fork already relies on.
-    readonly property int baseIconSize: hasTaskArt
-        ? Math.round(panelThickness / Math.max(1, zoomFactor))
-        : Math.max(panelThickness - Kirigami.Units.smallSpacing * 4, Kirigami.Units.iconSizes.medium)
+    // The cell budgets the HOVER PEAK, not the rest state. Task centres the
+    // icon in its cell, scales it by up to zoomFactor and lifts it by the
+    // parabolic rise, so the top edge clears the panel only while
+    //     size * zoomFactor + 2 * rise <= panelThickness
+    // (the rise moves a centred icon, so it costs twice its height). A
+    // docked panel's window is exactly its thickness — nothing paints past
+    // it — and the fork's `- smallSpacing * 4` rest margin, the 10 %
+    // anti-clip shrink and the earlier `/ zoomFactor` all budgeted the zoom
+    // at best and never the rise: on a 60 px docked panel every hover was
+    // clipped by the rise (2026-09-05). On a floating panel the margin is
+    // slack on top of this budget, not the budget itself. One formula for
+    // art and no-art alike; with art the plate's own margins are the rest
+    // padding, without it the icon sits inset in the cell.
+    readonly property int riseBudget: parabolicEnabled ? maxParabolicRise : 0
+    readonly property int baseIconSize: Math.max(
+        Kirigami.Units.iconSizes.small,
+        Math.floor((panelThickness - 2 * riseBudget) / Math.max(1, zoomFactor)))
     readonly property int preAntiClipSize: antiClip ? Math.round(baseIconSize * 0.9) : baseIconSize
+    // Safety net for the rise itself: whatever the cell ended up as (the
+    // small-icon floor above, auto-shrink, anti-clip), the lift can only
+    // spend the headroom the zoomed icon leaves — half of it per side.
+    readonly property int riseHeadroom: Math.max(0,
+        Math.floor((panelThickness - effectiveIconSize * Math.max(1, zoomFactor)) / 2))
     readonly property int itemSpacing: Kirigami.Units.smallSpacing * iconSpacing
 
     // Auto-shrink calculation
@@ -457,7 +468,8 @@ Item {
                     var maxDist = 2.5;
                     if (normalizedDistance <= maxDist) {
                         var t = smoothstep(0, maxDist, normalizedDistance);
-                        return taskListRoot.maxParabolicRise * (1 - t);
+                        var rise = Math.min(taskListRoot.maxParabolicRise, taskListRoot.riseHeadroom);
+                        return rise * (1 - t);
                     }
                     return 0;
                 }
