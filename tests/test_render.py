@@ -210,5 +210,10 @@ def test_session_script_can_open_clients_after_the_viewer(tmp_path):
     assert txt.index("kdialog") < txt.index("plasmoidviewer")
 
 
-def test_dock_target_opens_its_clients_last():
+def test_dock_target_opens_one_client_last():
+    """One kdialog, opened after the viewer: plasmoidviewer's own window
+    is already a task, so one client gives two cells — the focused
+    kdialog and the unfocused viewer — and both stay clear of
+    plasmoidviewer's centred toolbar, which a third cell does not."""
+    assert render._DOCK_RENDER_CLIENTS == 1
     assert render._DOCK_RENDER_CLIENTS_LAST is True

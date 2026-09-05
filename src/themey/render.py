@@ -27,8 +27,9 @@ cell per interesting set), :func:`render_pager` and :func:`render_dock`
 (themey's own applets, resolved by :func:`resolve_plasmoid_dir`). They
 differ only in the plasmoidviewer containment flags and in how many
 kdialog clients open, and when — the pager wants one window to draw a
-rect for, the dock two, opened after plasmoidviewer so one task is
-active.
+rect for, the dock one too but opened after plasmoidviewer, so that
+client is the active task and the viewer's own window is the inactive
+one beside it.
 """
 from __future__ import annotations
 
@@ -449,19 +450,16 @@ def _style_session_script(
     """Session script: plasmoidviewer on *applet*, *clients* kdialog
     windows, then spectacle.
 
-    ``clients`` is a COUNT, not a flag: the pager target wants ONE window
-    to draw a rect for, the dock target TWO so the task row plates more
-    than a single cell.
-
-    ``clients_last`` moves those windows AFTER plasmoidviewer. The order
-    decides which window is ACTIVE when spectacle fires, because the last
-    one mapped takes focus: with the default (clients first) plasmoidviewer
-    itself holds it and no task is active, which is what the dock target's
-    first shot showed — every cell byte-identical. With ``clients_last``
-    the last kdialog is active instead (measured 2026-09-05 off the
-    applet's own ``TasksModel``: ``IsActive`` true on "themey client 2").
-    The pager target keeps the default — its applet reads the window list,
-    so its client has to exist before it starts.
+    ``clients`` is a COUNT, not a flag, and ``clients_last`` moves those
+    windows AFTER plasmoidviewer. The order decides which window is ACTIVE
+    when spectacle fires, because the last one mapped takes focus: with
+    the default (clients first) plasmoidviewer itself holds it and NO task
+    is active, which is what the dock target's first shot showed — every
+    cell byte-identical. With ``clients_last`` the last kdialog is active
+    instead (measured 2026-09-05 off the applet's own ``TasksModel``:
+    ``IsActive`` true on that window and false on plasmoidviewer's). The
+    pager target keeps the default — its applet reads the window list, so
+    its client has to exist before it starts.
     """
     script = work / "session.sh"
     lines = [
@@ -518,14 +516,17 @@ _PAGER_VIEWER_ARGS: tuple[str, ...] = (
     "-c", "org.kde.panel", "-f", "vertical", "-l", "leftedge",
     "-s", f"{_PAGER_RENDER_THICKNESS}x420",
 )
-#: Clients the ``--target dock`` session opens: two kdialogs, so the task
-#: row plates more than a single cell.
-_DOCK_RENDER_CLIENTS = 2
-#: ...and they are opened AFTER plasmoidviewer, so the last window mapped
-#: is a kdialog and its cell wears the ``focus-`` ``widgets/tasks`` set.
-#: Opened first (the pager target's order) plasmoidviewer holds focus, no
-#: task is active and every cell is the plain set — measured 2026-09-05,
-#: the two fully visible cells were byte-identical.
+#: Clients the ``--target dock`` session opens: ONE kdialog. Two cells is
+#: the goal, and plasmoidviewer's own window is already a task, so one
+#: client is all the row needs — and it is the one that keeps BOTH cells
+#: clear of plasmoidviewer's centred toolbar, which a third cell is not.
+_DOCK_RENDER_CLIENTS = 1
+#: ...and it is opened AFTER plasmoidviewer, so the last window mapped is
+#: the kdialog and its cell wears the ``focus-`` ``widgets/tasks`` set
+#: while plasmoidviewer's wears the plain one. Opened first (the pager
+#: target's order) plasmoidviewer holds focus, no task is active and
+#: every cell is the plain set — measured 2026-09-05, the cells came out
+#: byte-identical.
 _DOCK_RENDER_CLIENTS_LAST = True
 #: plasmoidviewer flags for the dock target: a horizontal BOTTOM-edge
 #: panel containment, because the fork's zoom and rise math is written
@@ -781,21 +782,26 @@ def render_dock(
     Same nested-KWin harness as :func:`render_pager`, with the
     ``org.themey.dock`` package copied next to the probe applet, a
     horizontal bottom-edge panel containment at the real dock thickness
-    (``_DOCK_VIEWER_ARGS``) and ``_DOCK_RENDER_CLIENTS`` kdialog windows so
-    the row has real tasks to plate, opened after the viewer
-    (``_DOCK_RENDER_CLIENTS_LAST``) so the last of them is the ACTIVE task.
+    (``_DOCK_VIEWER_ARGS``) and one kdialog opened AFTER the viewer
+    (``_DOCK_RENDER_CLIENTS``, ``_DOCK_RENDER_CLIENTS_LAST``).
 
-    What the shot actually shows, measured on e13 2026-09-05:
-    plasmoidviewer's own window is a task too, so the row holds THREE
-    cells. The first two — plasmoidviewer and the first kdialog — are
-    unfocused and byte-identical (difference bbox ``None``, extrema
-    ``(0, 0)`` per channel). The third is the focused one: the vertically
-    flipped ``focus-`` plate with no running dot, differing from cell one
-    over the columns that are visible (extrema up to 247). Only its first
-    16 px clear plasmoidviewer's centred toolbar, which is the harness's
-    real limit here — dropping to ONE client would put a focused plate
-    beside an unfocused one entirely in frame, since the viewer itself
-    supplies the second task.
+    That gives a row of exactly TWO cells, both clear of plasmoidviewer's
+    centred toolbar, because the viewer's own window is a task as well.
+    Measured on e13 2026-09-05, with the cells located by their column
+    runs (x 10-58 and x 71-119, both 49 px wide):
+
+    * cell one is plasmoidviewer's, INACTIVE — the plain ``widgets/tasks``
+      plate, light bevel along its top, with the running dot beneath it
+      (54 px tall in all);
+    * cell two is the kdialog's, ACTIVE — the ``focus-`` plate, which is
+      the same art flipped vertically so the light bevel is along the
+      bottom, with NO running dot (49 px, the plate alone) and a solid
+      2 px accent bar across its panel-adjacent edge in
+      ``rgb(247, 247, 201)``, which is exactly the package's own
+      ``[Colors:Selection] BackgroundNormal``.
+
+    Over their shared 49x49 plate box the two differ across the whole
+    frame (bbox ``(0, 0, 49, 49)``, extrema up to 247 per channel).
 
     A ``.etheme`` is converted with ``iconbox_frames`` forced to
     :data:`_DOCK_RENDER_ICONBOX_FRAMES`, not the pipeline default — see
