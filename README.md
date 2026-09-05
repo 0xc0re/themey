@@ -594,3 +594,11 @@ and `spectacle` are unavailable.
 MIT — see [LICENSE](LICENSE). The bundled E16 test fixtures are third-party
 work under their own terms; see
 [tests/fixtures/ATTRIBUTION.md](tests/fixtures/ATTRIBUTION.md).
+
+One shipped component is **not** MIT: the `org.themey.dock` applet
+(`src/themey/generate/plasmoids/runtime/dock/`) is a fork of a third-party
+macOS-style dock — itself a fork of KDE's Icons-Only Task Manager — and is
+**GPL-2.0-or-later**. Its licence text
+([COPYING](src/themey/generate/plasmoids/runtime/dock/COPYING)) and provenance
+([README](src/themey/generate/plasmoids/runtime/dock/README.md)) ship inside
+the installed package.
