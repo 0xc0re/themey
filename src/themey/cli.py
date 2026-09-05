@@ -1,7 +1,7 @@
 """themey CLI entry point.
 
 Default (convert) form:
-    themey <theme.etheme> [--scale N] [--output DIR] [--no-open]
+    themey <theme.etheme> [--scale N] [--output DIR] [--open]
 
 Subcommands:
     themey convert <theme.etheme> ...      same as the default form
@@ -31,18 +31,28 @@ Flags (convert):
                   `themey apply` (the E16 furniture flags below apply)
     --no-restart-shell
                   only with --apply; see the apply flag of the same name
-    --no-open     do not launch the HTML preview in a browser
+    --open        launch the HTML preview in a browser when the conversion
+                  finishes (default: just print its path; --no-open still
+                  parses and is the default)
     -v / -vv      increase verbosity (DEBUG, default INFO)
     -q            quiet (WARNING+ only)
 
-Flags (apply, E16 furniture — convert takes the same six with --apply):
-    --no-pager / --no-iconbox / --no-dragbar
-                  leave that panel out (an already-created one is removed)
+Flags (apply, E16 furniture — convert takes the same set with --apply).
+Every panel is opt-in and every selector is a tri-state: the positive
+flag builds it, --no-<panel> removes one an earlier apply created, and an
+absent flag leaves that panel alone:
+    --pager / --no-pager
+    --iconbox / --no-iconbox
+    --dragbar / --no-dragbar
+    --dock / --no-dock
+                  reserved for the dock panel a later change adds; it
+                  parses and validates today but builds nothing
     --furniture-strut
                   let the pager/iconbox panels reserve screen space
                   (default: Windows Go Below)
-    --pager-cell PX / --iconbox-size PX
-                  override E16's own 48 px cell / iconbox sizes
+    --pager-cell PX / --iconbox-size PX / --dock-size PX
+                  override E16's own 48 px cell / iconbox sizes, and the
+                  dock's thickness
 
 Flags (apply, other):
     --widget-style windows|fusion|breeze
@@ -82,6 +92,29 @@ class WidgetStyle(StrEnum):
     breeze = "breeze"
 
 
+#: Help for the four E16 furniture flags, shared by ``convert --apply``
+#: and ``apply`` so both spell the same tri-state the same way: the
+#: positive form builds the panel, ``--no-*`` removes one a previous apply
+#: created, and an absent flag leaves it alone
+#: (:meth:`themey.apply.FurnitureOptions.wanted`).
+_PAGER_HELP = (
+    "Create E16's pager panel; --no-pager removes one a previous apply "
+    "created (and puts your desktop grid back); absent = leave it alone"
+)
+_ICONBOX_HELP = (
+    "Create E16's iconbox panel; --no-iconbox removes one a previous apply "
+    "created; absent = leave it alone"
+)
+_DRAGBAR_HELP = (
+    "Create E16's top dragbar; --no-dragbar removes one a previous apply "
+    "created (and unparks your own top panels); absent = leave it alone"
+)
+_DOCK_HELP = (
+    "Create the macOS-style dock panel; --no-dock removes one a previous "
+    "apply created; absent = leave it alone"
+)
+_DOCK_SIZE_HELP = "Dock panel thickness in px (default: the dock's own size)"
+
 #: Lone flags that belong to the group itself, not to the implicit
 #: ``convert``. Without this exemption ``_DefaultConvertGroup`` would rewrite
 #: ``themey --version`` into ``themey convert --version``, which has no such
@@ -117,7 +150,7 @@ app = typer.Typer(
     help=(
         "Convert Enlightenment DR16 .etheme archives into Plasma 6 Aurorae "
         "decorations. `themey FILE.etheme` is shorthand for `themey convert FILE.etheme` "
-        "(--scale, --output, --no-open live there)."
+        "(--scale, --output, --open live there)."
     ),
 )
 
@@ -177,9 +210,13 @@ def convert_cmd(
             help="Write theme tree + report + preview under DIR; skip the install",
         ),
     ] = None,
-    no_open: Annotated[
+    open_preview: Annotated[
         bool,
-        typer.Option("--no-open", help="Do not open the HTML preview in a browser"),
+        typer.Option(
+            "--open/--no-open",
+            help="Open the HTML preview in a browser when the conversion "
+            "finishes (default: just print its path)",
+        ),
     ] = False,
     upscale: Annotated[
         str,
@@ -257,27 +294,34 @@ def convert_cmd(
             "repaint then waits for the next login). Only with --apply",
         ),
     ] = False,
-    no_pager: Annotated[
-        bool,
+    pager: Annotated[
+        bool | None,
         typer.Option(
-            "--no-pager",
-            help="Don't create E16's pager panel (an existing themey one is removed)",
+            "--pager/--no-pager",
+            help=_PAGER_HELP,
         ),
-    ] = False,
-    no_iconbox: Annotated[
-        bool,
+    ] = None,
+    iconbox: Annotated[
+        bool | None,
         typer.Option(
-            "--no-iconbox",
-            help="Don't create E16's iconbox panel (an existing themey one is removed)",
+            "--iconbox/--no-iconbox",
+            help=_ICONBOX_HELP,
         ),
-    ] = False,
-    no_dragbar: Annotated[
-        bool,
+    ] = None,
+    dragbar: Annotated[
+        bool | None,
         typer.Option(
-            "--no-dragbar",
-            help="Don't create E16's top dragbar (the parked top panels come back)",
+            "--dragbar/--no-dragbar",
+            help=_DRAGBAR_HELP,
         ),
-    ] = False,
+    ] = None,
+    dock: Annotated[
+        bool | None,
+        typer.Option(
+            "--dock/--no-dock",
+            help=_DOCK_HELP,
+        ),
+    ] = None,
     furniture_strut: Annotated[
         bool,
         typer.Option(
@@ -302,6 +346,10 @@ def convert_cmd(
             "(E16's own default 48)",
         ),
     ] = apply.DEFAULT_FURNITURE.iconbox_px,
+    dock_size: Annotated[
+        int | None,
+        typer.Option("--dock-size", help=_DOCK_SIZE_HELP),
+    ] = None,
     verbose: Annotated[
         int,
         typer.Option(
@@ -339,12 +387,14 @@ def convert_cmd(
                 "--apply, then `themey apply NAME --deco-only --backend svg`"
             )
         furniture = _furniture_options(
-            no_pager=no_pager,
-            no_iconbox=no_iconbox,
-            no_dragbar=no_dragbar,
+            pager=pager,
+            iconbox=iconbox,
+            dragbar=dragbar,
+            dock=dock,
             furniture_strut=furniture_strut,
             pager_cell=pager_cell,
             iconbox_size=iconbox_size,
+            dock_size=dock_size,
         )
     try:
         result = convert(
@@ -434,7 +484,7 @@ def convert_cmd(
             raise typer.Exit(code=1) from exc
         typer.echo("Applied.")
 
-    if no_open:
+    if not open_preview:
         return
     # Auto-open preview unless headless / SSH
     opened = external.open_preview_unless_headless(result.preview_path)
@@ -546,30 +596,42 @@ def render_cmd(
 
 def _furniture_options(
     *,
-    no_pager: bool,
-    no_iconbox: bool,
-    no_dragbar: bool,
+    pager: bool | None,
+    iconbox: bool | None,
+    dragbar: bool | None,
+    dock: bool | None,
     furniture_strut: bool,
     pager_cell: int,
     iconbox_size: int,
+    dock_size: int | None,
 ) -> apply.FurnitureOptions:
     """Build the :class:`apply.FurnitureOptions` for one command's flags.
 
     Shared by ``themey apply`` and ``themey convert --apply`` so both
-    spell the E16 furniture the same way. The sizes are validated here as
-    a usage error rather than surfacing ``apply``'s typed
-    :class:`~themey.apply.ApplyError` as a failed apply.
+    spell the E16 furniture the same way. The four selectors pass straight
+    through as the tri-states Typer parsed them into: True for the
+    positive flag, False for ``--no-*``, None when neither was given. The
+    sizes are validated here as a usage error rather than surfacing
+    ``apply``'s typed :class:`~themey.apply.ApplyError` as a failed apply;
+    ``--dock-size`` only when it was actually passed.
     """
-    for flag, value in (("--pager-cell", pager_cell), ("--iconbox-size", iconbox_size)):
-        if value <= 0:
+    sizes: tuple[tuple[str, int | None], ...] = (
+        ("--pager-cell", pager_cell),
+        ("--iconbox-size", iconbox_size),
+        ("--dock-size", dock_size),
+    )
+    for flag, value in sizes:
+        if value is not None and value <= 0:
             raise typer.BadParameter(f"{flag} must be a positive number of pixels")
     return apply.FurnitureOptions(
-        pager=not no_pager,
-        iconbox=not no_iconbox,
-        dragbar=not no_dragbar,
+        pager=pager,
+        iconbox=iconbox,
+        dragbar=dragbar,
+        dock=dock,
         strut=furniture_strut,
         pager_cell_px=pager_cell,
         iconbox_px=iconbox_size,
+        dock_px=dock_size,
     )
 
 
@@ -636,27 +698,22 @@ def apply_cmd(
             "ignored with --deco-only/--revert",
         ),
     ] = False,
-    no_pager: Annotated[
-        bool,
-        typer.Option(
-            "--no-pager",
-            help="Don't create E16's pager panel (an existing themey one is removed)",
-        ),
-    ] = False,
-    no_iconbox: Annotated[
-        bool,
-        typer.Option(
-            "--no-iconbox",
-            help="Don't create E16's iconbox panel (an existing themey one is removed)",
-        ),
-    ] = False,
-    no_dragbar: Annotated[
-        bool,
-        typer.Option(
-            "--no-dragbar",
-            help="Don't create E16's top dragbar (the parked top panels come back)",
-        ),
-    ] = False,
+    pager: Annotated[
+        bool | None,
+        typer.Option("--pager/--no-pager", help=_PAGER_HELP),
+    ] = None,
+    iconbox: Annotated[
+        bool | None,
+        typer.Option("--iconbox/--no-iconbox", help=_ICONBOX_HELP),
+    ] = None,
+    dragbar: Annotated[
+        bool | None,
+        typer.Option("--dragbar/--no-dragbar", help=_DRAGBAR_HELP),
+    ] = None,
+    dock: Annotated[
+        bool | None,
+        typer.Option("--dock/--no-dock", help=_DOCK_HELP),
+    ] = None,
     furniture_strut: Annotated[
         bool,
         typer.Option(
@@ -681,6 +738,10 @@ def apply_cmd(
             "(E16's own default 48)",
         ),
     ] = apply.DEFAULT_FURNITURE.iconbox_px,
+    dock_size: Annotated[
+        int | None,
+        typer.Option("--dock-size", help=_DOCK_SIZE_HELP),
+    ] = None,
     widget_style: Annotated[
         WidgetStyle | None,
         typer.Option(
@@ -735,12 +796,14 @@ def apply_cmd(
                 keep_buttons=keep_buttons,
                 restart_shell=not no_restart_shell,
                 furniture=_furniture_options(
-                    no_pager=no_pager,
-                    no_iconbox=no_iconbox,
-                    no_dragbar=no_dragbar,
+                    pager=pager,
+                    iconbox=iconbox,
+                    dragbar=dragbar,
+                    dock=dock,
                     furniture_strut=furniture_strut,
                     pager_cell=pager_cell,
                     iconbox_size=iconbox_size,
+                    dock_size=dock_size,
                 ),
                 widget_style=widget_style.value if widget_style else None,
             )

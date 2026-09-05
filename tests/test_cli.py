@@ -117,6 +117,31 @@ def test_cli_no_open_suppresses_browser(fake_home, monkeypatch):
     assert calls == []
 
 
+def test_cli_default_does_not_open_browser(fake_home, monkeypatch):
+    """The preview is opt-in: a bare convert prints its path and stops."""
+    monkeypatch.setenv("DISPLAY", ":0")
+    calls: list = []
+    monkeypatch.setattr(
+        "themey.external.open_preview_unless_headless",
+        lambda p: calls.append(p) or True,
+    )
+    result = CliRunner().invoke(app, [str(FIXTURES / "Aliens.etheme")])
+    assert result.exit_code == 0, result.output
+    assert calls == []
+
+
+def test_cli_open_flag_opens_browser(fake_home, monkeypatch):
+    monkeypatch.setenv("DISPLAY", ":0")
+    calls: list = []
+    monkeypatch.setattr(
+        "themey.external.open_preview_unless_headless",
+        lambda p: calls.append(p) or True,
+    )
+    result = CliRunner().invoke(app, ["--open", str(FIXTURES / "Aliens.etheme")])
+    assert result.exit_code == 0, result.output
+    assert len(calls) == 1
+
+
 def test_cli_fractional_scale_accepted_for_qml(tmp_path, monkeypatch):
     monkeypatch.delenv("DISPLAY", raising=False)
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
