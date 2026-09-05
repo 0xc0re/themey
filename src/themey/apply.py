@@ -468,12 +468,20 @@ _VISIBILITY_NORMAL = 0
 _VISIBILITY_DODGE = 2
 _VISIBILITY_WINDOWS_GO_BELOW = 3
 #: The visibility modes the plasmashell SCRIPTING engine can also spell,
-#: as its ``p.hiding`` token. Those take effect immediately, so a panel
-#: created in one of them needs no plasmashell restart to behave (the
-#: ``panelVisibility`` write still happens, and agrees). Every other mode
-#: — WindowsGoBelow, the left-edge panels' default — is file-only and is
-#: read at start-up, which is what :func:`_write_furniture_visibility`
-#: reports back as pending.
+#: as its ``p.hiding`` token — verified against plasma-workspace
+#: ``shell/scripting/panel.cpp`` (branch Plasma/6.6). The setter and the
+#: getter are ASYMMETRIC there: ``Panel::setHiding`` (323-340) matches
+#: ``autohide``, ``dodgewindows`` AND ``windowsgobelow`` case-insensitively
+#: and calls ``setVisibilityMode`` straight away, while ``Panel::hiding``
+#: (303-321) has cases only for NormalPanel/AutoHide/DodgeWindows and
+#: answers ``"none"`` for WindowsGoBelow — which is what the earlier live
+#: probe of the WindowsGoBelow spellings actually measured: the write
+#: took, the read-back could not name it. themey still routes
+#: WindowsGoBelow through :data:`_PANEL_VISIBILITY_KEY` alone (unchanged
+#: here), so only the modes listed below are scripted, and a panel
+#: created in one of them needs no plasmashell restart to behave. Every
+#: other mode is file-only and read at start-up, which is what
+#: :func:`_write_furniture_visibility` reports back as pending.
 _HIDING_TOKENS: dict[int, str] = {
     _VISIBILITY_NORMAL: "none",
     _VISIBILITY_DODGE: "dodgewindows",
@@ -975,7 +983,7 @@ class FurnitureSpec:
 
 
 def _dock_spec(
-    *, scale: float, size_px: int | None, tasks_hover: bool = True,
+    *, scale: float, size_px: int | None, tasks_hover: bool | None,
 ) -> FurnitureSpec:
     """The dock panel's spec: floating, centred, bottom edge,
     content-sized, dodging windows.
@@ -983,23 +991,26 @@ def _dock_spec(
     *size_px* (CLI ``--dock-size``) overrides the scale-derived thickness
     (:func:`dock_thickness_px`). The applet's ``showOnlyCurrentDesktop``
     default is ON, which would make the dock a second per-desktop iconbox,
-    so the creation script turns it off; *tasks_hover* follows the Plasma
-    Style's ``X-Themey-TasksHover`` exactly as the iconbox's does, and is
-    re-written on every apply (``FurnitureSpec.reassert``) because the
-    style changes under a panel that outlives it. Everything else about
-    the dock — pinned launchers, grouping, the zoom settings — is left to
-    the applet's own ``main.xml`` defaults and then to the user.
+    so the creation script turns it off.
+
+    *tasks_hover* follows the Plasma Style's ``X-Themey-TasksHover``
+    exactly as the iconbox's does, and is re-written on every apply
+    (``FurnitureSpec.reassert``) because the style changes under a panel
+    that outlives it. None means NOBODY has an opinion — no themey global
+    theme is active (:func:`apply_dock` on a stock desktop) — and then the
+    key is left out of both scripts entirely, so the applet's own
+    ``main.xml`` default stands and a later run cannot silently undo a
+    theme-derived value. Everything else about the dock — pinned
+    launchers, grouping, the zoom settings — is the applet's default and
+    then the user's.
 
     It is the only spec built OUTSIDE :func:`_furniture_specs` as well as
     in it: :func:`apply_dock` needs this one panel without touching (or
     even reading) the other three.
     """
     px = dock_thickness_px(scale) if size_px is None else size_px
-    hover = "true" if tasks_hover else "false"
-    hover_cfg = (
-        " w.currentConfigGroup = ['General'];"
-        f" w.writeConfig('taskHoverEffect', {hover});"
-        " w.reloadConfig();"
+    hover_write = "" if tasks_hover is None else (
+        f" w.writeConfig('taskHoverEffect', {'true' if tasks_hover else 'false'});"
     )
     script = _panel_script(
         "center",
@@ -1007,15 +1018,16 @@ def _dock_spec(
         f" var w = p.addWidget('{_DOCK_WIDGET}');"
         " w.currentConfigGroup = ['General'];"
         " w.writeConfig('showOnlyCurrentDesktop', false);"
-        f" w.writeConfig('taskHoverEffect', {hover});"
-        " w.reloadConfig();",
+        + hover_write
+        + " w.reloadConfig();",
         location="bottom",
         visibility=_VISIBILITY_DODGE,
         floating=True,
     )
-    reassert = (
+    reassert = "" if not hover_write else (
         f" var w = p.widgets('{_DOCK_WIDGET}')[0];"
-        f" if (w) {{{hover_cfg} }}"
+        " if (w) { w.currentConfigGroup = ['General'];"
+        f"{hover_write} w.reloadConfig(); }}"
     )
     return FurnitureSpec(
         _DOCK_KEY, "dock panel", script, px,
@@ -2009,23 +2021,48 @@ def _read_theme_scale(lnf_dir: Path) -> float:
     return float(value)
 
 
-def _active_theme_scale(kr: str) -> float:
-    """Conversion scale of the global theme that is active RIGHT NOW.
+def _active_themey_bundle(kr: str) -> str | None:
+    """The themey Look-and-Feel package kdeglobals ``[KDE]
+    LookAndFeelPackage`` names right now, or None when the active global
+    theme is not one of themey's.
 
     ``themey dock`` takes no theme name — the dock is useful with or
-    without a themey global theme — so it sizes itself from whatever
-    kdeglobals ``[KDE] LookAndFeelPackage`` currently names: a
-    ``themey_<slug>`` bundle's ``X-Themey-Scale``
-    (:func:`_read_theme_scale`), else :data:`_DEFAULT_THEME_SCALE`.
-
-    The value is user-editable config, so it is only used as a path
-    segment when it is a single ``themey_``-prefixed component — no
-    traversal out of ``paths.look_and_feel()``.
+    without a themey global theme — so it reads its per-theme settings off
+    whatever is active. The value is user-editable config, so it is only
+    accepted as a path segment when it is a single ``themey_``-prefixed
+    component: no traversal out of ``paths.look_and_feel()``.
     """
     pkg = _cfg_read(kr, _KDEGLOBALS, _KDE_GROUP, _LOOKANDFEEL_PACKAGE_KEY)
     if pkg is None or not pkg.startswith("themey_") or "/" in pkg:
+        return None
+    return pkg
+
+
+def _active_theme_scale(bundle: str | None) -> float:
+    """Conversion scale of the active themey bundle
+    (:func:`_active_themey_bundle`) — its ``X-Themey-Scale``
+    (:func:`_read_theme_scale`) — or :data:`_DEFAULT_THEME_SCALE` when no
+    themey global theme is active."""
+    if bundle is None:
         return _DEFAULT_THEME_SCALE
-    return _read_theme_scale(paths.look_and_feel() / pkg)
+    return _read_theme_scale(paths.look_and_feel() / bundle)
+
+
+def _active_tasks_hover(bundle: str | None) -> bool | None:
+    """The active themey Plasma Style's ``X-Themey-TasksHover``, or None
+    when there is no such style to have an opinion.
+
+    None is the load-bearing case: ``taskHoverEffect`` is themey's
+    per-theme spec, so a :func:`apply_dock` run under a stock desktop (or
+    a themey bundle whose Plasma Style is not installed) must leave the
+    applet's own default alone rather than assert True over a value some
+    earlier theme-driven apply chose (:func:`_dock_spec`)."""
+    if bundle is None:
+        return None
+    style_dir = paths.desktop_themes() / bundle
+    if not (style_dir / "metadata.json").is_file():
+        return None
+    return _read_tasks_hover(style_dir)
 
 
 def _read_widget_style(lnf_dir: Path) -> str | None:
@@ -2718,10 +2755,14 @@ def apply_dock(*, size_px: int | None = None, remove: bool = False) -> bool:
 
     Adding: the applet package must be installed
     (:func:`_require_applets` — any ``themey convert`` installs it), the
-    thickness comes from *size_px* or the ACTIVE themey bundle's
-    conversion scale (:func:`_active_theme_scale`), and the panel is
-    created — or, when the ``[Themey] DockPanel`` marker still names a
-    live one, re-asserted to that spec. Returns True.
+    per-theme settings come off whatever global theme is active
+    (:func:`_active_themey_bundle`, read once) — the thickness from
+    *size_px* or that bundle's conversion scale
+    (:func:`_active_theme_scale`), the hover frame from its Plasma Style
+    (:func:`_active_tasks_hover`, None under a stock desktop, which leaves
+    the applet's own default alone) — and the panel is created, or, when
+    the ``[Themey] DockPanel`` marker still names a live one, re-asserted
+    to that spec. Returns True.
 
     Removing (*remove*): the recorded panel is removed and its marker
     cleared (:func:`_remove_furniture`, so a failure keeps the marker for
@@ -2743,9 +2784,12 @@ def apply_dock(*, size_px: int | None = None, remove: bool = False) -> bool:
 
     if remove:
         had_panel = _has_furniture_marker(kr, _DOCK_KEY)
-        # Removal reads only the spec's marker key and name, so the size
-        # this spec would have built with is irrelevant.
-        spec = _dock_spec(scale=_DEFAULT_THEME_SCALE, size_px=None)
+        # Removal reads only the spec's marker key and name, so neither
+        # the size nor the hover setting this spec would have built with
+        # matters.
+        spec = _dock_spec(
+            scale=_DEFAULT_THEME_SCALE, size_px=None, tasks_hover=None
+        )
         error = _remove_furniture(kw, kr, (spec,))
         if error is not None:
             raise error
@@ -2755,8 +2799,13 @@ def apply_dock(*, size_px: int | None = None, remove: bool = False) -> bool:
     # Constructed for the size validation (`--dock-size 0`) as much as for
     # the tri-state `_ensure_furniture` reads off it.
     furniture = FurnitureOptions(dock=True, dock_px=size_px)
-    scale = _active_theme_scale(kr)
-    spec = _dock_spec(scale=scale, size_px=furniture.dock_px)
+    # One config read, two per-theme settings off it.
+    bundle = _active_themey_bundle(kr)
+    spec = _dock_spec(
+        scale=_active_theme_scale(bundle),
+        size_px=furniture.dock_px,
+        tasks_hover=_active_tasks_hover(bundle),
+    )
     live = _ensure_furniture(kw, kr, furniture=furniture, specs=(spec,))
     _write_furniture_visibility(kw, live)
     return True

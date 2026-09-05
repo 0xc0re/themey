@@ -23,6 +23,7 @@ from tests.test_apply_full import (
     FakeKConfig,
     _install_fake_lnf,
     _install_fake_plasmoids,
+    _install_fake_style,
 )
 from themey import apply as apply_mod
 from themey import paths
@@ -132,6 +133,82 @@ def test_apply_dock_default_scale_without_a_themey_global_theme(
         fake_kconfig.index_of("new Panel", "org.themey.dock")
     ][-1]
     assert "p.height = 64" in script
+
+
+def _activate_themey_theme(fk: FakeKConfig, *, tasks_hover: bool | None) -> None:
+    """Make ``themey_e13`` the active global theme, optionally with a
+    Plasma Style carrying an ``X-Themey-TasksHover`` stamp."""
+    _install_fake_lnf("e13")
+    fk.store["LookAndFeelPackage"] = "themey_e13"
+    if tasks_hover is not None:
+        style = _install_fake_style("e13")
+        (style / "metadata.json").write_text(
+            json.dumps({"X-Themey-TasksHover": tasks_hover})
+        )
+
+
+@pytest.mark.parametrize("hover", [True, False])
+def test_apply_dock_takes_task_hover_from_the_active_style(
+    fake_kconfig: FakeKConfig, hover: bool,
+) -> None:
+    """``taskHoverEffect`` is themey's per-theme spec, so the dock follows
+    the ACTIVE Plasma Style's stamp — a `themey dock` run must not turn
+    the effect back on under a theme whose style says false."""
+    _activate_themey_theme(fake_kconfig, tasks_hover=hover)
+    apply_mod.apply_dock()
+    script = fake_kconfig.calls[
+        fake_kconfig.index_of("new Panel", "org.themey.dock")
+    ][-1]
+    assert f"w.writeConfig('taskHoverEffect', {str(hover).lower()})" in script
+
+
+def test_apply_dock_leaves_task_hover_alone_without_a_themey_theme(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """No themey global theme means nothing has an opinion on the hover
+    frame, so the key is not written at all and the applet's own
+    main.xml default stands."""
+    apply_mod.apply_dock()
+    assert all("taskHoverEffect" not in s for s in _scripts(fake_kconfig))
+
+
+def test_apply_dock_reassert_leaves_task_hover_alone_without_a_theme(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """Same on the re-assert path: with no stamp to apply, the live
+    panel's widget config is not touched at all."""
+    fake_kconfig.store["DockPanel"] = "304"
+    fake_kconfig.dock_exists_reply = "exists"
+    apply_mod.apply_dock()
+    reassert = fake_kconfig.calls[
+        fake_kconfig.index_of("panelById(304)", "p.height")
+    ][-1]
+    assert "taskHoverEffect" not in reassert
+    assert "widgets(" not in reassert
+
+
+def test_apply_dock_reassert_rewrites_task_hover_from_the_style(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    _activate_themey_theme(fake_kconfig, tasks_hover=False)
+    fake_kconfig.store["DockPanel"] = "304"
+    fake_kconfig.dock_exists_reply = "exists"
+    apply_mod.apply_dock()
+    reassert = fake_kconfig.calls[
+        fake_kconfig.index_of("panelById(304)", "p.height")
+    ][-1]
+    assert "p.widgets('org.themey.dock')[0]" in reassert
+    assert "w.writeConfig('taskHoverEffect', false)" in reassert
+
+
+def test_apply_dock_themey_theme_without_a_style_leaves_hover_alone(
+    fake_kconfig: FakeKConfig,
+) -> None:
+    """An active themey bundle whose Plasma Style is not installed carries
+    no stamp either — the same "nobody has an opinion" case."""
+    _activate_themey_theme(fake_kconfig, tasks_hover=None)
+    apply_mod.apply_dock()
+    assert all("taskHoverEffect" not in s for s in _scripts(fake_kconfig))
 
 
 def test_apply_dock_size_override(fake_kconfig: FakeKConfig) -> None:
