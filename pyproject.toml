@@ -31,7 +31,7 @@ dependencies = [
     # the Bdf/Pcf font loaders, and an OOB read on the mmap path. themey feeds
     # untrusted third-party image and font files to Pillow by design; see
     # SECURITY.md.
-    "pillow>=12.3,<13",
+    "pillow>=12.3,<14",
     "typer>=0.25,<0.28",
 ]
 
